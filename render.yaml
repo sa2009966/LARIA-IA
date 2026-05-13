@@ -1,0 +1,64 @@
+# Blueprint Render — Backend LARIA con persistencia en MongoDB Atlas.
+# Persistencia: DB_PROVIDER=mongodb (MongoDB Atlas M0 free tier).
+# Redis: memory (rate-limit + cache, no es crítico para persistencia).
+# Dashboard: New → Blueprint → este repo → render.yaml
+# Docs: backend/docs/deploy-render.md
+
+services:
+  - type: web
+    # Backend LARIA con MongoDB Atlas (persistente) + Redis memory (rate-limit/cache).
+    name: laria-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: feature/backend
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerCommand: "sh -c 'uvicorn src.main:app --host 0.0.0.0 --port $PORT'"
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: LARIA_DEPLOY_TIER
+        value: atlas
+      - key: APP_ENV
+        value: development
+      - key: DB_PROVIDER
+        value: mongodb
+      - key: MONGODB_URL
+        value: mongodb+srv://USER:PASS@cluster0.psrrt96.mongodb.net/laria_db?appName=Cluster0
+      - key: MONGODB_DB_NAME
+        value: laria_db
+      - key: RATE_LIMIT_BACKEND
+        value: memory
+      - key: EVENT_BUS_BACKEND
+        value: memory
+      - key: CACHE_BACKEND
+        value: memory
+      - key: IA_PROVIDER
+        value: openai
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_MODEL_DEFAULT
+        value: gpt-4o-mini
+      - key: DEBUG
+        value: "false"
+      - key: ENABLE_DOCS
+        value: "true"
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: LOG_FORMAT
+        value: text
+      - key: METRICS_ENABLED
+        value: "true"
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      # Generada por Render (no la subas a git).
+      - key: SECRET_KEY
+        generateValue: true
+      # La pones tú en el dashboard al crear el Blueprint (sync: false).
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: '["https://laria-chatbot.vercel.app","http://localhost:4321"]'
