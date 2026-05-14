@@ -18,17 +18,21 @@ class DocumentService:
         )
         return self._document_repo.save(doc)
 
-    def get_by_id(self, document_id: int) -> Document:
+    def get_by_id(self, document_id: int, requesting_user_id: int) -> Document:
         doc = self._document_repo.find_by_id(document_id)
         if doc is None:
             raise ValueError(f"Documento con id={document_id} no encontrado.")
+        if doc.owner_id != requesting_user_id:
+            raise PermissionError("No tienes permiso para ver este documento.")
         return doc
 
     def list_by_owner(self, owner_id: int) -> list[Document]:
         return self._document_repo.find_by_owner(owner_id)
 
     def delete(self, document_id: int, requesting_user_id: int) -> None:
-        doc = self.get_by_id(document_id)
+        doc = self._document_repo.find_by_id(document_id)
+        if doc is None:
+            raise ValueError(f"Documento con id={document_id} no encontrado.")
         if doc.owner_id != requesting_user_id:
             raise PermissionError("No tienes permiso para eliminar este documento.")
         self._document_repo.delete(document_id)

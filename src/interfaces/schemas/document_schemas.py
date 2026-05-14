@@ -1,13 +1,13 @@
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DocumentUploadRequest(BaseModel):
-    filename: str
-    content: str
-    subject: str
+    filename: Annotated[str, Field(min_length=1, max_length=255)]
+    content: Annotated[str, Field(min_length=1, description="Texto completo del material")]
+    subject: Annotated[str, Field(min_length=1, max_length=128)]
 
 
 class DocumentResponse(BaseModel):
@@ -22,7 +22,7 @@ class DocumentResponse(BaseModel):
 
 
 class QuestionRequest(BaseModel):
-    question: str
+    question: Annotated[str, Field(min_length=1, max_length=4000)]
 
 
 class QuestionResponse(BaseModel):

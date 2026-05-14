@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 
@@ -57,7 +57,7 @@ class KimiIAAnalyst(IAAnalyst):
             key_concepts=data.get("key_concepts", []),
             suggested_questions=data.get("suggested_questions", []),
             model_used=_DEFAULT_MODEL,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
 
     def answer_question(self, context: str, question: str) -> str:

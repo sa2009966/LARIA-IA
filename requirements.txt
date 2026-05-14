@@ -7,4 +7,6 @@ python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
 pydantic-settings
+email-validator
 httpx
+pytest

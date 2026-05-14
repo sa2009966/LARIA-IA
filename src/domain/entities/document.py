@@ -1,6 +1,10 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 @dataclass
@@ -11,7 +15,7 @@ class Document:
     filename: str
     content: str
     subject: str
-    uploaded_at: datetime = field(default_factory=datetime.utcnow)
+    uploaded_at: datetime = field(default_factory=_utc_now)
     analysis_result: Optional[str] = None
 
     def has_analysis(self) -> bool:
