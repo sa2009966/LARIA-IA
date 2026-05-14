@@ -1,0 +1,11 @@
+# ─── Entorno (nunca versionar credenciales) ─────────────────────────────────
+.env
+.env.local
+.env.*
+# Permitir la plantilla versionada para otros desarrolladores
+!.env.example
+
+# ─── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+.pytest_cache/
