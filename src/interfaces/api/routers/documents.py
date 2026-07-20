@@ -1,7 +1,9 @@
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from src.application.dto.document_dto import UploadDocumentDTO
 from src.application.services.analyze_document_service import AnalyzeDocumentService
 from src.application.services.document_service import DocumentService
 from src.interfaces.api.openapi_responses import (
@@ -21,6 +23,8 @@ from src.interfaces.schemas.document_schemas import (
     DocumentUploadRequest,
     QuestionRequest,
     QuestionResponse,
+    QuizQuestionItem,
+    QuizResponse,
 )
 
 router = APIRouter(prefix="/documents", tags=["Documentos"])
@@ -28,12 +32,14 @@ router = APIRouter(prefix="/documents", tags=["Documentos"])
 
 def _map(doc) -> DocumentResponse:
     return DocumentResponse(
-        id=doc.id,
-        owner_id=doc.owner_id,
+        id=str(doc.id),
+        owner_id=str(doc.owner_id),
         filename=doc.filename,
-        subject=doc.subject,
+        subject=doc.subject.value if hasattr(doc.subject, 'value') else str(doc.subject),
+        status=doc.status.value,
         uploaded_at=doc.uploaded_at,
-        analysis_result=doc.analysis_result,
+        has_analysis=doc.has_analysis(),
+        error_message=doc.error_message,
     )
 
 
@@ -52,12 +58,17 @@ def _map(doc) -> DocumentResponse:
         **RESP_422_VALIDATION,
     },
 )
-def upload_document(
+async def upload_document(
     body: DocumentUploadRequest,
-    current_user_id: Annotated[int, Depends(get_current_user_id)],
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ):
-    doc = service.upload(current_user_id, body.filename, body.content, body.subject)
+    dto = UploadDocumentDTO(
+        filename=body.filename,
+        content=body.content,
+        subject=body.subject,
+    )
+    doc = await service.upload(UUID(current_user_id), dto)
     return _map(doc)
 
 
@@ -71,11 +82,12 @@ def upload_document(
         **RESP_401_UNAUTHORIZED,
     },
 )
-def list_my_documents(
-    current_user_id: Annotated[int, Depends(get_current_user_id)],
+async def list_my_documents(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ):
-    return [_map(d) for d in service.list_by_owner(current_user_id)]
+    result = await service.list_by_owner(UUID(current_user_id))
+    return [_map(d) for d in result.documents]
 
 
 @router.get(
@@ -92,13 +104,13 @@ def list_my_documents(
         **RESP_404_NOT_FOUND,
     },
 )
-def get_document(
-    document_id: int,
-    current_user_id: Annotated[int, Depends(get_current_user_id)],
+async def get_document(
+    document_id: str,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ):
     try:
-        doc = service.get_by_id(document_id, current_user_id)
+        doc = await service.get_by_id(UUID(document_id), UUID(current_user_id))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except PermissionError as exc:
@@ -121,13 +133,13 @@ def get_document(
         **RESP_404_NOT_FOUND,
     },
 )
-def delete_document(
-    document_id: int,
-    current_user_id: Annotated[int, Depends(get_current_user_id)],
+async def delete_document(
+    document_id: str,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ):
     try:
-        service.delete(document_id, current_user_id)
+        await service.delete(UUID(document_id), UUID(current_user_id))
     except (ValueError, PermissionError) as exc:
         code = status.HTTP_403_FORBIDDEN if isinstance(exc, PermissionError) else status.HTTP_404_NOT_FOUND
         raise HTTPException(status_code=code, detail=str(exc))
@@ -150,9 +162,9 @@ def delete_document(
         **RESP_422_VALIDATION,
     },
 )
-def analyze_document(
-    document_id: int,
-    current_user_id: Annotated[int, Depends(get_current_user_id)],
+async def analyze_document(
+    document_id: str,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[AnalyzeDocumentService, Depends(get_analyze_service)],
     force_refresh: bool = Query(
         False,
@@ -160,17 +172,15 @@ def analyze_document(
     ),
 ):
     try:
-        analysis = service.execute(document_id, current_user_id, force_refresh=force_refresh)
+        analysis = await service.execute(UUID(document_id), UUID(current_user_id), force_refresh=force_refresh)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     return AnalysisResponse(
-        document_id=analysis.document_id,
         summary=analysis.summary,
         key_concepts=analysis.key_concepts,
         suggested_questions=analysis.suggested_questions,
-        model_used=analysis.model_used,
     )
 
 
@@ -190,14 +200,14 @@ def analyze_document(
         **RESP_422_VALIDATION,
     },
 )
-def ask_question(
-    document_id: int,
+async def ask_question(
+    document_id: str,
     body: QuestionRequest,
-    current_user_id: Annotated[int, Depends(get_current_user_id)],
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[AnalyzeDocumentService, Depends(get_analyze_service)],
 ):
     try:
-        answer = service.answer_question(document_id, body.question, current_user_id)
+        answer = await service.answer_question(UUID(document_id), body.question, UUID(current_user_id))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except PermissionError as exc:
@@ -207,13 +217,13 @@ def ask_question(
 
 @router.post(
     "/{document_id}/quiz",
-    response_model=list[str],
+    response_model=QuizResponse,
     summary="Generar cuestionario",
     description=(
         "Genera una lista de preguntas de comprensión a partir del contenido del documento. "
         "Parámetro opcional `num_questions` (por defecto 5). Solo el propietario puede invocarlo."
     ),
-    response_description="Lista de enunciados de preguntas.",
+    response_description="Cuestionario con preguntas de opción múltiple.",
     responses={
         **RESP_401_UNAUTHORIZED,
         **RESP_403_FORBIDDEN,
@@ -221,15 +231,27 @@ def ask_question(
         **RESP_422_VALIDATION,
     },
 )
-def generate_quiz(
-    document_id: int,
-    current_user_id: Annotated[int, Depends(get_current_user_id)],
+async def generate_quiz(
+    document_id: str,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[AnalyzeDocumentService, Depends(get_analyze_service)],
     num_questions: int = 5,
 ):
     try:
-        return service.generate_quiz(document_id, current_user_id, num_questions=num_questions)
+        quiz = await service.generate_quiz(UUID(document_id), UUID(current_user_id), num_questions=num_questions)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    return QuizResponse(
+        questions=[
+            QuizQuestionItem(
+                text=q.text,
+                options=q.options,
+                correct_answer=q.correct_answer,
+                difficulty=q.difficulty,
+            )
+            for q in quiz.questions
+        ],
+        total_points=len(quiz.questions),
+    )

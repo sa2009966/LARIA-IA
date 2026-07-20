@@ -2,10 +2,38 @@
 .env
 .env.local
 .env.*
-# Permitir la plantilla versionada para otros desarrolladores
 !.env.example
 
 # ─── Python ───────────────────────────────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+dist/
+build/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ─── Entornos virtuales ──────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+
+# ─── IDE / Editor ───────────────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── SO ─────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Logs ───────────────────────────────────────────────────────────────
+*.log
+
+# ─── Docker ───────────────────────────────────────────────────────────────
+.docker/

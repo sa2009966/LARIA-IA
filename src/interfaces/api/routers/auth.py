@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import jwt
 
+from src.application.dto.user_dto import RegisterUserDTO
 from src.application.services.user_service import UserService
 from src.infrastructure.config import settings
 from src.interfaces.api.openapi_responses import (
@@ -18,9 +19,9 @@ from src.interfaces.schemas.user_schemas import TokenResponse, UserRegisterReque
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
 
-def _create_access_token(user_id: int) -> str:
+def _create_access_token(user_id: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {"sub": str(user_id), "exp": expire}
+    payload = {"sub": user_id, "exp": expire}
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
@@ -39,16 +40,22 @@ def _create_access_token(user_id: int) -> str:
         **RESP_422_VALIDATION,
     },
 )
-def register(
+async def register(
     body: UserRegisterRequest,
     service: Annotated[UserService, Depends(get_user_service)],
 ):
+    dto = RegisterUserDTO(
+        username=body.username,
+        email=body.email,
+        password=body.password,
+        role=body.role,
+    )
     try:
-        user = service.register(body.username, body.email, body.password, body.role)
+        user = await service.register(dto)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     return UserResponse(
-        id=user.id,  # type: ignore[arg-type]
+        id=str(user.id),
         username=user.username,
         email=user.email,
         role=user.role,
@@ -73,17 +80,17 @@ def register(
         **RESP_422_VALIDATION,
     },
 )
-def login(
+async def login(
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
     service: Annotated[UserService, Depends(get_user_service)],
 ):
     try:
-        user = service.authenticate(form.username, form.password)
+        user = await service.authenticate(form.username, form.password)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),
             headers={"WWW-Authenticate": "Bearer"},
         )
-    token = _create_access_token(user.id)  # type: ignore[arg-type]
+    token = _create_access_token(str(user.id))
     return TokenResponse(access_token=token)

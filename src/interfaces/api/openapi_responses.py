@@ -38,7 +38,7 @@ RESP_409_CONFLICT = {
 }
 
 RESP_422_VALIDATION = {
-    status.HTTP_422_UNPROCESSABLE_ENTITY: {
+    status.HTTP_422_UNPROCESSABLE_CONTENT: {
         "description": "El cuerpo o los parámetros no cumplen el esquema de validación (Pydantic).",
         "model": HTTPErrorBody,
     },

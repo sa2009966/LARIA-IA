@@ -1,27 +1,14 @@
-"""Punto de entrada de LARIA.
-
-Responsabilidades:
-- Crear la aplicación FastAPI.
-- Registrar los routers (Interfaces).
-- Ejecutar las migraciones / creación de tablas al arrancar.
-- La Inyección de Dependencias real ocurre en interfaces/api/dependencies.py,
-  que conecta cada adaptador (Infrastructure) con su puerto (Domain).
-"""
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.infrastructure.config import settings
-from src.infrastructure.db.database import Base, engine
 from src.interfaces.api.routers import auth, documents, users
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Al arrancar: crea las tablas si no existen (desarrollo).
-    # En producción reemplazar con Alembic migrations.
-    Base.metadata.create_all(bind=engine)
     yield
 
 
@@ -40,7 +27,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── Registro de routers ────────────────────────────────────────────────────
 PREFIX = "/api/v1"
 
 app.include_router(auth.router, prefix=PREFIX)

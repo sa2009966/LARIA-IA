@@ -1,124 +1,84 @@
-"""Pruebas unitarias de `DocumentService`.
-
-El puerto `DocumentRepository` se sustituye por un `MagicMock`: no hay sesión
-SQLAlchemy ni motor MySQL. Verificamos la construcción de la entidad `Document`
-y las reglas de negocio sobre `owner_id` al eliminar.
-"""
-
-from datetime import UTC, datetime
-from unittest.mock import MagicMock
-
 import pytest
+from unittest.mock import AsyncMock
+from uuid import uuid4
 
 from src.application.services.document_service import DocumentService
-from src.domain.entities.document import Document
+from src.application.dto.document_dto import UploadDocumentDTO, DocumentDTO, DocumentListDTO
+from src.domain.aggregates.document_aggregate import DocumentAggregate
+from src.domain.ports.repositories import DocumentRepository
+from src.domain.ports.event_bus import EventBus
 
 
 @pytest.fixture
-def repo_mock() -> MagicMock:
-    """Mock del repositorio de documentos (adaptador de persistencia simulado)."""
-    return MagicMock()
+def repo_mock() -> AsyncMock:
+    mock = AsyncMock(spec=DocumentRepository)
+    mock.find_by_id = AsyncMock()
+    mock.find_by_owner = AsyncMock(return_value=[])
+    mock.save = AsyncMock()
+    mock.delete = AsyncMock()
+    return mock
 
 
 @pytest.fixture
-def servicio(repo_mock: MagicMock) -> DocumentService:
-    return DocumentService(repo_mock)
+def event_bus_mock() -> AsyncMock:
+    mock = AsyncMock(spec=EventBus)
+    mock.publish = AsyncMock()
+    return mock
 
 
-def test_upload_crea_documento_con_owner_id(servicio: DocumentService, repo_mock: MagicMock) -> None:
-    """Al subir, el servicio fija `owner_id` del JWT simulado y delega el `save` al mock."""
-
-    def save_side_effect(doc: Document) -> Document:
-        # Simulamos que la BD asigna un id autoincremental tras insertar.
-        doc.id = 10
-        return doc
-
-    repo_mock.save.side_effect = save_side_effect
-
-    resultado = servicio.upload(owner_id=7, filename="nota.txt", content="texto", subject="Matemáticas")
-
-    assert resultado.owner_id == 7
-    assert resultado.id == 10
-    repo_mock.save.assert_called_once()
-    pasado = repo_mock.save.call_args[0][0]
-    assert pasado.owner_id == 7
-    assert pasado.filename == "nota.txt"
-    assert pasado.content == "texto"
-    assert pasado.subject == "Matemáticas"
+@pytest.fixture
+def servicio(repo_mock: AsyncMock, event_bus_mock: AsyncMock) -> DocumentService:
+    return DocumentService(document_repository=repo_mock, event_bus=event_bus_mock)
 
 
-def test_get_by_id_lanza_si_no_existe(servicio: DocumentService, repo_mock: MagicMock) -> None:
-    repo_mock.find_by_id.return_value = None
+class TestDocumentService:
+    @pytest.mark.asyncio
+    async def test_upload_crea_documento_con_owner_id(self, servicio: DocumentService, repo_mock: AsyncMock):
+        owner_id = uuid4()
+        dto = UploadDocumentDTO(filename="nota.txt", content="texto", subject="Matemática")
+        result = await servicio.upload(owner_id, dto)
+        assert isinstance(result, DocumentDTO)
+        assert result.owner_id == owner_id
+        assert result.filename == "nota.txt"
+        assert result.subject == "Matemática"
+        repo_mock.save.assert_awaited_once()
 
-    with pytest.raises(ValueError, match="Documento con id=42 no encontrado"):
-        servicio.get_by_id(42, requesting_user_id=1)
+    @pytest.mark.asyncio
+    async def test_get_by_id_lanza_si_no_existe(self, servicio: DocumentService, repo_mock: AsyncMock):
+        repo_mock.find_by_id.return_value = None
+        with pytest.raises(ValueError, match="no encontrado"):
+            await servicio.get_by_id(uuid4(), uuid4())
 
+    @pytest.mark.asyncio
+    async def test_get_by_id_denegado_si_owner_no_coincide(self, servicio: DocumentService, repo_mock: AsyncMock):
+        owner_id = uuid4()
+        doc = DocumentAggregate.upload(owner_id, "f.txt", "cuerpo", "Física")
+        repo_mock.find_by_id.return_value = doc
+        with pytest.raises(PermissionError, match="No tienes permiso"):
+            await servicio.get_by_id(doc.id, uuid4())
 
-def test_get_by_id_denegado_si_owner_no_coincide_con_solicitante(
-    servicio: DocumentService,
-    repo_mock: MagicMock,
-) -> None:
-    """Solo el propietario puede obtener el documento por id; otro usuario recibe `PermissionError`."""
-    doc = Document(
-        id=3,
-        owner_id=100,
-        filename="f.txt",
-        content="cuerpo",
-        subject="Física",
-        uploaded_at=datetime.now(UTC),
-    )
-    repo_mock.find_by_id.return_value = doc
+    @pytest.mark.asyncio
+    async def test_list_by_owner_delega_filtro(self, servicio: DocumentService, repo_mock: AsyncMock):
+        owner_id = uuid4()
+        doc = DocumentAggregate.upload(owner_id, "a.pdf", "x", "Historia")
+        repo_mock.find_by_owner.return_value = [doc]
+        result = await servicio.list_by_owner(owner_id)
+        assert isinstance(result, DocumentListDTO)
+        assert result.total == 1
 
-    with pytest.raises(PermissionError, match="No tienes permiso para ver este documento"):
-        servicio.get_by_id(document_id=3, requesting_user_id=999)
+    @pytest.mark.asyncio
+    async def test_delete_permite_solo_al_propietario(self, servicio: DocumentService, repo_mock: AsyncMock):
+        owner_id = uuid4()
+        doc = DocumentAggregate.upload(owner_id, "f.txt", "cuerpo", "Física")
+        repo_mock.find_by_id.return_value = doc
+        await servicio.delete(doc.id, owner_id)
+        repo_mock.delete.assert_awaited_once_with(doc.id)
 
-
-def test_list_by_owner_delega_filtro(servicio: DocumentService, repo_mock: MagicMock) -> None:
-    docs = [
-        Document(
-            id=1,
-            owner_id=5,
-            filename="a.pdf",
-            content="x",
-            subject="Historia",
-            uploaded_at=datetime.now(UTC),
-        )
-    ]
-    repo_mock.find_by_owner.return_value = docs
-
-    assert servicio.list_by_owner(5) == docs
-    repo_mock.find_by_owner.assert_called_once_with(5)
-
-
-def test_delete_permite_solo_al_propietario(servicio: DocumentService, repo_mock: MagicMock) -> None:
-    """Regla de pertenencia: `requesting_user_id` debe coincidir con `owner_id` del documento."""
-    doc = Document(
-        id=3,
-        owner_id=100,
-        filename="f.txt",
-        content="cuerpo",
-        subject="Física",
-        uploaded_at=datetime.now(UTC),
-    )
-    repo_mock.find_by_id.return_value = doc
-
-    servicio.delete(document_id=3, requesting_user_id=100)
-
-    repo_mock.delete.assert_called_once_with(3)
-
-
-def test_delete_denegado_si_otro_usuario(servicio: DocumentService, repo_mock: MagicMock) -> None:
-    doc = Document(
-        id=3,
-        owner_id=100,
-        filename="f.txt",
-        content="cuerpo",
-        subject="Física",
-        uploaded_at=datetime.now(UTC),
-    )
-    repo_mock.find_by_id.return_value = doc
-
-    with pytest.raises(PermissionError, match="No tienes permiso"):
-        servicio.delete(document_id=3, requesting_user_id=999)
-
-    repo_mock.delete.assert_not_called()
+    @pytest.mark.asyncio
+    async def test_delete_denegado_si_otro_usuario(self, servicio: DocumentService, repo_mock: AsyncMock):
+        owner_id = uuid4()
+        doc = DocumentAggregate.upload(owner_id, "f.txt", "cuerpo", "Física")
+        repo_mock.find_by_id.return_value = doc
+        with pytest.raises(PermissionError, match="No tienes permiso"):
+            await servicio.delete(doc.id, uuid4())
+        repo_mock.delete.assert_not_called()

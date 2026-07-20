@@ -5,8 +5,6 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class UserRegisterRequest(BaseModel):
-    """Entrada de registro: `EmailStr` valida formato RFC; contraseña con longitud mínima."""
-
     username: Annotated[str, Field(min_length=2, max_length=64, description="Nombre de usuario visible")]
     email: EmailStr
     password: Annotated[str, Field(min_length=8, max_length=256, description="Contraseña en texto plano (solo tránsito HTTPS)")]
@@ -29,8 +27,6 @@ class UserRegisterRequest(BaseModel):
 
 
 class UserLoginRequest(BaseModel):
-    """Cuerpo JSON opcional para login fuera del formulario OAuth2."""
-
     email: EmailStr
     password: Annotated[str, Field(min_length=1, max_length=256, description="No vacío")]
 
@@ -41,9 +37,7 @@ class TokenResponse(BaseModel):
 
 
 class UserResponse(BaseModel):
-    """Salida de usuario: email tipado como `EmailStr` para validar formato en respuestas."""
-
-    id: int
+    id: str
     username: str
     email: EmailStr
     role: str

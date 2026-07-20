@@ -11,12 +11,14 @@ class DocumentUploadRequest(BaseModel):
 
 
 class DocumentResponse(BaseModel):
-    id: int
-    owner_id: int
+    id: str
+    owner_id: str
     filename: str
     subject: str
+    status: str
     uploaded_at: datetime
-    analysis_result: Optional[str] = None
+    has_analysis: bool
+    error_message: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -30,8 +32,18 @@ class QuestionResponse(BaseModel):
 
 
 class AnalysisResponse(BaseModel):
-    document_id: int
     summary: str
     key_concepts: list[str]
     suggested_questions: list[str]
-    model_used: str
+
+
+class QuizQuestionItem(BaseModel):
+    text: str
+    options: dict[str, str]
+    correct_answer: str
+    difficulty: str = "medium"
+
+
+class QuizResponse(BaseModel):
+    questions: list[QuizQuestionItem]
+    total_points: int = 0

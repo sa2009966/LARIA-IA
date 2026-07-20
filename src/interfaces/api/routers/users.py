@@ -1,4 +1,5 @@
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/users", tags=["Usuarios"])
 
 def _map(user) -> UserResponse:
     return UserResponse(
-        id=user.id,
+        id=str(user.id),
         username=user.username,
         email=user.email,
         role=user.role,
@@ -38,12 +39,13 @@ def _map(user) -> UserResponse:
         **RESP_404_NOT_FOUND,
     },
 )
-def get_me(
-    current_user_id: Annotated[int, Depends(get_current_user_id)],
+async def get_me(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[UserService, Depends(get_user_service)],
 ):
+    from uuid import UUID
     try:
-        user = service.get_by_id(current_user_id)
+        user = await service.get_by_id(UUID(current_user_id))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     return _map(user)
@@ -62,11 +64,12 @@ def get_me(
         **RESP_401_UNAUTHORIZED,
     },
 )
-def list_users(
-    _: Annotated[int, Depends(get_current_user_id)],
+async def list_users(
+    _: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[UserService, Depends(get_user_service)],
 ):
-    return [_map(u) for u in service.list_users()]
+    users = await service.list_users()
+    return [_map(u) for u in users]
 
 
 @router.delete(
@@ -86,12 +89,12 @@ def list_users(
         **RESP_404_NOT_FOUND,
     },
 )
-def deactivate_user(
-    user_id: int,
-    _: Annotated[int, Depends(get_current_user_id)],
+async def deactivate_user(
+    user_id: str,
+    _: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[UserService, Depends(get_user_service)],
 ):
     try:
-        service.deactivate_user(user_id)
+        await service.deactivate_user(UUID(user_id))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

@@ -1,0 +1,31 @@
+services:
+
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: laria_db
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongodb
+    environment:
+      DB_PROVIDER: mongodb
+      MONGODB_URL: mongodb://mongodb:27017
+      MONGODB_DB_NAME: laria_db
+      SECRET_KEY: ${SECRET_KEY:-cambia-esto-en-produccion}
+      IA_PROVIDER: ${IA_PROVIDER:-kimi}
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEBUG: "false"
+
+volumes:
+  mongo_data:

@@ -1,12 +1,11 @@
 fastapi
 uvicorn[standard]
-sqlalchemy
-pymysql
+motor
 cryptography
 python-jose[cryptography]
-passlib[bcrypt]
 python-multipart
 pydantic-settings
 email-validator
 httpx
 pytest
+pytest-asyncio

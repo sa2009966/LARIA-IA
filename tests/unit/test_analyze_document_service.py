@@ -1,242 +1,173 @@
-"""Pruebas unitarias de `AnalyzeDocumentService`.
-
-Se mockean dos puertos:
-- `DocumentRepository`: devuelve entidades `Document` en memoria, sin BD.
-- `IAAnalyst`: simula a Kimi/Moonshot; no hay `httpx` ni red.
-
-Así comprobamos el orquestado: validación de propiedad, caché de análisis,
-lectura del documento, llamada al analizador solo cuando corresponde,
-persistencia del resumen y devolución de resultados.
-"""
-
-from datetime import UTC, datetime
-from unittest.mock import MagicMock
-
 import pytest
+from unittest.mock import AsyncMock
+from uuid import uuid4
 
 from src.application.services.analyze_document_service import AnalyzeDocumentService
-from src.domain.entities.analysis import Analysis
-from src.domain.entities.document import Document
+from src.domain.aggregates.document_aggregate import DocumentAggregate
+from src.domain.value_objects.analysis_result import AnalysisResult
+from src.domain.value_objects.question import Quiz, QuizQuestion
+from src.domain.ports.repositories import DocumentRepository
+from src.domain.ports.ia_analyst import IAAnalyst
+from src.domain.ports.event_bus import EventBus
+
 
 _MSG_PERMISO = "No tienes permiso para operar sobre este documento"
 
 
 @pytest.fixture
-def doc_repo_mock() -> MagicMock:
-    """Mock del repositorio de documentos."""
-    return MagicMock()
+def doc_repo_mock() -> AsyncMock:
+    mock = AsyncMock(spec=DocumentRepository)
+    mock.find_by_id = AsyncMock()
+    mock.save = AsyncMock()
+    return mock
 
 
 @pytest.fixture
-def ia_mock() -> MagicMock:
-    """Mock del puerto de IA (sustituye `KimiIAAnalyst` y cualquier cliente HTTP)."""
-    return MagicMock()
+def ia_mock() -> AsyncMock:
+    mock = AsyncMock(spec=IAAnalyst)
+    return mock
 
 
 @pytest.fixture
-def servicio(doc_repo_mock: MagicMock, ia_mock: MagicMock) -> AnalyzeDocumentService:
-    return AnalyzeDocumentService(document_repository=doc_repo_mock, ia_analyst=ia_mock)
+def event_bus_mock() -> AsyncMock:
+    mock = AsyncMock(spec=EventBus)
+    mock.publish = AsyncMock()
+    return mock
 
 
-def _documento(doc_id: int = 5, owner_id: int = 1, analysis_result: str | None = None) -> Document:
-    return Document(
-        id=doc_id,
-        owner_id=owner_id,
-        filename="apuntes.md",
-        content="Contenido del tema: fotosíntesis.",
-        subject="Biología",
-        uploaded_at=datetime.now(UTC),
-        analysis_result=analysis_result,
+@pytest.fixture
+def servicio(doc_repo_mock: AsyncMock, ia_mock: AsyncMock, event_bus_mock: AsyncMock) -> AnalyzeDocumentService:
+    return AnalyzeDocumentService(
+        document_repository=doc_repo_mock,
+        ia_analyst=ia_mock,
+        event_bus=event_bus_mock,
     )
 
 
-def test_execute_envia_documento_a_ia_y_persiste_resumen(
-    servicio: AnalyzeDocumentService,
-    doc_repo_mock: MagicMock,
-    ia_mock: MagicMock,
-) -> None:
-    """Flujo completo: propietario válido → analyze del mock → mutar `analysis_result` → save."""
-    doc = _documento()
-    doc_repo_mock.find_by_id.return_value = doc
+class TestAnalyzeDocumentService:
+    @pytest.mark.asyncio
+    async def test_execute_envia_documento_a_ia_y_persiste_resumen(
+        self, servicio: AnalyzeDocumentService, doc_repo_mock: AsyncMock, ia_mock: AsyncMock
+    ):
+        owner_id = uuid4()
+        doc = DocumentAggregate.upload(owner_id, "apuntes.md", "Contenido sobre fotosíntesis.", "Biología")
+        doc_repo_mock.find_by_id.return_value = doc
+        result = AnalysisResult(summary="Resumen generado por IA.", confidence_score=0.95)
+        ia_mock.analyze.return_value = result
 
-    analisis = Analysis(
-        id=None,
-        document_id=5,
-        summary="Resumen generado por IA de prueba.",
-        key_concepts=["clorofila", "luz"],
-        suggested_questions=["¿Qué es la fotosíntesis?"],
-        model_used="mock-model",
-        created_at=datetime.now(UTC),
-    )
-    ia_mock.analyze.return_value = analisis
+        resultado = await servicio.execute(doc.id, owner_id)
 
-    def save_side_effect(d: Document) -> Document:
-        return d
+        ia_mock.analyze.assert_awaited_once_with(doc)
+        assert resultado.summary == "Resumen generado por IA."
+        assert doc.analysis_result is not None
+        doc_repo_mock.save.assert_awaited()
 
-    doc_repo_mock.save.side_effect = save_side_effect
+    @pytest.mark.asyncio
+    async def test_execute_documento_inexistente(
+        self, servicio: AnalyzeDocumentService, doc_repo_mock: AsyncMock
+    ):
+        doc_repo_mock.find_by_id.return_value = None
+        with pytest.raises(ValueError, match="no encontrado"):
+            await servicio.execute(uuid4(), uuid4())
+        doc_repo_mock.save.assert_not_called()
 
-    resultado = servicio.execute(document_id=5, requesting_user_id=1)
+    @pytest.mark.asyncio
+    async def test_execute_permiso_denegado_documento_ajeno(
+        self, servicio: AnalyzeDocumentService, doc_repo_mock: AsyncMock, ia_mock: AsyncMock
+    ):
+        owner = uuid4()
+        doc = DocumentAggregate.upload(owner, "test.txt", "x", "Historia")
+        doc_repo_mock.find_by_id.return_value = doc
+        with pytest.raises(PermissionError, match=_MSG_PERMISO):
+            await servicio.execute(doc.id, uuid4())
+        ia_mock.analyze.assert_not_called()
+        doc_repo_mock.save.assert_not_called()
 
-    ia_mock.analyze.assert_called_once_with(doc)
-    assert resultado.summary == analisis.summary
-    assert doc.analysis_result == analisis.summary
-    doc_repo_mock.save.assert_called_once()
-    guardado = doc_repo_mock.save.call_args[0][0]
-    assert guardado.analysis_result == analisis.summary
+    @pytest.mark.asyncio
+    async def test_execute_usa_cache_si_hay_analysis(
+        self, servicio: AnalyzeDocumentService, doc_repo_mock: AsyncMock, ia_mock: AsyncMock
+    ):
+        owner_id = uuid4()
+        doc = DocumentAggregate.upload(owner_id, "test.txt", "x", "Historia")
+        cached = AnalysisResult(summary="Resumen persistido.", confidence_score=0.9)
+        doc.complete_analysis(cached)
+        doc.clear_events()
+        doc_repo_mock.find_by_id.return_value = doc
 
+        out = await servicio.execute(doc.id, owner_id, force_refresh=False)
 
-def test_execute_documento_inexistente(servicio: AnalyzeDocumentService, doc_repo_mock: MagicMock) -> None:
-    doc_repo_mock.find_by_id.return_value = None
+        ia_mock.analyze.assert_not_called()
+        assert out.summary == "Resumen persistido."
+        assert out.confidence_score == 0.9
 
-    with pytest.raises(ValueError, match="Documento con id=99 no encontrado"):
-        servicio.execute(99, requesting_user_id=1)
+    @pytest.mark.asyncio
+    async def test_execute_force_refresh_llama_ia(
+        self, servicio: AnalyzeDocumentService, doc_repo_mock: AsyncMock, ia_mock: AsyncMock
+    ):
+        owner_id = uuid4()
+        doc = DocumentAggregate.upload(owner_id, "test.txt", "x", "Historia")
+        old = AnalysisResult(summary="Viejo.", confidence_score=0.9)
+        doc.complete_analysis(old)
+        doc.clear_events()
+        doc_repo_mock.find_by_id.return_value = doc
 
-    doc_repo_mock.save.assert_not_called()
+        nuevo = AnalysisResult(summary="Nuevo desde IA.", confidence_score=0.95)
+        ia_mock.analyze.return_value = nuevo
 
+        out = await servicio.execute(doc.id, owner_id, force_refresh=True)
 
-def test_execute_permiso_denegado_documento_ajeno(
-    servicio: AnalyzeDocumentService,
-    doc_repo_mock: MagicMock,
-    ia_mock: MagicMock,
-) -> None:
-    """Si `owner_id` no coincide con `requesting_user_id`, no se llama a la IA."""
-    doc = _documento(owner_id=100)
-    doc_repo_mock.find_by_id.return_value = doc
+        ia_mock.analyze.assert_awaited_once()
+        assert out.summary == "Nuevo desde IA."
 
-    with pytest.raises(PermissionError, match=_MSG_PERMISO):
-        servicio.execute(document_id=5, requesting_user_id=1)
+    @pytest.mark.asyncio
+    async def test_answer_question_pasa_contexto_y_pregunta(
+        self, servicio: AnalyzeDocumentService, doc_repo_mock: AsyncMock, ia_mock: AsyncMock
+    ):
+        owner_id = uuid4()
+        doc = DocumentAggregate.upload(owner_id, "test.txt", "Contenido del tema.", "Historia")
+        doc_repo_mock.find_by_id.return_value = doc
+        ia_mock.answer_question.return_value = "Respuesta corta."
 
-    ia_mock.analyze.assert_not_called()
-    doc_repo_mock.save.assert_not_called()
+        resp = await servicio.answer_question(doc.id, "¿Qué es?", owner_id)
 
+        assert resp == "Respuesta corta."
+        ia_mock.answer_question.assert_awaited_once_with(context=doc.content, question="¿Qué es?")
 
-def test_execute_usa_cache_si_hay_analysis_result_y_no_force_refresh(
-    servicio: AnalyzeDocumentService,
-    doc_repo_mock: MagicMock,
-    ia_mock: MagicMock,
-) -> None:
-    """Con resumen ya guardado, se devuelve análisis sintético sin invocar al puerto `IAAnalyst`."""
-    doc = _documento(analysis_result="Resumen ya persistido.")
-    doc_repo_mock.find_by_id.return_value = doc
+    @pytest.mark.asyncio
+    async def test_answer_question_permiso_denegado(
+        self, servicio: AnalyzeDocumentService, doc_repo_mock: AsyncMock, ia_mock: AsyncMock
+    ):
+        owner = uuid4()
+        doc = DocumentAggregate.upload(owner, "test.txt", "x", "Historia")
+        doc_repo_mock.find_by_id.return_value = doc
+        with pytest.raises(PermissionError, match=_MSG_PERMISO):
+            await servicio.answer_question(doc.id, "pregunta", uuid4())
+        ia_mock.answer_question.assert_not_called()
 
-    out = servicio.execute(5, requesting_user_id=1, force_refresh=False)
+    @pytest.mark.asyncio
+    async def test_generate_quiz_propaga_numero_de_preguntas(
+        self, servicio: AnalyzeDocumentService, doc_repo_mock: AsyncMock, ia_mock: AsyncMock
+    ):
+        owner_id = uuid4()
+        doc = DocumentAggregate.upload(owner_id, "test.txt", "x", "Historia")
+        doc_repo_mock.find_by_id.return_value = doc
+        quiz = Quiz(questions=[
+            QuizQuestion(text="P1", options={"A": "1", "B": "2"}, correct_answer="A")
+        ])
+        ia_mock.generate_quiz.return_value = quiz
 
-    ia_mock.analyze.assert_not_called()
-    doc_repo_mock.save.assert_not_called()
-    assert out.summary == "Resumen ya persistido."
-    assert out.key_concepts == []
-    assert out.suggested_questions == []
-    assert out.model_used == "cached"
+        preguntas = await servicio.generate_quiz(doc.id, owner_id, num_questions=3)
 
+        ia_mock.generate_quiz.assert_awaited_once_with(doc, 3)
+        assert preguntas.questions[0].text == "P1"
 
-def test_execute_force_refresh_llama_ia_aunque_exista_cache(
-    servicio: AnalyzeDocumentService,
-    doc_repo_mock: MagicMock,
-    ia_mock: MagicMock,
-) -> None:
-    """`force_refresh=True` ignora `analysis_result` y vuelve a consultar a la IA."""
-    doc = _documento(analysis_result="Viejo")
-    doc_repo_mock.find_by_id.return_value = doc
-    nuevo = Analysis(
-        id=None,
-        document_id=5,
-        summary="Nuevo desde IA",
-        key_concepts=["x"],
-        suggested_questions=["y?"],
-        model_used="m",
-        created_at=datetime.now(UTC),
-    )
-    ia_mock.analyze.return_value = nuevo
-    doc_repo_mock.save.side_effect = lambda d: d
-
-    out = servicio.execute(5, requesting_user_id=1, force_refresh=True)
-
-    ia_mock.analyze.assert_called_once_with(doc)
-    assert out.summary == "Nuevo desde IA"
-    doc_repo_mock.save.assert_called_once()
-
-
-def test_answer_question_pasa_contexto_y_pregunta_a_ia(
-    servicio: AnalyzeDocumentService,
-    doc_repo_mock: MagicMock,
-    ia_mock: MagicMock,
-) -> None:
-    doc = _documento()
-    doc_repo_mock.find_by_id.return_value = doc
-    ia_mock.answer_question.return_value = "Respuesta corta."
-
-    resp = servicio.answer_question(5, "¿Qué es la fotosíntesis?", requesting_user_id=1)
-
-    assert resp == "Respuesta corta."
-    ia_mock.answer_question.assert_called_once_with(
-        context=doc.content,
-        question="¿Qué es la fotosíntesis?",
-    )
-
-
-def test_answer_question_permiso_denegado(
-    servicio: AnalyzeDocumentService,
-    doc_repo_mock: MagicMock,
-    ia_mock: MagicMock,
-) -> None:
-    doc = _documento(owner_id=50)
-    doc_repo_mock.find_by_id.return_value = doc
-
-    with pytest.raises(PermissionError, match=_MSG_PERMISO):
-        servicio.answer_question(5, "pregunta", requesting_user_id=1)
-
-    ia_mock.answer_question.assert_not_called()
-
-
-def test_generate_quiz_propaga_numero_de_preguntas(
-    servicio: AnalyzeDocumentService,
-    doc_repo_mock: MagicMock,
-    ia_mock: MagicMock,
-) -> None:
-    doc = _documento()
-    doc_repo_mock.find_by_id.return_value = doc
-    ia_mock.generate_quiz.return_value = ["P1", "P2", "P3"]
-
-    preguntas = servicio.generate_quiz(5, requesting_user_id=1, num_questions=3)
-
-    assert preguntas == ["P1", "P2", "P3"]
-    ia_mock.generate_quiz.assert_called_once_with(doc, 3)
-
-
-def test_generate_quiz_permiso_denegado(
-    servicio: AnalyzeDocumentService,
-    doc_repo_mock: MagicMock,
-    ia_mock: MagicMock,
-) -> None:
-    doc = _documento(owner_id=2)
-    doc_repo_mock.find_by_id.return_value = doc
-
-    with pytest.raises(PermissionError, match=_MSG_PERMISO):
-        servicio.generate_quiz(5, requesting_user_id=99)
-
-    ia_mock.generate_quiz.assert_not_called()
-
-
-def test_procesamiento_respuesta_execute_devuelve_estructura_de_dominio(
-    servicio: AnalyzeDocumentService,
-    doc_repo_mock: MagicMock,
-    ia_mock: MagicMock,
-) -> None:
-    """Comprueba que el objeto `Analysis` devuelto conserva conceptos y preguntas sugeridas del mock."""
-    doc_repo_mock.find_by_id.return_value = _documento()
-    ia_mock.analyze.return_value = Analysis(
-        id=None,
-        document_id=5,
-        summary="S",
-        key_concepts=["a", "b"],
-        suggested_questions=["q1"],
-        model_used="x",
-        created_at=datetime.now(UTC),
-    )
-    doc_repo_mock.save.side_effect = lambda d: d
-
-    out = servicio.execute(5, requesting_user_id=1)
-
-    assert out.key_concepts == ["a", "b"]
-    assert out.suggested_questions == ["q1"]
-    assert out.model_used == "x"
+    @pytest.mark.asyncio
+    async def test_generate_quiz_permiso_denegado(
+        self, servicio: AnalyzeDocumentService, doc_repo_mock: AsyncMock, ia_mock: AsyncMock
+    ):
+        owner = uuid4()
+        doc = DocumentAggregate.upload(owner, "test.txt", "x", "Historia")
+        doc_repo_mock.find_by_id.return_value = doc
+        with pytest.raises(PermissionError, match=_MSG_PERMISO):
+            await servicio.generate_quiz(doc.id, uuid4())
+        ia_mock.generate_quiz.assert_not_called()

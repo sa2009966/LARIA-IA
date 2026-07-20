@@ -1,54 +1,74 @@
-from passlib.context import CryptContext
+from uuid import UUID
+from typing import Optional
 
-from src.domain.entities.user import User
-from src.domain.ports.user_repository import UserRepository
-
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+from src.domain.aggregates.user_aggregate import UserAggregate
+from src.domain.value_objects.email import Email
+from src.domain.value_objects.password import Password
+from src.domain.ports.repositories import UserRepository
+from src.domain.ports.event_bus import EventBus
+from src.application.dto.user_dto import UserDTO, RegisterUserDTO
 
 
 class UserService:
-    """Caso de uso: gestión del ciclo de vida de usuarios.
-
-    Solo interactúa con el puerto UserRepository; no conoce SQLAlchemy.
-    """
-
-    def __init__(self, user_repository: UserRepository) -> None:
+    def __init__(self, user_repository: UserRepository, event_bus: Optional[EventBus] = None) -> None:
         self._user_repo = user_repository
+        self._event_bus = event_bus
 
-    def register(self, username: str, email: str, plain_password: str, role: str = "student") -> User:
-        if self._user_repo.find_by_email(email) is not None:
-            raise ValueError(f"Ya existe un usuario con email={email}.")
-        if self._user_repo.find_by_username(username) is not None:
-            raise ValueError(f"Ya existe un usuario con username={username}.")
+    async def register(self, dto: RegisterUserDTO) -> UserDTO:
+        existing = await self._user_repo.find_by_email(Email(dto.email))
+        if existing is not None:
+            raise ValueError(f"Ya existe un usuario con email={dto.email}")
+        existing = await self._user_repo.find_by_username(dto.username)
+        if existing is not None:
+            raise ValueError(f"Ya existe un usuario con username={dto.username}")
 
-        hashed = _pwd_context.hash(plain_password)
-        new_user = User(
-            id=None,
-            username=username,
-            email=email,
-            hashed_password=hashed,
-            role=role,
-        )
-        return self._user_repo.save(new_user)
+        user = UserAggregate.register(dto.username, dto.email, dto.password)
+        await self._user_repo.save(user)
 
-    def authenticate(self, email: str, plain_password: str) -> User:
-        user = self._user_repo.find_by_email(email)
-        if user is None or not _pwd_context.verify(plain_password, user.hashed_password):
-            raise ValueError("Credenciales inválidas.")
-        if not user.is_active:
-            raise ValueError("Usuario inactivo.")
-        return user
+        if self._event_bus:
+            for event in user.events:
+                await self._event_bus.publish(event)
+        user.clear_events()
 
-    def get_by_id(self, user_id: int) -> User:
-        user = self._user_repo.find_by_id(user_id)
+        return self._to_dto(user)
+
+    async def authenticate(self, email: str, plain_password: str) -> UserDTO:
+        user = await self._user_repo.find_by_email(Email(email))
         if user is None:
-            raise ValueError(f"Usuario con id={user_id} no encontrado.")
-        return user
+            raise ValueError("Credenciales invalidas")
+        if not Password.verify(plain_password, user.hashed_password):
+            raise ValueError("Credenciales invalidas")
+        if not user.is_active:
+            raise ValueError("Usuario inactivo")
+        return self._to_dto(user)
 
-    def list_users(self) -> list[User]:
-        return self._user_repo.list_all()
+    async def get_by_id(self, user_id: UUID) -> UserDTO:
+        user = await self._user_repo.find_by_id(user_id)
+        if user is None:
+            raise ValueError(f"Usuario con id={user_id} no encontrado")
+        return self._to_dto(user)
 
-    def deactivate_user(self, user_id: int) -> User:
-        user = self.get_by_id(user_id)
+    async def list_users(self) -> list[UserDTO]:
+        users = await self._user_repo.list_all()
+        return [self._to_dto(u) for u in users]
+
+    async def deactivate_user(self, user_id: UUID) -> None:
+        user = await self._user_repo.find_by_id(user_id)
+        if user is None:
+            raise ValueError(f"Usuario con id={user_id} no encontrado")
         user.deactivate()
-        return self._user_repo.save(user)
+        await self._user_repo.save(user)
+        if self._event_bus:
+            for event in user.events:
+                await self._event_bus.publish(event)
+        user.clear_events()
+
+    def _to_dto(self, user: UserAggregate) -> UserDTO:
+        return UserDTO(
+            id=user.id,
+            username=user.username,
+            email=user.email.value,
+            role=user.role.value,
+            is_active=user.is_active,
+            created_at=user.created_at,
+        )

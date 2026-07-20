@@ -1,27 +1,19 @@
 from abc import ABC, abstractmethod
 
-from src.domain.entities.analysis import Analysis
-from src.domain.entities.document import Document
+from src.domain.aggregates.document_aggregate import DocumentAggregate
+from src.domain.value_objects.analysis_result import AnalysisResult
+from src.domain.value_objects.question import Quiz
 
 
 class IAAnalyst(ABC):
-    """Puerto de salida: contrato para el análisis de documentos con IA.
-
-    La capa de infraestructura (adaptador Kimi) implementa este contrato.
-    El dominio y la aplicación dependen únicamente de esta abstracción.
-    """
-
     @abstractmethod
-    def analyze(self, document: Document) -> Analysis:
-        """Analiza el contenido de un documento y devuelve un Analysis."""
+    async def analyze(self, document: DocumentAggregate) -> AnalysisResult:
         ...
 
     @abstractmethod
-    def answer_question(self, context: str, question: str) -> str:
-        """Responde una pregunta dado un contexto textual."""
+    async def answer_question(self, context: str, question: str) -> str:
         ...
 
     @abstractmethod
-    def generate_quiz(self, document: Document, num_questions: int = 5) -> list[str]:
-        """Genera preguntas de comprensión a partir de un documento."""
+    async def generate_quiz(self, document: DocumentAggregate, num_questions: int = 5) -> Quiz:
         ...
