@@ -4,22 +4,28 @@ from uuid import UUID
 from src.application.dto.quiz_dto import (
     AttemptQuestionResultDTO,
     LearningHistoryDTO,
+    LearningRecommendationDTO,
     QuizAttemptResultDTO,
     QuizAttemptSummaryDTO,
     QuizPublicDTO,
     QuizQuestionPublicDTO,
+    StudentProfileDTO,
+    DocumentMasteryDTO,
     TutorInteractionSummaryDTO,
 )
 from src.domain.aggregates.quiz_aggregate import QuizAggregate
 from src.domain.aggregates.quiz_attempt_aggregate import QuizAttemptAggregate
+from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.ports.event_bus import EventBus
 from src.domain.ports.ia_analyst import IAAnalyst
 from src.domain.ports.repositories import (
     DocumentRepository,
     QuizAttemptRepository,
     QuizRepository,
+    StudentProfileRepository,
     TutorInteractionRepository,
 )
+from src.domain.services.pedagogical_engine import PedagogicalEngine, TutorIntent
 from src.domain.value_objects.question import Difficulty
 
 
@@ -37,6 +43,8 @@ class QuizService:
         interaction_repository: TutorInteractionRepository,
         ia_analyst: Optional[IAAnalyst] = None,
         event_bus: Optional[EventBus] = None,
+        profile_repository: Optional[StudentProfileRepository] = None,
+        pedagogical_engine: Optional[PedagogicalEngine] = None,
     ) -> None:
         self._doc_repo = document_repository
         self._quiz_repo = quiz_repository
@@ -44,6 +52,8 @@ class QuizService:
         self._interaction_repo = interaction_repository
         self._ia_analyst = ia_analyst
         self._event_bus = event_bus
+        self._profile_repo = profile_repository
+        self._engine = pedagogical_engine or PedagogicalEngine()
 
     async def generate(
         self,
@@ -59,8 +69,21 @@ class QuizService:
         if self._ia_analyst is None:
             raise ValueError("IA Analyst not configured")
 
-        generated = await self._ia_analyst.generate_quiz(document, num_questions)
-        quiz = QuizAggregate.create(document_id, user_id, list(generated.questions))
+        profile = None
+        if self._profile_repo is not None:
+            profile = await self._profile_repo.find_by_student(user_id)
+        concepts = ()
+        if document.has_analysis() and document.analysis_result is not None:
+            concepts = tuple(document.analysis_result.key_concepts or ())
+        decision = self._engine.select(profile, document_id, TutorIntent.QUIZ, concepts)
+
+        generated = await self._ia_analyst.generate_quiz(
+            document, num_questions, decision=decision
+        )
+        from src.domain.services.quiz_quality import ensure_quiz_quality
+
+        questions = ensure_quiz_quality(list(generated.questions))
+        quiz = QuizAggregate.create(document_id, user_id, questions)
         await self._quiz_repo.save(quiz)
 
         if self._event_bus:
@@ -118,6 +141,9 @@ class QuizService:
     async def get_learning_history(self, user_id: UUID) -> LearningHistoryDTO:
         attempts = await self._attempt_repo.find_by_student(user_id)
         interactions = await self._interaction_repo.find_by_student(user_id)
+        profile = None
+        if self._profile_repo is not None:
+            profile = await self._profile_repo.find_by_student(user_id)
         return LearningHistoryDTO(
             attempts=[
                 QuizAttemptSummaryDTO(
@@ -140,7 +166,81 @@ class QuizService:
                 )
                 for i in sorted(interactions, key=lambda x: x.asked_at, reverse=True)
             ],
+            recommendations=self._build_recommendations(profile),
         )
+
+    async def get_profile(self, user_id: UUID) -> StudentProfileDTO:
+        if self._profile_repo is None:
+            raise ValueError("Repositorio de perfil no configurado")
+        profile = await self._profile_repo.find_by_student(user_id)
+        if profile is None:
+            profile = StudentProfile.create(user_id)
+        return StudentProfileDTO(
+            student_id=profile.student_id,
+            pace=profile.pace,
+            total_attempts=profile.total_attempts,
+            total_struggle_signals=profile.total_struggle_signals,
+            frequent_errors=list(profile.frequent_errors),
+            updated_at=profile.updated_at,
+            mastery_by_document=[
+                DocumentMasteryDTO(
+                    document_id=m.document_id,
+                    attempts=m.attempts,
+                    mastery=m.mastery,
+                    last_score_ratio=m.last_score_ratio,
+                    struggle_signals=m.struggle_signals,
+                )
+                for m in profile.mastery_by_document.values()
+            ],
+        )
+
+    @staticmethod
+    def _build_recommendations(
+        profile: StudentProfile | None,
+    ) -> list[LearningRecommendationDTO]:
+        if profile is None or not profile.mastery_by_document:
+            return [
+                LearningRecommendationDTO(
+                    kind="start",
+                    message="Comienza con un quiz fácil sobre tu documento para medir tu nivel.",
+                    document_id=None,
+                )
+            ]
+        recs: list[LearningRecommendationDTO] = []
+        for doc_id in profile.weakest_documents(limit=2):
+            mastery = profile.mastery_for(doc_id)
+            if mastery < 0.4:
+                recs.append(
+                    LearningRecommendationDTO(
+                        kind="review",
+                        message="Repasa el documento con explicación guiada (andamiaje).",
+                        document_id=doc_id,
+                    )
+                )
+                recs.append(
+                    LearningRecommendationDTO(
+                        kind="easier_quiz",
+                        message="Haz un quiz más fácil para consolidar lo básico.",
+                        document_id=doc_id,
+                    )
+                )
+            elif mastery < 0.7:
+                recs.append(
+                    LearningRecommendationDTO(
+                        kind="guided_explain",
+                        message="Pide una explicación guiada de los puntos débiles.",
+                        document_id=doc_id,
+                    )
+                )
+            else:
+                recs.append(
+                    LearningRecommendationDTO(
+                        kind="challenge",
+                        message="Practica con un quiz más exigente o preguntas socráticas.",
+                        document_id=doc_id,
+                    )
+                )
+        return recs[:5]
 
     async def _get_quiz_if_owner(self, quiz_id: UUID, user_id: UUID) -> QuizAggregate:
         quiz = await self._quiz_repo.find_by_id(quiz_id)

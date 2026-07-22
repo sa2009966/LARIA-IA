@@ -57,7 +57,7 @@ flowchart TB
 
 | Aggregate | Rol |
 |-----------|-----|
-| `UserAggregate` | Identidad, roles (`student`/`teacher`/`admin`), password hashing |
+| `UserAggregate` | Identidad, roles (`student`/`admin`), password hashing |
 | `DocumentAggregate` | Material del estudiante, estado de análisis, ownership |
 | `QuizAggregate` | Preguntas MCQ, grading server-side |
 | `QuizAttemptAggregate` | Intento calificado + evento `QuizAttemptCompletedEvent` |

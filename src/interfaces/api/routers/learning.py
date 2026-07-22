@@ -7,8 +7,11 @@ from src.application.services.quiz_service import QuizService
 from src.interfaces.api.dependencies import get_current_user_id, get_quiz_service
 from src.interfaces.api.openapi_responses import RESP_401_UNAUTHORIZED
 from src.interfaces.schemas.quiz_schemas import (
+    DocumentMasteryItem,
     LearningHistoryResponse,
+    LearningRecommendationItem,
     QuizAttemptSummaryItem,
+    StudentProfileResponse,
     TutorInteractionSummaryItem,
 )
 
@@ -20,8 +23,8 @@ router = APIRouter(prefix="/learning", tags=["Aprendizaje"])
     response_model=LearningHistoryResponse,
     summary="Historial de evidencia de aprendizaje",
     description=(
-        "Devuelve intentos de quiz (scores) e interacciones con el tutor del estudiante autenticado. "
-        "Vista embrionaria del progreso: alimentará el perfil cognitivo en iteraciones futuras."
+        "Devuelve intentos de quiz, interacciones con el tutor y recomendaciones "
+        "derivadas del perfil cognitivo (sin auto-declaración)."
     ),
     responses={
         **RESP_401_UNAUTHORIZED,
@@ -53,5 +56,49 @@ async def get_my_learning_history(
                 asked_at=i.asked_at,
             )
             for i in history.tutor_interactions
+        ],
+        recommendations=[
+            LearningRecommendationItem(
+                kind=r.kind,
+                message=r.message,
+                document_id=str(r.document_id) if r.document_id else None,
+            )
+            for r in history.recommendations
+        ],
+    )
+
+
+@router.get(
+    "/me/profile",
+    response_model=StudentProfileResponse,
+    summary="Perfil cognitivo del estudiante",
+    description=(
+        "Solo lectura del perfil derivado de evidencia (mastery por documento, ritmo, errores)."
+    ),
+    responses={
+        **RESP_401_UNAUTHORIZED,
+    },
+)
+async def get_my_profile(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[QuizService, Depends(get_quiz_service)],
+):
+    profile = await service.get_profile(UUID(current_user_id))
+    return StudentProfileResponse(
+        student_id=str(profile.student_id),
+        pace=profile.pace,
+        total_attempts=profile.total_attempts,
+        total_struggle_signals=profile.total_struggle_signals,
+        frequent_errors=list(profile.frequent_errors),
+        updated_at=profile.updated_at,
+        mastery_by_document=[
+            DocumentMasteryItem(
+                document_id=str(m.document_id),
+                attempts=m.attempts,
+                mastery=m.mastery,
+                last_score_ratio=m.last_score_ratio,
+                struggle_signals=m.struggle_signals,
+            )
+            for m in profile.mastery_by_document
         ],
     )

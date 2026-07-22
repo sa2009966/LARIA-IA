@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
+from typing import Optional
 
 from src.domain.aggregates.document_aggregate import DocumentAggregate
+from src.domain.services.pedagogical_engine import PedagogicalDecision
 from src.domain.value_objects.analysis_result import AnalysisResult
 from src.domain.value_objects.question import Quiz
 
@@ -18,9 +20,19 @@ class IAAnalyst(ABC):
         ...
 
     @abstractmethod
-    async def answer_question(self, context: str, question: str) -> str:
+    async def answer_question(
+        self,
+        context: str,
+        question: str,
+        decision: Optional[PedagogicalDecision] = None,
+    ) -> str:
         ...
 
     @abstractmethod
-    async def generate_quiz(self, document: DocumentAggregate, num_questions: int = 5) -> Quiz:
+    async def generate_quiz(
+        self,
+        document: DocumentAggregate,
+        num_questions: int = 5,
+        decision: Optional[PedagogicalDecision] = None,
+    ) -> Quiz:
         ...

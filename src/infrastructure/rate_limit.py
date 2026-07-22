@@ -31,11 +31,12 @@ class SlidingWindowCounter:
 
 
 # path prefix → (max_requests, window_seconds)
+# Orden: rutas IA más específicas primero (analyze/ask/quiz generation).
 _RULES: list[tuple[str, int, float]] = [
     ("/api/v1/auth/register", 5, 60.0),
     ("/api/v1/auth/token", 10, 60.0),
-    ("/api/v1/documents/", 30, 60.0),
-    ("/api/v1/quizzes/", 30, 60.0),
+    ("/api/v1/documents/", 12, 60.0),  # incluye analyze y ask (coste OpenAI)
+    ("/api/v1/quizzes/", 12, 60.0),  # generate + attempts
 ]
 
 

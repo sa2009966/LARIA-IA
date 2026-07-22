@@ -21,3 +21,9 @@ class InMemoryQuizRepository(QuizRepository):
 
     async def save(self, quiz: QuizAggregate) -> None:
         self._quizzes[quiz.id] = quiz
+
+    async def delete_by_document(self, document_id: UUID) -> int:
+        to_delete = [qid for qid, q in self._quizzes.items() if q.document_id == document_id]
+        for qid in to_delete:
+            del self._quizzes[qid]
+        return len(to_delete)

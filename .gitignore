@@ -40,11 +40,13 @@ venv/
 .venv/
 env/
 .env/
+env_dashboard/
 
-# ─── IDE / Editor ───────────────────────────────────────────────────────────
+# ─── IDE / Editor / Cursor ──────────────────────────────────────────────────
 .vscode/*
 !.vscode/extensions.json
 .idea/
+.cursor/
 *.swp
 *.swo
 *~
@@ -65,3 +67,13 @@ temp/
 # ─── Postman (credenciales locales si se exportan) ──────────────────────────
 postman/*local*
 postman/*secret*
+
+# ─── Evaluaciones / reportes locales (scripts) ──────────────────────────────
+scripts/*_report.json
+scripts/*_fail_report.json
+scripts/out/
+scripts/.cache/
+
+# ─── Artefactos de agente / notebooks locales ───────────────────────────────
+*.canvas.data.json
+.ipynb_checkpoints/

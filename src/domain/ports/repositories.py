@@ -6,6 +6,7 @@ from src.domain.aggregates.user_aggregate import UserAggregate
 from src.domain.aggregates.document_aggregate import DocumentAggregate
 from src.domain.aggregates.quiz_aggregate import QuizAggregate
 from src.domain.aggregates.quiz_attempt_aggregate import QuizAttemptAggregate
+from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.aggregates.tutor_interaction import TutorInteractionAggregate
 from src.domain.value_objects.email import Email
 
@@ -71,6 +72,10 @@ class QuizRepository(ABC):
     async def save(self, quiz: QuizAggregate) -> None:
         ...
 
+    @abstractmethod
+    async def delete_by_document(self, document_id: UUID) -> int:
+        ...
+
 
 class QuizAttemptRepository(ABC):
     @abstractmethod
@@ -89,6 +94,10 @@ class QuizAttemptRepository(ABC):
     async def save(self, attempt: QuizAttemptAggregate) -> None:
         ...
 
+    @abstractmethod
+    async def delete_by_document(self, document_id: UUID) -> int:
+        ...
+
 
 class TutorInteractionRepository(ABC):
     @abstractmethod
@@ -105,4 +114,18 @@ class TutorInteractionRepository(ABC):
 
     @abstractmethod
     async def save(self, interaction: TutorInteractionAggregate) -> None:
+        ...
+
+    @abstractmethod
+    async def delete_by_document(self, document_id: UUID) -> int:
+        ...
+
+
+class StudentProfileRepository(ABC):
+    @abstractmethod
+    async def find_by_student(self, student_id: UUID) -> Optional[StudentProfile]:
+        ...
+
+    @abstractmethod
+    async def save(self, profile: StudentProfile) -> None:
         ...

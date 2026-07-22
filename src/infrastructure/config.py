@@ -42,8 +42,9 @@ class Settings(BaseSettings):
     APP_TITLE: str = "LARIA – Sistema Inteligente de Asistencia Educativa"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
-    ENABLE_DOCS: bool = True
+    ENABLE_DOCS: bool = False
     RATE_LIMIT_ENABLED: bool = True
+    EMBODIMENT_ENABLED: bool = False
 
 
 def validate_security_settings(s: "Settings") -> None:

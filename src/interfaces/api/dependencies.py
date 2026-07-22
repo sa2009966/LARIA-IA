@@ -12,22 +12,32 @@ from src.application.services.document_service import DocumentService
 from src.application.services.quiz_service import QuizService
 from src.application.services.user_service import UserService
 from src.domain.aggregates.user_aggregate import UserAggregate
+from src.domain.ports.embodiment import PresencePort, SpeechToTextPort, TextToSpeechPort
 from src.domain.ports.event_bus import EventBus
 from src.domain.ports.ia_analyst import IAAnalyst
 from src.domain.ports.repositories import (
     DocumentRepository,
     QuizAttemptRepository,
     QuizRepository,
+    StudentProfileRepository,
     TutorInteractionRepository,
     UserRepository,
 )
+from src.domain.services.affect_policy import AffectPolicy
+from src.domain.services.pedagogical_engine import PedagogicalEngine
 from src.infrastructure.config import JWT_ALGORITHM, settings
+from src.infrastructure.embodiment.stubs import (
+    LogOnlyPresence,
+    NullSpeechToText,
+    NullTextToSpeech,
+)
 from src.infrastructure.openai.openai_ia_analyst import OpenAIAnalyst
 from src.infrastructure.persistence import (
     InMemoryDocumentRepository,
     InMemoryEventBus,
     InMemoryQuizAttemptRepository,
     InMemoryQuizRepository,
+    InMemoryStudentProfileRepository,
     InMemoryTutorInteractionRepository,
     InMemoryUserRepository,
 )
@@ -76,6 +86,14 @@ def get_interaction_repo() -> TutorInteractionRepository:
 
 
 @lru_cache(maxsize=1)
+def get_profile_repo() -> StudentProfileRepository:
+    if settings.DB_PROVIDER == "mongodb":
+        from src.infrastructure.mongodb import MongoDBStudentProfileRepository
+        return MongoDBStudentProfileRepository()
+    return InMemoryStudentProfileRepository()
+
+
+@lru_cache(maxsize=1)
 def get_ia_analyst() -> IAAnalyst:
     return OpenAIAnalyst()
 
@@ -85,16 +103,55 @@ def get_event_bus() -> EventBus:
     return InMemoryEventBus()
 
 
+@lru_cache(maxsize=1)
+def get_pedagogical_engine() -> PedagogicalEngine:
+    return PedagogicalEngine()
+
+
+@lru_cache(maxsize=1)
+def get_speech_to_text() -> SpeechToTextPort:
+    return NullSpeechToText()
+
+
+@lru_cache(maxsize=1)
+def get_text_to_speech() -> TextToSpeechPort:
+    return NullTextToSpeech()
+
+
+@lru_cache(maxsize=1)
+def get_presence() -> PresencePort:
+    return LogOnlyPresence()
+
+
+@lru_cache(maxsize=1)
+def get_affect_policy() -> AffectPolicy:
+    return AffectPolicy()
+
+
 def get_user_service() -> UserService:
     return UserService(get_user_repo(), event_bus=get_event_bus())
 
 
 def get_document_service() -> DocumentService:
-    return DocumentService(get_document_repo(), event_bus=get_event_bus())
+    return DocumentService(
+        document_repository=get_document_repo(),
+        event_bus=get_event_bus(),
+        quiz_repository=get_quiz_repo(),
+        attempt_repository=get_attempt_repo(),
+        interaction_repository=get_interaction_repo(),
+        profile_repository=get_profile_repo(),
+    )
 
 
 def get_analyze_service() -> AnalyzeDocumentService:
-    return AnalyzeDocumentService(get_document_repo(), get_ia_analyst(), event_bus=get_event_bus())
+    return AnalyzeDocumentService(
+        document_repository=get_document_repo(),
+        ia_analyst=get_ia_analyst(),
+        event_bus=get_event_bus(),
+        interaction_repository=get_interaction_repo(),
+        profile_repository=get_profile_repo(),
+        pedagogical_engine=get_pedagogical_engine(),
+    )
 
 
 def get_quiz_service() -> QuizService:
@@ -105,6 +162,8 @@ def get_quiz_service() -> QuizService:
         interaction_repository=get_interaction_repo(),
         ia_analyst=get_ia_analyst(),
         event_bus=get_event_bus(),
+        profile_repository=get_profile_repo(),
+        pedagogical_engine=get_pedagogical_engine(),
     )
 
 

@@ -31,7 +31,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
       DEBUG: "false"
-      ENABLE_DOCS: ${ENABLE_DOCS:-true}
+      ENABLE_DOCS: ${ENABLE_DOCS:-false}
 
 volumes:
   mongo_data:

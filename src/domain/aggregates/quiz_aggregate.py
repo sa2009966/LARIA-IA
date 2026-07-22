@@ -79,26 +79,26 @@ class QuizAggregate:
         return self.owner_id == user_id
 
     def grade(self, answers: dict[int, str]) -> QuizGrade:
-        """Califica un intento. Las claves de `answers` son índices 0-based de pregunta."""
-        if not answers:
-            raise ValueError("Debes responder al menos una pregunta")
-        for index in answers:
-            if index < 0 or index >= len(self.questions):
+        """Califica un intento completo. Requiere respuesta para cada pregunta."""
+        n = len(self.questions)
+        if len(answers) != n or any(i not in answers for i in range(n)):
+            raise ValueError(
+                f"Debes responder las {n} preguntas del cuestionario (intento incompleto)."
+            )
+        for index, choice in answers.items():
+            if index < 0 or index >= n:
                 raise ValueError(f"Índice de pregunta inválido: {index}")
-            choice = answers[index]
             if choice not in self.questions[index].options:
                 raise ValueError(
                     f"Opción '{choice}' no válida para la pregunta {index}"
                 )
 
-        per_question: list[bool] = []
-        for i, question in enumerate(self.questions):
-            given = answers.get(i)
-            per_question.append(given is not None and given == question.correct_answer)
-
+        per_question = tuple(
+            answers[i] == self.questions[i].correct_answer for i in range(n)
+        )
         correct = sum(1 for c in per_question if c)
         return QuizGrade(
-            per_question_correct=tuple(per_question),
+            per_question_correct=per_question,
             score=correct * 10,
             total_points=self.total_points,
         )

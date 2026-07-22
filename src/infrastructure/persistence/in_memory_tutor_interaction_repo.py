@@ -21,3 +21,11 @@ class InMemoryTutorInteractionRepository(TutorInteractionRepository):
 
     async def save(self, interaction: TutorInteractionAggregate) -> None:
         self._interactions[interaction.id] = interaction
+
+    async def delete_by_document(self, document_id: UUID) -> int:
+        to_delete = [
+            iid for iid, i in self._interactions.items() if i.document_id == document_id
+        ]
+        for iid in to_delete:
+            del self._interactions[iid]
+        return len(to_delete)

@@ -174,7 +174,8 @@ class TestQuizService:
 
 class TestLearningEvidenceProjector:
     @pytest.mark.asyncio
-    async def test_persiste_interaccion_al_recibir_evento(self):
+    async def test_ask_ya_no_se_proyecta_desde_evento(self):
+        """La evidencia de /ask se persiste en el servicio; el bus no duplica."""
         bus = InMemoryEventBus()
         repo = InMemoryTutorInteractionRepository()
         projector = LearningEvidenceProjector(repo, bus)
@@ -192,10 +193,7 @@ class TestLearningEvidenceProjector:
         )
 
         items = await repo.find_by_student(student)
-        assert len(items) == 1
-        assert items[0].question == "¿Cómo funciona?"
-        assert items[0].answer == "Así."
-        assert items[0].document_id == doc
+        assert items == []
 
     @pytest.mark.asyncio
     async def test_persiste_evidencia_de_intento_quiz(self):
