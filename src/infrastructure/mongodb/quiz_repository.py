@@ -77,3 +77,8 @@ class MongoDBQuizRepository(QuizRepository):
         db = await self._get_db()
         doc = self._to_doc(quiz)
         await db.quizzes.replace_one({"_id": doc["_id"]}, doc, upsert=True)
+
+    async def delete_by_document(self, document_id: UUID) -> int:
+        db = await self._get_db()
+        result = await db.quizzes.delete_many({"document_id": str(document_id)})
+        return int(result.deleted_count)

@@ -37,10 +37,35 @@ async def _bootstrap_admin() -> None:
 
 async def _register_learning_projector() -> None:
     from src.application.services.learning_evidence_projector import LearningEvidenceProjector
-    from src.interfaces.api.dependencies import get_event_bus, get_interaction_repo
+    from src.interfaces.api.dependencies import (
+        get_event_bus,
+        get_interaction_repo,
+        get_profile_repo,
+    )
 
-    projector = LearningEvidenceProjector(get_interaction_repo(), get_event_bus())
+    projector = LearningEvidenceProjector(
+        get_interaction_repo(),
+        get_event_bus(),
+        profile_repository=get_profile_repo(),
+    )
     await projector.register()
+
+
+async def _warm_embodiment_stubs() -> None:
+    """Carga stubs de embodiment si el flag está activo; no afecta pedagogía."""
+    if not settings.EMBODIMENT_ENABLED:
+        return
+    from src.interfaces.api.dependencies import (
+        get_affect_policy,
+        get_presence,
+        get_speech_to_text,
+        get_text_to_speech,
+    )
+
+    get_speech_to_text()
+    get_text_to_speech()
+    get_presence()
+    get_affect_policy()
 
 
 async def _ensure_mongo_indexes() -> None:
@@ -56,6 +81,7 @@ async def lifespan(app: FastAPI):
     await _ensure_mongo_indexes()
     await _bootstrap_admin()
     await _register_learning_projector()
+    await _warm_embodiment_stubs()
     yield
     if settings.DB_PROVIDER == "mongodb":
         from src.infrastructure.mongodb.database import close_database

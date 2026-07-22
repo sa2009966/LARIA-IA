@@ -56,10 +56,14 @@ class TestUserAggregate:
         with pytest.raises(ValueError, match="already active"):
             user.activate()
 
-    def test_change_role(self):
+    def test_change_role_solo_admin_o_student(self):
         user = UserAggregate.register("ana", "ana@example.com", "SecurePass1x")
-        user.change_role(UserRole.TEACHER)
-        assert user.role == UserRole.TEACHER
+        assert user.role == UserRole.STUDENT
+        user.change_role(UserRole.ADMIN)
+        assert user.role == UserRole.ADMIN
+        user.change_role(UserRole.STUDENT)
+        assert user.role == UserRole.STUDENT
+        assert set(UserRole) == {UserRole.STUDENT, UserRole.ADMIN}
 
     def test_change_role_admin(self):
         user = UserAggregate.register("ana", "ana@example.com", "SecurePass1x")
@@ -70,15 +74,6 @@ class TestUserAggregate:
     def test_is_admin_false_for_student(self):
         user = UserAggregate.register("ana", "ana@example.com", "SecurePass1x")
         assert user.is_admin() is False
-
-    def test_is_teacher_false_for_student(self):
-        user = UserAggregate.register("ana", "ana@example.com", "SecurePass1x")
-        assert user.is_teacher() is False
-
-    def test_is_teacher_true(self):
-        user = UserAggregate.register("ana", "ana@example.com", "SecurePass1x")
-        user.change_role(UserRole.TEACHER)
-        assert user.is_teacher() is True
 
     def test_clear_events(self):
         user = UserAggregate.register("ana", "ana@example.com", "SecurePass1x")

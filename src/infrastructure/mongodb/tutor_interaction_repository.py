@@ -59,3 +59,8 @@ class MongoDBTutorInteractionRepository(TutorInteractionRepository):
         db = await self._get_db()
         doc = self._to_doc(interaction)
         await db.tutor_interactions.replace_one({"_id": doc["_id"]}, doc, upsert=True)
+
+    async def delete_by_document(self, document_id: UUID) -> int:
+        db = await self._get_db()
+        result = await db.tutor_interactions.delete_many({"document_id": str(document_id)})
+        return int(result.deleted_count)

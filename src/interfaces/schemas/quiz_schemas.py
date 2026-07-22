@@ -64,6 +64,31 @@ class TutorInteractionSummaryItem(BaseModel):
     asked_at: datetime
 
 
+class LearningRecommendationItem(BaseModel):
+    kind: str
+    message: str
+    document_id: str | None = None
+
+
 class LearningHistoryResponse(BaseModel):
     attempts: list[QuizAttemptSummaryItem]
     tutor_interactions: list[TutorInteractionSummaryItem]
+    recommendations: list[LearningRecommendationItem] = []
+
+
+class DocumentMasteryItem(BaseModel):
+    document_id: str
+    attempts: int
+    mastery: float
+    last_score_ratio: float
+    struggle_signals: int = 0
+
+
+class StudentProfileResponse(BaseModel):
+    student_id: str
+    pace: str
+    total_attempts: int
+    frequent_errors: list[str]
+    updated_at: datetime
+    mastery_by_document: list[DocumentMasteryItem]
+    total_struggle_signals: int = 0

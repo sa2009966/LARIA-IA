@@ -60,6 +60,34 @@ class TutorInteractionSummaryDTO:
 
 
 @dataclass
+class LearningRecommendationDTO:
+    kind: str
+    message: str
+    document_id: UUID | None = None
+
+
+@dataclass
 class LearningHistoryDTO:
     attempts: list[QuizAttemptSummaryDTO] = field(default_factory=list)
     tutor_interactions: list[TutorInteractionSummaryDTO] = field(default_factory=list)
+    recommendations: list[LearningRecommendationDTO] = field(default_factory=list)
+
+
+@dataclass
+class DocumentMasteryDTO:
+    document_id: UUID
+    attempts: int
+    mastery: float
+    last_score_ratio: float
+    struggle_signals: int = 0
+
+
+@dataclass
+class StudentProfileDTO:
+    student_id: UUID
+    pace: str
+    total_attempts: int
+    frequent_errors: list[str]
+    updated_at: datetime
+    mastery_by_document: list[DocumentMasteryDTO] = field(default_factory=list)
+    total_struggle_signals: int = 0

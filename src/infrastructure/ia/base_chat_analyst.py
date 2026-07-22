@@ -86,12 +86,16 @@ class BaseChatAnalyst(IAAnalyst):
             confidence_score=float(data.get("confidence_score", 0.0) or 0.0),
         )
 
-    async def answer_question(self, context: str, question: str) -> str:
-        prompt = self._policy.answer_question(context, question)
+    async def answer_question(
+        self, context: str, question: str, decision=None
+    ) -> str:
+        prompt = self._policy.answer_question(context, question, decision)
         return await self._chat(prompt.system, prompt.user)
 
-    async def generate_quiz(self, document: DocumentAggregate, num_questions: int = 5) -> Quiz:
-        prompt = self._policy.generate_quiz(document.content, num_questions)
+    async def generate_quiz(
+        self, document: DocumentAggregate, num_questions: int = 5, decision=None
+    ) -> Quiz:
+        prompt = self._policy.generate_quiz(document.content, num_questions, decision)
         raw = await self._chat(prompt.system, prompt.user)
         data = self._extract_json(raw)
 

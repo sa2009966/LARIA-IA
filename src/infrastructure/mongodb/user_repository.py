@@ -38,7 +38,8 @@ class MongoDBUserRepository(UserRepository):
             username=doc["username"],
             email=Email(doc["email"]),
             hashed_password=doc["hashed_password"],
-            role=UserRole(doc["role"]),
+            # Compatibilidad: "teacher" legado se trata como estudiante.
+            role=UserRole.STUDENT if doc.get("role") == "teacher" else UserRole(doc["role"]),
             is_active=doc["is_active"],
             created_at=doc["created_at"],
         )

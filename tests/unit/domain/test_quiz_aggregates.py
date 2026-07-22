@@ -54,26 +54,25 @@ class TestQuizAggregate:
         assert grade.score == 10
         assert grade.per_question_correct == (True, False)
 
-    def test_grade_incompleto_cuenta_como_incorrecto(self):
+    def test_grade_incompleto_rechazado(self):
         quiz = QuizAggregate.create(uuid4(), uuid4(), _sample_questions())
-        grade = quiz.grade({0: "B"})
-        assert grade.score == 10
-        assert grade.per_question_correct == (True, False)
+        with pytest.raises(ValueError, match="intento incompleto"):
+            quiz.grade({0: "B"})
 
     def test_grade_sin_respuestas_falla(self):
         quiz = QuizAggregate.create(uuid4(), uuid4(), _sample_questions())
-        with pytest.raises(ValueError, match="al menos una pregunta"):
+        with pytest.raises(ValueError, match="intento incompleto"):
             quiz.grade({})
 
     def test_grade_indice_invalido(self):
         quiz = QuizAggregate.create(uuid4(), uuid4(), _sample_questions())
-        with pytest.raises(ValueError, match="Índice"):
+        with pytest.raises(ValueError, match="intento incompleto|Índice"):
             quiz.grade({5: "A"})
 
     def test_grade_opcion_invalida(self):
         quiz = QuizAggregate.create(uuid4(), uuid4(), _sample_questions())
         with pytest.raises(ValueError, match="no válida"):
-            quiz.grade({0: "Z"})
+            quiz.grade({0: "Z", 1: "C"})
 
     def test_normaliza_difficulty_string(self):
         qs = [

@@ -11,8 +11,9 @@ from src.domain.events.domain_events import (
 
 
 class UserRole(Enum):
+    """Solo dos roles de producto: estudiante y administrador."""
+
     STUDENT = "student"
-    TEACHER = "teacher"
     ADMIN = "admin"
 
 
@@ -74,6 +75,3 @@ class UserAggregate:
 
     def is_admin(self) -> bool:
         return self.role == UserRole.ADMIN
-
-    def is_teacher(self) -> bool:
-        return self.role == UserRole.TEACHER
