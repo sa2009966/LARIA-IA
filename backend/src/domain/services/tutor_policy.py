@@ -4,6 +4,7 @@ El modelo de IA solo genera lenguaje; LARIA decide modo, dificultad y restriccio
 """
 from dataclasses import dataclass
 
+from src.domain.services.cognitive_style import CognitiveStyle
 from src.domain.services.pedagogical_engine import PedagogicalDecision, PedagogicalMode
 from src.domain.value_objects.question import Difficulty
 
@@ -32,9 +33,20 @@ _MODE_INSTRUCTIONS: dict[PedagogicalMode, str] = {
     ),
 }
 
+_STYLE_INSTRUCTIONS: dict[CognitiveStyle, str] = {
+    CognitiveStyle.SIMPLE: "Usa lenguaje sencillo, frases cortas y un solo ejemplo cotidiano.",
+    CognitiveStyle.TECHNICAL: "Puedes usar terminología técnica precisa y rigor formal moderado.",
+    CognitiveStyle.MATHEMATICAL: "Prioriza notación matemática clara, definiciones y derivaciones breves.",
+    CognitiveStyle.ANALOGY: "Explica mediante analogías concretas antes de formalizar.",
+    CognitiveStyle.VISUAL: "Describe estructuras como si dibujaras un esquema o diagrama mental.",
+    CognitiveStyle.STEP_BY_STEP: "Descompón en pasos numerados; no saltes etapas intermedias.",
+}
+
 
 class TutorPolicy:
     """Selecciona prompts y objetivos de aprendizaje para cada caso de uso."""
+
+    POLICY_VERSION = "v2"
 
     def analyze_document(self, content: str) -> ChatPrompt:
         return ChatPrompt(
@@ -66,13 +78,26 @@ class TutorPolicy:
                 if decision.anti_spoiler
                 else ""
             )
+            style = _STYLE_INSTRUCTIONS.get(
+                decision.cognitive_style, _STYLE_INSTRUCTIONS[CognitiveStyle.SIMPLE]
+            )
+            remediation = ""
+            if decision.blocked_by_prereq and decision.remediation_concepts:
+                remediation = (
+                    "IMPORTANTE: el estudiante aún no domina prerrequisitos. "
+                    "No expliques el tema avanzado completo; refuerza primero: "
+                    + ", ".join(decision.remediation_concepts)
+                    + ". "
+                )
             system = (
                 f"Eres un tutor adaptativo de LARIA. Modo: {decision.mode.value}. "
+                f"Estilo cognitivo: {decision.cognitive_style.value}. {style} "
                 f"Objetivo: {decision.objective} "
                 f"Dificultad objetivo: {decision.target_difficulty.value}. "
                 f"Foco conceptual: {focus}. "
                 f"Evidencia del estudiante: {decision.evidence_summary}. "
                 f"{_MODE_INSTRUCTIONS[decision.mode]} "
+                f"{remediation}"
                 f"{anti}"
                 "Basa la respuesta únicamente en el contexto proporcionado. "
                 "No asumas que una respuesta correcta previa implica comprensión profunda."
@@ -102,9 +127,12 @@ class TutorPolicy:
         if decision:
             mode_note = (
                 f" Estrategia LARIA: {decision.mode.value}; "
+                f"estilo: {decision.cognitive_style.value}; "
                 f"objetivo: {decision.objective} "
                 f"Evidencia: {decision.evidence_summary}."
             )
+            if decision.blocked_by_prereq:
+                mode_note += " Evalúa solo prerrequisitos, no el tema avanzado."
         return ChatPrompt(
             system=(
                 "Eres un experto en pedagogía. Genera exactamente "
@@ -119,5 +147,5 @@ class TutorPolicy:
                 "IMPORTANTE: reparte correct_answer entre A, B, C y D de forma equilibrada "
                 "(no pongas casi todas en A). Sin texto adicional."
             ),
-            user=f"Texto:\n\n{content}",
+            user=f"Contenido base:\n{content}",
         )

@@ -11,9 +11,12 @@ from src.infrastructure.config import (
     validate_runtime_settings,
     validate_security_settings,
 )
+from src.infrastructure.logging_setup import configure_logging
 from src.infrastructure.rate_limit import RateLimitMiddleware
+from src.infrastructure.request_logging import RequestLoggingMiddleware
 from src.interfaces.api.routers import auth, documents, learning, quizzes, users
 
+configure_logging(level=settings.LOG_LEVEL, fmt=settings.LOG_FORMAT)
 validate_security_settings(settings)
 validate_ia_settings(settings)
 validate_runtime_settings(settings)
@@ -48,6 +51,7 @@ async def _register_learning_projector() -> None:
         get_attempt_repo,
         get_event_bus,
         get_interaction_repo,
+        get_metrics,
         get_profile_repo,
         get_quiz_repo,
     )
@@ -58,6 +62,7 @@ async def _register_learning_projector() -> None:
         profile_repository=get_profile_repo(),
         quiz_repository=get_quiz_repo(),
         attempt_repository=get_attempt_repo(),
+        metrics=get_metrics() if settings.METRICS_ENABLED else None,
     )
     await projector.register()
 
@@ -107,6 +112,14 @@ async def _outbox_worker_loop(stop: asyncio.Event) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # #region agent log
+    import json as _json, time as _time, logging as _logging
+    from src.infrastructure import logging_setup as _ls
+    _dbg = "/home/alex/Descargas/Laria_ia/.cursor/debug-1c57d2.log"
+    _root = _logging.getLogger()
+    with open(_dbg, "a", encoding="utf-8") as _f:
+        _f.write(_json.dumps({"sessionId": "1c57d2", "runId": "post-fix", "hypothesisId": "A", "location": "main.py:lifespan", "message": "startup logging state", "data": {"root_handlers": len(_root.handlers), "root_level": _root.level, "has_configure_logging": bool(getattr(_ls, "_CONFIGURED", False)), "effective_level": _root.getEffectiveLevel()}, "timestamp": int(_time.time() * 1000)}) + "\n")
+    # #endregion
     await _ensure_mongo_indexes()
     await _bootstrap_admin()
     await _register_learning_projector()
@@ -152,6 +165,7 @@ app = FastAPI(
 )
 
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -178,4 +192,27 @@ def root():
 
 @app.get("/health", tags=["Health"])
 def health_check():
+    # #region agent log
+    import json as _json, time as _time, logging as _logging
+    _dbg = "/home/alex/Descargas/Laria_ia/.cursor/debug-1c57d2.log"
+    _log = _logging.getLogger("src.main")
+    _log.info("health_check.invoked")
+    with open(_dbg, "a", encoding="utf-8") as _f:
+        _f.write(_json.dumps({"sessionId": "1c57d2", "runId": "post-fix", "hypothesisId": "B", "location": "main.py:health_check", "message": "health hit logging probe", "data": {"logger_name": _log.name, "logger_disabled": _log.disabled, "logger_level": _log.level, "effective_level": _log.getEffectiveLevel(), "root_has_handlers": _logging.getLogger().hasHandlers(), "logger_has_handlers": _log.hasHandlers(), "propagate": _log.propagate, "root_handlers": len(_logging.getLogger().handlers)}, "timestamp": int(_time.time() * 1000)}) + "\n")
+    # #endregion
     return {"status": "ok", "version": settings.APP_VERSION}
+
+
+@app.get("/metrics", tags=["Health"], include_in_schema=False)
+def metrics_endpoint():
+    if not settings.METRICS_ENABLED:
+        return JSONResponse({"detail": "metrics disabled"}, status_code=404)
+    from src.interfaces.api.dependencies import get_metrics
+    from src.infrastructure.metrics.in_memory_metrics import InMemoryMetrics
+
+    metrics = get_metrics()
+    if isinstance(metrics, InMemoryMetrics):
+        from fastapi.responses import PlainTextResponse
+
+        return PlainTextResponse(metrics.render_prometheus(), media_type="text/plain; version=0.0.4")
+    return metrics.snapshot()

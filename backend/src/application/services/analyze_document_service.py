@@ -1,7 +1,9 @@
 from uuid import UUID
 from typing import Optional
+import time
 
 from src.application.concurrency import with_concurrency_retry
+from src.application.services.llm_gate import LlmGate
 from src.domain.aggregates.document_aggregate import DocumentAggregate, DocumentStatus
 from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.aggregates.tutor_interaction import TutorInteractionAggregate
@@ -36,6 +38,7 @@ class AnalyzeDocumentService:
         profile_repository: Optional[StudentProfileRepository] = None,
         pedagogical_engine: Optional[PedagogicalEngine] = None,
         session_repository: Optional[TutorSessionRepository] = None,
+        llm_gate: Optional[LlmGate] = None,
     ) -> None:
         self._doc_repo = document_repository
         self._ia_analyst = ia_analyst
@@ -46,6 +49,7 @@ class AnalyzeDocumentService:
         self._session_repo = session_repository
         self._signals = LearningSignalDetector()
         self._context = ContextSelector()
+        self._llm_gate = llm_gate
 
     async def execute(
         self,
@@ -59,7 +63,7 @@ class AnalyzeDocumentService:
             if not force_refresh:
                 return document.analysis_result
 
-        if self._ia_analyst is None:
+        if self._ia_analyst is None and self._llm_gate is None:
             raise ValueError("IA Analyst not configured")
 
         if force_refresh and document.status == DocumentStatus.ANALYZED:
@@ -69,7 +73,10 @@ class AnalyzeDocumentService:
         document.mark_analyzing()
         await self._doc_repo.save(document)
         try:
-            result = await self._ia_analyst.analyze(document)
+            if self._llm_gate is not None:
+                result = await self._llm_gate.analyze(document, force_refresh=force_refresh)
+            else:
+                result = await self._ia_analyst.analyze(document)
         except Exception as e:
             current = await self._doc_repo.find_by_id(document_id)
             if current is not None and current.status == DocumentStatus.ANALYZED:
@@ -109,29 +116,27 @@ class AnalyzeDocumentService:
         self, document_id: UUID, question: str, requesting_user_id: UUID
     ) -> str:
         document = await self._get_document_if_owner(document_id, requesting_user_id)
-        if self._ia_analyst is None:
+        if self._ia_analyst is None and self._llm_gate is None:
             raise ValueError("IA Analyst not configured")
         if self._interaction_repo is None:
             raise ValueError("Repositorio de interacciones no configurado")
 
+        started = time.monotonic()
+        signal = self._signals.detect(question)
         profile = None
         if self._profile_repo is not None:
-            signal = self._signals.detect(question)
-
-            async def _persist_struggle():
-                p = await self._profile_repo.find_by_student(requesting_user_id)
-                if p is None:
-                    p = StudentProfile.create(requesting_user_id)
-                if signal.kind != LearningSignalKind.NONE:
-                    p.record_ask_struggle(
-                        document_id=document_id,
-                        strength=signal.strength,
-                        concepts=signal.concepts_hint,
-                    )
-                    await self._profile_repo.save(p)
-                return p
-
-            profile = await with_concurrency_retry(_persist_struggle)
+            profile = await self._profile_repo.find_by_student(requesting_user_id)
+            if profile is None:
+                profile = StudentProfile.create(requesting_user_id)
+            # Mutación en memoria para esta decisión; persistencia vía projector
+            if signal.kind != LearningSignalKind.NONE:
+                help_level = 0.5 if signal.kind == LearningSignalKind.HELP else 0.0
+                profile.record_ask_struggle(
+                    document_id=document_id,
+                    strength=signal.strength,
+                    concepts=signal.concepts_hint,
+                    help_level=help_level,
+                )
 
         session = None
         if self._session_repo is not None:
@@ -145,13 +150,28 @@ class AnalyzeDocumentService:
         if document.has_analysis() and document.analysis_result is not None:
             concepts = tuple(document.analysis_result.key_concepts or ())
         decision = self._engine.select(
-            profile, document_id, TutorIntent.ASK, concepts, session=session
+            profile,
+            document_id,
+            TutorIntent.ASK,
+            concepts,
+            session=session,
+            question=question,
         )
         ctx = self._context.select(document, decision.focus_concepts)
 
-        answer = await self._ia_analyst.answer_question(
-            context=ctx, question=question, decision=decision
-        )
+        struggle = profile.total_struggle_signals if profile else 0
+        if self._llm_gate is not None:
+            answer = await self._llm_gate.answer_question(
+                context=ctx,
+                question=question,
+                decision=decision,
+                struggle_signals=struggle,
+            )
+        else:
+            answer = await self._ia_analyst.answer_question(
+                context=ctx, question=question, decision=decision
+            )
+        latency_ms = (time.monotonic() - started) * 1000.0
 
         if self._session_repo is not None:
 
@@ -179,6 +199,7 @@ class AnalyzeDocumentService:
 
         if self._event_bus:
             try:
+                help_level = 0.5 if signal.kind == LearningSignalKind.HELP else 0.0
                 await self._event_bus.publish(
                     TutorQuestionAskedEvent(
                         aggregate_id=document_id,
@@ -186,6 +207,13 @@ class AnalyzeDocumentService:
                         document_id=document_id,
                         question=question,
                         answer=answer,
+                        signal_kind=signal.kind.value,
+                        signal_strength=signal.strength,
+                        concepts=signal.concepts_hint,
+                        latency_ms=latency_ms,
+                        help_level=help_level,
+                        cognitive_style=decision.cognitive_style.value,
+                        pedagogical_mode=decision.mode.value,
                     )
                 )
             except Exception:

@@ -239,13 +239,15 @@ class TestAnalyzeDocumentService:
         interaction_repo_mock.save.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_answer_question_novice_actualiza_perfil_antes_de_decidir(
+    async def test_answer_question_novice_adapta_decision_y_publica_senal(
         self,
         servicio: AnalyzeDocumentService,
         doc_repo_mock: AsyncMock,
         ia_mock: AsyncMock,
+        event_bus_mock: AsyncMock,
         profile_repo_mock: AsyncMock,
     ):
+        """La lucha se aplica en memoria para la decisión; la persistencia va por evento."""
         owner_id = uuid4()
         doc = DocumentAggregate.upload(owner_id, "alg.txt", "Variable x.", "Matemática")
         doc_repo_mock.find_by_id.return_value = doc
@@ -255,12 +257,14 @@ class TestAnalyzeDocumentService:
             doc.id, "No sé nada de álgebra, ¿qué es una variable?", owner_id
         )
 
-        profile_repo_mock.save.assert_awaited()
-        saved = profile_repo_mock.save.await_args.args[0]
-        assert saved.total_struggle_signals >= 1
-        assert saved.mastery_for(doc.id) < 0.5
+        # Persistencia unificada vía LearningEvidenceProjector (no save síncrono aquí)
+        profile_repo_mock.save.assert_not_awaited()
         decision = ia_mock.answer_question.await_args.kwargs["decision"]
         assert decision.mode.value == "scaffold"
+        event_bus_mock.publish.assert_awaited()
+        event = event_bus_mock.publish.await_args.args[0]
+        assert event.signal_kind == "novice"
+        assert event.signal_strength > 0
 
     @pytest.mark.asyncio
     async def test_answer_question_permiso_denegado(

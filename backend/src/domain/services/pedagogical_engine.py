@@ -1,10 +1,16 @@
 from dataclasses import dataclass
 from enum import Enum
 from uuid import UUID
+import logging
 
 from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.aggregates.tutor_session import SessionStep, TutorSession
+from src.domain.services.cognitive_style import CognitiveStyle, CognitiveStyleSelector
+from src.domain.services.difficulty_calculator import DifficultyCalculator
+from src.domain.services.prerequisite_graph import PrerequisiteGate, PrerequisiteGraph
 from src.domain.value_objects.question import Difficulty
+
+logger = logging.getLogger("laria.pedagogy")
 
 
 class PedagogicalMode(str, Enum):
@@ -30,10 +36,23 @@ class PedagogicalDecision:
     objective: str
     evidence_summary: str
     session_step: str = "introduce"
+    cognitive_style: CognitiveStyle = CognitiveStyle.SIMPLE
+    blocked_by_prereq: bool = False
+    remediation_concepts: tuple[str, ...] = ()
 
 
 class PedagogicalEngine:
-    """Selecciona estrategia a partir de perfil (conceptos), documento y sesión."""
+    """Selecciona estrategia a partir de perfil (conceptos), prerrequisitos y sesión."""
+
+    def __init__(
+        self,
+        gate: PrerequisiteGate | None = None,
+        difficulty_calculator: DifficultyCalculator | None = None,
+        style_selector: CognitiveStyleSelector | None = None,
+    ) -> None:
+        self._gate = gate or PrerequisiteGate(PrerequisiteGraph())
+        self._difficulty = difficulty_calculator or DifficultyCalculator()
+        self._styles = style_selector or CognitiveStyleSelector()
 
     def select(
         self,
@@ -42,15 +61,23 @@ class PedagogicalEngine:
         intent: TutorIntent,
         document_concepts: tuple[str, ...] = (),
         session: TutorSession | None = None,
+        question: str = "",
     ) -> PedagogicalDecision:
+        if document_concepts:
+            self._gate.graph.extend_with_document_concepts(document_concepts)
+
         doc_mastery = profile.mastery_for(document_id) if profile else 0.0
         weak = ()
         if profile is not None:
-            weak = tuple(profile.weakest_concepts(limit=5, document_id=document_id))
+            weak = tuple(profile.weakest_concepts(limit=5, document_id=document_id, use_effective=True))
         errors = tuple((profile.frequent_errors[:5] if profile else []))
-        focus = weak or errors or tuple(c.strip().lower() for c in document_concepts[:5] if c)
+        memory_mis = ()
+        if profile is not None:
+            memory_mis = tuple(profile.pedagogical_memory.frequent_misconceptions[:3])
+        focus = weak or errors or memory_mis or tuple(
+            c.strip().lower() for c in document_concepts[:5] if c
+        )
         if session and session.focus_concepts:
-            # Prioriza foco de sesión si existe
             session_focus = tuple(session.focus_concepts[:5])
             merged = list(session_focus)
             for c in focus:
@@ -58,26 +85,58 @@ class PedagogicalEngine:
                     merged.append(c)
             focus = tuple(merged[:5])
 
-        # Mastery dominante: peor concepto en foco, o mastery documento
+        # Gate de prerrequisitos sobre el foco principal
+        blocked = False
+        remediation: tuple[str, ...] = ()
+        if focus:
+            gate = self._gate.evaluate(focus[0], profile)
+            if gate.blocked:
+                blocked = True
+                remediation = gate.remediation_focus
+                focus = remediation + tuple(c for c in focus if c not in remediation)
+                focus = focus[:5]
+
         concept_m = doc_mastery
         if profile is not None and focus:
-            concept_m = min(profile.concept_mastery_for(c) for c in focus)
-            # Si el concepto no tiene intentos, concept_mastery_for=0 → novato en ese foco
-            if all(profile.concept_mastery_for(c) == 0.0 and c not in profile.mastery_by_concept for c in focus):
+            concept_m = min(profile.effective_concept_mastery(c) for c in focus)
+            if all(
+                profile.effective_concept_mastery(c) == 0.0 and c not in profile.mastery_by_concept
+                for c in focus
+            ):
                 concept_m = doc_mastery
 
         step = session.step if session else SessionStep.INTRODUCE
         struggle = profile.total_struggle_signals if profile else 0
+        conf = 0.0
+        if profile is not None and focus:
+            confs = [
+                profile.mastery_by_concept[c].confidence
+                for c in focus
+                if c in profile.mastery_by_concept
+            ]
+            conf = sum(confs) / len(confs) if confs else 0.0
+
+        style = self._styles.select(profile, question=question)
+        difficulty = self._difficulty.from_profile(profile, focus)
+
+        # #region agent log
+        import json as _json, time as _time, logging as _logging
+        _dbg = "/home/alex/Descargas/Laria_ia/.cursor/debug-1c57d2.log"
+        _plog = _logging.getLogger("laria.pedagogy")
+        with open(_dbg, "a", encoding="utf-8") as _f:
+            _f.write(_json.dumps({"sessionId": "1c57d2", "runId": "post-fix", "hypothesisId": "C", "location": "pedagogical_engine.py:select", "message": "engine select logging probe", "data": {"focus": list(focus)[:5], "blocked": blocked, "logger_handlers": len(_plog.handlers), "root_handlers": len(_logging.getLogger().handlers), "uses_logger_info": True, "effective_level": _plog.getEffectiveLevel()}, "timestamp": int(_time.time() * 1000)}) + "\n")
+        # #endregion
+
         evidence = (
             f"doc_mastery={doc_mastery:.2f}; concept_mastery={concept_m:.2f}; "
-            f"pace={profile.pace if profile else 'unknown'}; "
+            f"confidence={conf:.2f}; pace={profile.pace if profile else 'unknown'}; "
+            f"velocity={profile.learning_velocity if profile else 0:.2f}; "
             f"attempts={profile.total_attempts if profile else 0}; "
             f"struggle_signals={struggle}; step={step.value}; "
-            f"hints={len(session.hints_given) if session else 0}"
+            f"hints={len(session.hints_given) if session else 0}; "
+            f"style={style.value}; blocked_prereq={blocked}"
         )
 
-        # El step de sesión solo ajusta objetivo/modo si hay sesión real;
-        # sin sesión, INTRODUCE no debe forzar scaffold a perfiles fuertes.
         in_hint = (
             session is not None
             and session.step == SessionStep.HINT
@@ -85,7 +144,15 @@ class PedagogicalEngine:
         )
         in_practice = session is not None and session.step == SessionStep.PRACTICE
 
-        if concept_m < 0.4 or in_hint:
+        if blocked:
+            mode = PedagogicalMode.SCAFFOLD if intent == TutorIntent.ASK else PedagogicalMode.PRACTICE
+            difficulty = Difficulty.EASY
+            objective = (
+                "No avanzar al tema complejo aún. Reforzar primero las bases: "
+                + ", ".join(remediation or focus)
+                + "."
+            )
+        elif concept_m < 0.4 or in_hint:
             mode = PedagogicalMode.SCAFFOLD if intent == TutorIntent.ASK else PedagogicalMode.PRACTICE
             difficulty = Difficulty.EASY
             objective = "Construir comprensión básica con andamiaje y pistas."
@@ -97,21 +164,36 @@ class PedagogicalEngine:
                 mode = PedagogicalMode.SCAFFOLD
         elif concept_m < 0.7 or in_practice:
             mode = PedagogicalMode.EXPLAIN if intent == TutorIntent.ASK else PedagogicalMode.PRACTICE
-            difficulty = Difficulty.MEDIUM
+            if difficulty == Difficulty.HARD:
+                difficulty = Difficulty.MEDIUM
             objective = "Consolidar conceptos débiles con explicación guiada y práctica."
         else:
             mode = PedagogicalMode.SOCRATIC if intent == TutorIntent.ASK else PedagogicalMode.PRACTICE
-            difficulty = Difficulty.HARD
             objective = "Profundizar con razonamiento socrático y retos."
 
-        # Anti-spoiler más estricto en HINT
-        anti = True
-        return PedagogicalDecision(
+        # Memoria: si hay analogías exitosas y estilo analogy, reforzar objetivo
+        if profile and style == CognitiveStyle.ANALOGY and profile.pedagogical_memory.successful_analogies:
+            objective += " Reutiliza analogías que ya funcionaron con este estudiante."
+
+        decision = PedagogicalDecision(
             mode=mode,
             target_difficulty=difficulty,
             focus_concepts=focus,
-            anti_spoiler=anti,
+            anti_spoiler=True,
             objective=objective,
             evidence_summary=evidence,
             session_step=step.value,
+            cognitive_style=style,
+            blocked_by_prereq=blocked,
+            remediation_concepts=remediation,
         )
+        logger.info(
+            "decision intent=%s mode=%s difficulty=%s style=%s blocked=%s focus=%s",
+            intent.value,
+            decision.mode.value,
+            decision.target_difficulty.value,
+            decision.cognitive_style.value,
+            decision.blocked_by_prereq,
+            list(decision.focus_concepts)[:5],
+        )
+        return decision

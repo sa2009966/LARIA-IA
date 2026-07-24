@@ -64,6 +64,9 @@ class LearningRecommendationDTO:
     kind: str
     message: str
     document_id: UUID | None = None
+    concept: str | None = None
+    priority: float = 0.0
+    suggested_minutes: int | None = None
 
 
 @dataclass
@@ -88,6 +91,21 @@ class ConceptMasteryDTO:
     attempts: int
     mastery: float
     last_score_ratio: float
+    effective_mastery: float = 0.0
+    confidence: float = 0.0
+    last_practiced_at: datetime | None = None
+    subject: str | None = None
+    help_requests: int = 0
+    error_streak: int = 0
+
+
+@dataclass
+class PedagogicalMemoryDTO:
+    frequent_misconceptions: list[str] = field(default_factory=list)
+    successful_examples: list[str] = field(default_factory=list)
+    successful_analogies: list[str] = field(default_factory=list)
+    preferred_explanation_style: str = "simple"
+    last_effective_strategies: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -100,3 +118,5 @@ class StudentProfileDTO:
     mastery_by_document: list[DocumentMasteryDTO] = field(default_factory=list)
     mastery_by_concept: list[ConceptMasteryDTO] = field(default_factory=list)
     total_struggle_signals: int = 0
+    learning_velocity: float = 0.0
+    pedagogical_memory: PedagogicalMemoryDTO | None = None

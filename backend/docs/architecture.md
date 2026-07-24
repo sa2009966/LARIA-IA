@@ -113,15 +113,33 @@ sequenceDiagram
 
 `DB_PROVIDER=memory` (default local/tests) o `mongodb` (Compose/prod). Los puertos son los mismos; DI en `dependencies.py` elige el adaptador.
 
-## Evidencia de aprendizaje (estado actual)
+## Logging operativo
+
+- `configure_logging()` en arranque (`LOG_LEVEL`, `LOG_FORMAT=text|json`).
+- `RequestLoggingMiddleware`: método, path, status, `X-Request-Id`, duración (sin bodies ni tokens).
+- Loggers: `laria.http`, `laria.pedagogy`, `laria.llm`, `laria.learning`.
+- Distinto de `/metrics` (contadores); los logs son traza operativa.
+
+## Evidencia y perfil cognitivo (estado actual)
 
 `LearningEvidenceProjector` suscribe:
 
-- `TutorQuestionAskedEvent` → interacción tutor
-- `QuizAttemptCompletedEvent` → nota de evidencia en el stream de interacciones
+- `QuizAttemptCompletedEvent` → mastery multi-señal por concepto + interacción
+- `TutorQuestionAskedEvent` → struggle/ayuda/latencia + memoria pedagógica
 
-`GET /api/v1/learning/me` expone el read model embrionario (listas de intentos e interacciones). Aún **no** hay perfil cognitivo ni adaptación automática de dificultad.
+`StudentProfile` mantiene `ConceptMastery` con `effective_mastery` (curva del olvido), confianza y `PedagogicalMemory`.
 
-## Modelo OpenAI
+`PedagogicalEngine` decide modo, dificultad dinámica, estilo cognitivo y gate de prerrequisitos **antes** de llamar al LLM (`TutorPolicy` solo compone prompts).
 
-Por defecto `OPENAI_MODEL=gpt-4o-mini`. Suficiente para JSON estructurado y tutor acotado. Un router de modelos (mini vs 4o) puede añadirse después sin romper el puerto `IAAnalyst`.
+APIs:
+
+- `GET /api/v1/learning/me` — historial + recomendaciones (`RecommendationEngine`)
+- `GET /api/v1/learning/me/profile` — mastery efectivo, confianza, memoria
+- `GET /metrics` — métricas del sistema (tokens, cache, conceptos)
+
+## Modelo OpenAI y economía
+
+- Default: `OPENAI_MODEL_DEFAULT` / `OPENAI_MODEL` = `gpt-4o-mini`
+- Fuerte: `OPENAI_MODEL_STRONG` vía `ModelRouter` (struggle alto, socrático+hard)
+- `LlmGate` + `CachePort`: reutiliza análisis/quizzes/respuestas equivalentes; invalida por hash de contenido y versión de política
+- Ver ADR-001 y ADR-003
