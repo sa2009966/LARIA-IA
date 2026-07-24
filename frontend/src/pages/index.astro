@@ -1,0 +1,40 @@
+---
+
+import "../styles/global.css";
+import Chatbot from "../components/Chatbot";
+---
+
+<html lang="es">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<meta name="viewport" content="width=device-width" />
+		<meta name="generator" content={Astro.generator} />
+    <title>Plantilla de Chatbot AI con Astro - Edición Vercel SDK</title>
+    <meta name="description" content="Una plantilla moderna y lista para producción de chatbot AI construida con Astro, React y Vercel AI SDK. Incluye múltiples proveedores de AI, streaming en tiempo real y una interfaz hermosa." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://template-astro-vercel-sdk-ai-chatbo.vercel.app/" />
+    <meta property="og:title" content="Plantilla de Chatbot AI con Astro - Edición Vercel SDK" />
+    <meta property="og:description" content="Una plantilla moderna y lista para producción de chatbot AI construida con Astro, React y Vercel AI SDK. Incluye múltiples proveedores de AI, streaming en tiempo real y una interfaz hermosa." />
+    <meta property="og:image" content="/Astro Template.png" />
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://template-astro-vercel-sdk-ai-chatbo.vercel.app/" />
+    <meta property="twitter:title" content="Plantilla de Chatbot AI con Astro - Edición Vercel SDK" />
+    <meta property="twitter:description" content="Una plantilla moderna y lista para producción de chatbot AI construida con Astro, React y Vercel AI SDK. Incluye múltiples proveedores de AI, streaming en tiempo real y una interfaz hermosa." />
+    <meta property="twitter:image" content="/Astro Template.png" />
+		<script is:inline>
+			(function() {
+				const THEME_STORAGE_KEY = "theme";
+				const stored = localStorage.getItem(THEME_STORAGE_KEY);
+				const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+				const theme = stored === "light" || stored === "dark" ? stored : prefersDark ? "dark" : "light";
+				document.documentElement.classList.add(theme);
+			})();
+		</script>
+	</head>
+		<body class="bg-background text-foreground antialiased h-screen overflow-hidden">
+			<main class="flex h-full flex-col">
+				<Chatbot client:load />
+			</main>
+		</body>
+	</html>
