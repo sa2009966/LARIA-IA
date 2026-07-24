@@ -78,3 +78,10 @@ class TutorQuestionAskedEvent(DomainEventBase):
     document_id: UUID
     question: str
     answer: str
+    signal_kind: str = "none"
+    signal_strength: float = 0.0
+    concepts: tuple[str, ...] = ()
+    latency_ms: float | None = None
+    help_level: float = 0.0
+    cognitive_style: str | None = None
+    pedagogical_mode: str | None = None

@@ -11,6 +11,7 @@ from src.interfaces.schemas.quiz_schemas import (
     DocumentMasteryItem,
     LearningHistoryResponse,
     LearningRecommendationItem,
+    PedagogicalMemoryItem,
     QuizAttemptSummaryItem,
     StudentProfileResponse,
     TutorInteractionSummaryItem,
@@ -63,6 +64,9 @@ async def get_my_learning_history(
                 kind=r.kind,
                 message=r.message,
                 document_id=str(r.document_id) if r.document_id else None,
+                concept=r.concept,
+                priority=r.priority,
+                suggested_minutes=r.suggested_minutes,
             )
             for r in history.recommendations
         ],
@@ -74,7 +78,8 @@ async def get_my_learning_history(
     response_model=StudentProfileResponse,
     summary="Perfil cognitivo del estudiante",
     description=(
-        "Solo lectura del perfil derivado de evidencia (mastery por documento, ritmo, errores)."
+        "Perfil derivado de evidencia multi-señal: mastery efectivo (con olvido), "
+        "confianza, memoria pedagógica y ritmo."
     ),
     responses={
         **RESP_401_UNAUTHORIZED,
@@ -85,6 +90,7 @@ async def get_my_profile(
     service: Annotated[LearningQueryService, Depends(get_learning_query_service)],
 ):
     profile = await service.get_profile(UUID(current_user_id))
+    mem = profile.pedagogical_memory
     return StudentProfileResponse(
         student_id=str(profile.student_id),
         pace=profile.pace,
@@ -92,6 +98,18 @@ async def get_my_profile(
         total_struggle_signals=profile.total_struggle_signals,
         frequent_errors=list(profile.frequent_errors),
         updated_at=profile.updated_at,
+        learning_velocity=profile.learning_velocity,
+        pedagogical_memory=(
+            PedagogicalMemoryItem(
+                frequent_misconceptions=list(mem.frequent_misconceptions),
+                successful_examples=list(mem.successful_examples),
+                successful_analogies=list(mem.successful_analogies),
+                preferred_explanation_style=mem.preferred_explanation_style,
+                last_effective_strategies=list(mem.last_effective_strategies),
+            )
+            if mem
+            else None
+        ),
         mastery_by_document=[
             DocumentMasteryItem(
                 document_id=str(m.document_id),
@@ -108,6 +126,12 @@ async def get_my_profile(
                 attempts=c.attempts,
                 mastery=c.mastery,
                 last_score_ratio=c.last_score_ratio,
+                effective_mastery=c.effective_mastery,
+                confidence=c.confidence,
+                last_practiced_at=c.last_practiced_at,
+                subject=c.subject,
+                help_requests=c.help_requests,
+                error_streak=c.error_streak,
             )
             for c in profile.mastery_by_concept
         ],

@@ -68,6 +68,9 @@ class LearningRecommendationItem(BaseModel):
     kind: str
     message: str
     document_id: str | None = None
+    concept: str | None = None
+    priority: float = 0.0
+    suggested_minutes: int | None = None
 
 
 class LearningHistoryResponse(BaseModel):
@@ -89,6 +92,20 @@ class ConceptMasteryItem(BaseModel):
     attempts: int
     mastery: float
     last_score_ratio: float
+    effective_mastery: float = 0.0
+    confidence: float = 0.0
+    last_practiced_at: datetime | None = None
+    subject: str | None = None
+    help_requests: int = 0
+    error_streak: int = 0
+
+
+class PedagogicalMemoryItem(BaseModel):
+    frequent_misconceptions: list[str] = []
+    successful_examples: list[str] = []
+    successful_analogies: list[str] = []
+    preferred_explanation_style: str = "simple"
+    last_effective_strategies: list[str] = []
 
 
 class StudentProfileResponse(BaseModel):
@@ -100,3 +117,5 @@ class StudentProfileResponse(BaseModel):
     mastery_by_document: list[DocumentMasteryItem]
     mastery_by_concept: list[ConceptMasteryItem] = []
     total_struggle_signals: int = 0
+    learning_velocity: float = 0.0
+    pedagogical_memory: PedagogicalMemoryItem | None = None

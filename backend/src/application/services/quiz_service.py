@@ -21,6 +21,7 @@ from src.domain.ports.repositories import (
     TutorInteractionRepository,
     TutorSessionRepository,
 )
+from src.application.services.llm_gate import LlmGate
 from src.domain.services.concept_tagger import ConceptTagger
 from src.domain.services.context_selector import ContextSelector
 from src.domain.services.pedagogical_engine import PedagogicalEngine, TutorIntent
@@ -45,6 +46,7 @@ class QuizService:
         profile_repository: Optional[StudentProfileRepository] = None,
         pedagogical_engine: Optional[PedagogicalEngine] = None,
         session_repository: Optional[TutorSessionRepository] = None,
+        llm_gate: Optional[LlmGate] = None,
     ) -> None:
         self._doc_repo = document_repository
         self._quiz_repo = quiz_repository
@@ -57,6 +59,7 @@ class QuizService:
         self._session_repo = session_repository
         self._tagger = ConceptTagger()
         self._context = ContextSelector()
+        self._llm_gate = llm_gate
 
     async def generate(
         self,
@@ -69,7 +72,7 @@ class QuizService:
             raise ValueError(self._MSG_DOC_NO_ENCONTRADO)
         if not document.is_owned_by(user_id):
             raise PermissionError(self._MSG_DOC_PERMISO)
-        if self._ia_analyst is None:
+        if self._ia_analyst is None and self._llm_gate is None:
             raise ValueError("IA Analyst not configured")
 
         profile = None
@@ -85,9 +88,18 @@ class QuizService:
             profile, document_id, TutorIntent.QUIZ, concepts, session=session
         )
         ctx = self._context.select(document, decision.focus_concepts)
-        generated = await self._ia_analyst.generate_quiz(
-            document, num_questions, decision=decision, context=ctx
-        )
+        if self._llm_gate is not None:
+            generated = await self._llm_gate.generate_quiz(
+                document,
+                num_questions,
+                decision=decision,
+                context=ctx,
+                student_id=user_id,
+            )
+        else:
+            generated = await self._ia_analyst.generate_quiz(
+                document, num_questions, decision=decision, context=ctx
+            )
 
         questions = ensure_quiz_quality(list(generated.questions))
         questions = self._tagger.tag_questions(questions, concepts or decision.focus_concepts)

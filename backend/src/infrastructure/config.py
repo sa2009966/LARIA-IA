@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     # OpenAI API
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
+    OPENAI_MODEL_DEFAULT: str = "gpt-4o-mini"
+    OPENAI_MODEL_STRONG: str = "gpt-4o"
 
     # Seguridad JWT
     SECRET_KEY: str = ""
@@ -38,9 +40,10 @@ class Settings(BaseSettings):
     MONGODB_URL: str = "mongodb://localhost:27017"
     MONGODB_DB_NAME: str = "laria_db"
 
-    # Redis (rate limit horizontal)
+    # Redis (rate limit horizontal + caché inteligente)
     REDIS_URL: str = "redis://localhost:6379/0"
     RATE_LIMIT_BACKEND: str = "memory"  # memory | redis
+    CACHE_BACKEND: str = "memory"  # memory | redis
     TRUSTED_PROXIES: str = ""  # CSV de IPs/CIDR que pueden fijar X-Forwarded-For
 
     # Aplicación
@@ -52,6 +55,10 @@ class Settings(BaseSettings):
     RATE_LIMIT_ENABLED: bool = True
     EMBODIMENT_ENABLED: bool = False
     EVENT_BUS_BACKEND: str = "memory"  # memory | outbox
+    METRICS_ENABLED: bool = True
+    FORGETTING_HALF_LIFE_DAYS: float = 14.0
+    LOG_LEVEL: str = "INFO"  # DEBUG | INFO | WARNING | ERROR
+    LOG_FORMAT: str = "text"  # text | json
 
 
 def validate_security_settings(s: "Settings") -> None:

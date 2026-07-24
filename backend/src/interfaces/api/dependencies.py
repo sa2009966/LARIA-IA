@@ -10,12 +10,15 @@ from fastapi.security import OAuth2PasswordBearer
 from src.application.services.analyze_document_service import AnalyzeDocumentService
 from src.application.services.document_service import DocumentService
 from src.application.services.learning_query_service import LearningQueryService
+from src.application.services.llm_gate import LlmGate
 from src.application.services.quiz_service import QuizService
 from src.application.services.user_service import UserService
 from src.domain.aggregates.user_aggregate import UserAggregate
+from src.domain.ports.cache_port import CachePort
 from src.domain.ports.embodiment import PresencePort, SpeechToTextPort, TextToSpeechPort
 from src.domain.ports.event_bus import EventBus
 from src.domain.ports.ia_analyst import IAAnalyst
+from src.domain.ports.metrics_port import MetricsPort
 from src.domain.ports.repositories import (
     DocumentRepository,
     QuizAttemptRepository,
@@ -26,7 +29,9 @@ from src.domain.ports.repositories import (
     UserRepository,
 )
 from src.domain.services.affect_policy import AffectPolicy
+from src.domain.services.model_router import ModelRouter
 from src.domain.services.pedagogical_engine import PedagogicalEngine
+from src.domain.services.recommendation_engine import RecommendationEngine
 from src.infrastructure.config import JWT_ALGORITHM, settings
 from src.infrastructure.embodiment.stubs import (
     LogOnlyPresence,
@@ -104,8 +109,45 @@ def get_session_repo() -> TutorSessionRepository:
 
 
 @lru_cache(maxsize=1)
+def get_metrics() -> MetricsPort:
+    from src.infrastructure.metrics.in_memory_metrics import InMemoryMetrics
+
+    return InMemoryMetrics()
+
+
+@lru_cache(maxsize=1)
 def get_ia_analyst() -> IAAnalyst:
-    return OpenAIAnalyst()
+    return OpenAIAnalyst(metrics=get_metrics())
+
+
+@lru_cache(maxsize=1)
+def get_cache() -> CachePort:
+    backend = (settings.CACHE_BACKEND or "memory").lower().strip()
+    if backend == "redis":
+        from src.infrastructure.cache.cache_adapters import RedisCache
+
+        return RedisCache(settings.REDIS_URL)
+    from src.infrastructure.cache.cache_adapters import InMemoryCache
+
+    return InMemoryCache()
+
+
+@lru_cache(maxsize=1)
+def get_model_router() -> ModelRouter:
+    default = settings.OPENAI_MODEL_DEFAULT or settings.OPENAI_MODEL
+    strong = settings.OPENAI_MODEL_STRONG or "gpt-4o"
+    return ModelRouter(default_model=default, strong_model=strong)
+
+
+@lru_cache(maxsize=1)
+def get_llm_gate() -> LlmGate:
+    return LlmGate(
+        ia_analyst=get_ia_analyst(),
+        cache=get_cache(),
+        model_router=get_model_router(),
+        metrics=get_metrics(),
+        quiz_repository=get_quiz_repo(),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -168,6 +210,7 @@ def get_analyze_service() -> AnalyzeDocumentService:
         profile_repository=get_profile_repo(),
         pedagogical_engine=get_pedagogical_engine(),
         session_repository=get_session_repo(),
+        llm_gate=get_llm_gate(),
     )
 
 
@@ -182,6 +225,7 @@ def get_quiz_service() -> QuizService:
         profile_repository=get_profile_repo(),
         pedagogical_engine=get_pedagogical_engine(),
         session_repository=get_session_repo(),
+        llm_gate=get_llm_gate(),
     )
 
 
@@ -190,6 +234,7 @@ def get_learning_query_service() -> LearningQueryService:
         attempt_repository=get_attempt_repo(),
         interaction_repository=get_interaction_repo(),
         profile_repository=get_profile_repo(),
+        recommendation_engine=RecommendationEngine(),
     )
 
 

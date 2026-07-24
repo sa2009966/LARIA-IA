@@ -1,9 +1,15 @@
 from typing import Optional
 from uuid import UUID
+from datetime import datetime
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from src.domain.aggregates.student_profile import ConceptMastery, DocumentMastery, StudentProfile
+from src.domain.aggregates.student_profile import (
+    ConceptMastery,
+    DocumentMastery,
+    PedagogicalMemory,
+    StudentProfile,
+)
 from src.domain.exceptions import ConcurrencyError
 from src.domain.ports.repositories import StudentProfileRepository
 from src.infrastructure.mongodb.database import get_database
@@ -21,6 +27,7 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
 
     @staticmethod
     def _to_doc(profile: StudentProfile, version: int) -> dict:
+        mem = profile.pedagogical_memory
         return {
             "_id": str(profile.student_id),
             "student_id": str(profile.student_id),
@@ -42,6 +49,14 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
                     "mastery": c.mastery,
                     "last_score_ratio": c.last_score_ratio,
                     "document_ids": [str(d) for d in c.document_ids],
+                    "confidence": c.confidence,
+                    "last_practiced_at": c.last_practiced_at,
+                    "help_requests": c.help_requests,
+                    "latency_ms_ema": c.latency_ms_ema,
+                    "error_streak": c.error_streak,
+                    "subject": c.subject,
+                    "evidence_count": c.evidence_count,
+                    "half_life_days": c.half_life_days,
                 }
                 for key, c in profile.mastery_by_concept.items()
             },
@@ -49,6 +64,14 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             "pace": profile.pace,
             "total_attempts": profile.total_attempts,
             "total_struggle_signals": profile.total_struggle_signals,
+            "learning_velocity": profile.learning_velocity,
+            "pedagogical_memory": {
+                "frequent_misconceptions": list(mem.frequent_misconceptions),
+                "successful_examples": list(mem.successful_examples),
+                "successful_analogies": list(mem.successful_analogies),
+                "preferred_explanation_style": mem.preferred_explanation_style,
+                "last_effective_strategies": list(mem.last_effective_strategies),
+            },
             "updated_at": profile.updated_at,
             "version": version,
         }
@@ -68,13 +91,30 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             )
         concepts: dict[str, ConceptMastery] = {}
         for key, raw in (doc.get("mastery_by_concept") or {}).items():
+            last_practiced = raw.get("last_practiced_at")
             concepts[key] = ConceptMastery(
                 concept_key=raw.get("concept_key", key),
                 attempts=int(raw.get("attempts", 0)),
                 mastery=float(raw.get("mastery", 0.0)),
                 last_score_ratio=float(raw.get("last_score_ratio", 0.0)),
                 document_ids=[UUID(d) for d in (raw.get("document_ids") or [])],
+                confidence=float(raw.get("confidence", 0.0)),
+                last_practiced_at=last_practiced,
+                help_requests=int(raw.get("help_requests", 0)),
+                latency_ms_ema=float(raw.get("latency_ms_ema", 0.0)),
+                error_streak=int(raw.get("error_streak", 0)),
+                subject=raw.get("subject"),
+                evidence_count=int(raw.get("evidence_count", raw.get("attempts", 0))),
+                half_life_days=float(raw.get("half_life_days", 14.0)),
             )
+        raw_mem = doc.get("pedagogical_memory") or {}
+        memory = PedagogicalMemory(
+            frequent_misconceptions=list(raw_mem.get("frequent_misconceptions") or []),
+            successful_examples=list(raw_mem.get("successful_examples") or []),
+            successful_analogies=list(raw_mem.get("successful_analogies") or []),
+            preferred_explanation_style=raw_mem.get("preferred_explanation_style", "simple"),
+            last_effective_strategies=list(raw_mem.get("last_effective_strategies") or []),
+        )
         return StudentProfile(
             student_id=UUID(doc["student_id"]),
             mastery_by_document=mastery,
@@ -83,6 +123,8 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             pace=doc.get("pace", "steady"),
             total_attempts=int(doc.get("total_attempts", 0)),
             total_struggle_signals=int(doc.get("total_struggle_signals", 0)),
+            pedagogical_memory=memory,
+            learning_velocity=float(doc.get("learning_velocity", 0.0)),
             updated_at=doc["updated_at"],
             version=int(doc.get("version", 0)),
         )
@@ -103,7 +145,6 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             if existing is None:
                 await db.student_profiles.insert_one(payload)
             else:
-                # Documento legacy sin version o carrera: exigir version 0 / ausente
                 result = await db.student_profiles.replace_one(
                     {
                         "_id": _id,
