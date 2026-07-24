@@ -73,6 +73,15 @@ scripts/*_report.json
 scripts/*_fail_report.json
 scripts/out/
 scripts/.cache/
+backend/scripts/*_report.json
+backend/scripts/*_fail_report.json
+backend/scripts/out/
+backend/scripts/.cache/
+
+# ─── Frontend (cuando exista en develop) ────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.astro/
 
 # ─── Artefactos de agente / notebooks locales ───────────────────────────────
 *.canvas.data.json

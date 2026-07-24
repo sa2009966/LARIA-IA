@@ -1,0 +1,103 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Valores que jamás deben usarse como SECRET_KEY en ejecución real.
+_INSECURE_SECRET_KEYS = {"", "cambia-esto-en-produccion", "changeme", "secret"}
+
+# Algoritmo JWT fijo (no configurable por entorno).
+JWT_ALGORITHM = "HS256"
+
+
+class Settings(BaseSettings):
+    """Configuración central cargada desde variables de entorno / .env"""
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    # Proveedor de IA: solo "openai" (legacy "kimi" rechazado al arrancar)
+    IA_PROVIDER: str = "openai"
+
+    # OpenAI API
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o-mini"
+
+    # Seguridad JWT
+    SECRET_KEY: str = ""
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+
+    # CORS: orígenes permitidos del frontend (JSON array en la variable de entorno)
+    CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+
+    # Admin inicial opcional (se crea al arrancar si ambos están definidos)
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_EMAIL: str = ""
+    ADMIN_PASSWORD: str = ""
+
+    # Base de datos: "memory" o "mongodb"
+    DB_PROVIDER: str = "memory"
+
+    # MongoDB
+    MONGODB_URL: str = "mongodb://localhost:27017"
+    MONGODB_DB_NAME: str = "laria_db"
+
+    # Redis (rate limit horizontal)
+    REDIS_URL: str = "redis://localhost:6379/0"
+    RATE_LIMIT_BACKEND: str = "memory"  # memory | redis
+    TRUSTED_PROXIES: str = ""  # CSV de IPs/CIDR que pueden fijar X-Forwarded-For
+
+    # Aplicación
+    APP_ENV: str = "development"  # development | production
+    APP_TITLE: str = "LARIA – Sistema Inteligente de Asistencia Educativa"
+    APP_VERSION: str = "0.1.0"
+    DEBUG: bool = False
+    ENABLE_DOCS: bool = False
+    RATE_LIMIT_ENABLED: bool = True
+    EMBODIMENT_ENABLED: bool = False
+    EVENT_BUS_BACKEND: str = "memory"  # memory | outbox
+
+
+def validate_security_settings(s: "Settings") -> None:
+    """Impide arrancar la API con una SECRET_KEY vacía o conocida.
+
+    Genera una clave segura con: openssl rand -hex 32
+    """
+    if s.SECRET_KEY in _INSECURE_SECRET_KEYS or len(s.SECRET_KEY) < 32:
+        raise RuntimeError(
+            "SECRET_KEY insegura o ausente: define una clave de al menos 32 caracteres "
+            "en la variable de entorno SECRET_KEY (p. ej. `openssl rand -hex 32`)."
+        )
+
+
+def validate_ia_settings(s: "Settings") -> None:
+    """Exige proveedor OpenAI y API key."""
+    provider = s.IA_PROVIDER.lower().strip()
+    if provider != "openai":
+        raise RuntimeError(
+            f"IA_PROVIDER='{s.IA_PROVIDER}' no soportado. LARIA solo usa OpenAI "
+            "(define IA_PROVIDER=openai)."
+        )
+    if not s.OPENAI_API_KEY or not s.OPENAI_API_KEY.strip():
+        raise RuntimeError(
+            "OPENAI_API_KEY ausente: define la clave de OpenAI en el entorno."
+        )
+
+
+def validate_runtime_settings(s: "Settings") -> None:
+    """Fail-fast de producción: Mongo obligatorio y URL definida."""
+    env = (s.APP_ENV or "development").lower().strip()
+    if env not in {"development", "production"}:
+        raise RuntimeError("APP_ENV debe ser 'development' o 'production'.")
+    if env == "production":
+        if s.DB_PROVIDER != "mongodb":
+            raise RuntimeError(
+                "APP_ENV=production exige DB_PROVIDER=mongodb (memory no es multi-réplica)."
+            )
+        if not (s.MONGODB_URL or "").strip():
+            raise RuntimeError("APP_ENV=production exige MONGODB_URL no vacío.")
+        backend = (s.RATE_LIMIT_BACKEND or "memory").lower().strip()
+        if backend not in {"memory", "redis"}:
+            raise RuntimeError("RATE_LIMIT_BACKEND debe ser 'memory' o 'redis'.")
+        bus = (s.EVENT_BUS_BACKEND or "memory").lower().strip()
+        if bus not in {"memory", "outbox"}:
+            raise RuntimeError("EVENT_BUS_BACKEND debe ser 'memory' o 'outbox'.")
+
+
+settings = Settings()
