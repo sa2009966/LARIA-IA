@@ -1,0 +1,56 @@
+# Blueprint Render — backend LARIA (rama feature/backend).
+# Dashboard: New → Blueprint → este repo → render.yaml
+# Docs: https://render.com/docs/infrastructure-as-code
+
+services:
+  - type: web
+    name: laria-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: feature/backend
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerCommand: "sh -c 'uvicorn src.main:app --host 0.0.0.0 --port $PORT'"
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: development
+      - key: DB_PROVIDER
+        value: memory
+      - key: RATE_LIMIT_BACKEND
+        value: memory
+      - key: EVENT_BUS_BACKEND
+        value: memory
+      - key: CACHE_BACKEND
+        value: memory
+      - key: IA_PROVIDER
+        value: openai
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_MODEL_DEFAULT
+        value: gpt-4o-mini
+      - key: DEBUG
+        value: "false"
+      - key: ENABLE_DOCS
+        value: "true"
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: LOG_FORMAT
+        value: text
+      - key: METRICS_ENABLED
+        value: "true"
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      # Generada por Render (no la subas a git).
+      - key: SECRET_KEY
+        generateValue: true
+      # La pones tú en el dashboard al crear el Blueprint (sync: false).
+      - key: OPENAI_API_KEY
+        sync: false
+      # Ajusta con la URL real de Vercel + fronts locales.
+      - key: CORS_ORIGINS
+        value: '["https://localhost:4321","http://localhost:4321"]'
