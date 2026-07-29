@@ -2,8 +2,6 @@
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
-@custom-variant dark (&:is(.dark *));
-
 @theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -24,41 +22,39 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-ink: var(--ink);
+  --color-celadon: var(--celadon);
+  --color-amber-soft: var(--amber-soft);
   --radius-lg: var(--radius);
-  --font-sans: var(--font-sans, "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
-  --font-mono: var(--font-mono, "Geist Mono", ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
+  --font-sans: "Source Sans 3", "Segoe UI", ui-sans-serif, sans-serif;
+  --font-display: "Fraunces", "Georgia", "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
-  @keyframes typing {
-    0%,
-    100% {
-      transform: translateY(0);
-      opacity: 0.5;
-    }
-    50% {
-      transform: translateY(-2px);
-      opacity: 1;
-    }
-  }
-
-  @keyframes loading-dots {
-    0%,
-    100% {
+  @keyframes brand-rise {
+    from {
       opacity: 0;
+      transform: translateY(18px);
     }
-    50% {
+    to {
       opacity: 1;
+      transform: translateY(0);
     }
   }
 
-  @keyframes thin-pulse {
-    0%,
-    100% {
-      transform: scale(0.95);
-      opacity: 0.8;
+  @keyframes panel-fade {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
     }
-    50% {
-      transform: scale(1.05);
-      opacity: 0.4;
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes mastery-fill {
+    from {
+      width: 0%;
     }
   }
 }
@@ -66,65 +62,69 @@
 @layer base {
   *,
   ::after,
-  ::before,
-  ::backdrop,
-  ::file-selector-button {
+  ::before {
     border-color: var(--color-border);
   }
 
   :root {
-    --background: hsl(0 0% 100%);
-    --foreground: hsl(240 10% 3.9%);
-    --card: hsl(0 0% 100%);
-    --card-foreground: hsl(240 10% 3.9%);
-    --popover: hsl(0 0% 100%);
-    --popover-foreground: hsl(240 10% 3.9%);
-    --primary: hsl(240 5.9% 10%);
-    --primary-foreground: hsl(0 0% 98%);
-    --secondary: hsl(240 4.8% 95.9%);
-    --secondary-foreground: hsl(240 5.9% 10%);
-    --muted: hsl(240 4.8% 95.9%);
-    --muted-foreground: hsl(240 3.8% 46.1%);
-    --accent: hsl(240 4.8% 95.9%);
-    --accent-foreground: hsl(240 5.9% 10%);
-    --destructive: hsl(0 84.2% 60.2%);
-    --destructive-foreground: hsl(0 0% 98%);
-    --border: hsl(240 5.9% 90%);
-    --input: hsl(240 5.9% 90%);
-    --ring: hsl(240 10% 3.9%);
+    --ink: #14233a;
+    --celadon: #2f6f6a;
+    --amber-soft: #c9853a;
+    --background: #f3f1eb;
+    --foreground: #14233a;
+    --card: rgba(255, 252, 247, 0.88);
+    --card-foreground: #14233a;
+    --popover: #fffdf9;
+    --popover-foreground: #14233a;
+    --primary: #14233a;
+    --primary-foreground: #f7f4ee;
+    --secondary: #e4ebe9;
+    --secondary-foreground: #1a3a38;
+    --muted: #e8e4dc;
+    --muted-foreground: #5b6573;
+    --accent: #2f6f6a;
+    --accent-foreground: #f4fffd;
+    --destructive: #9b3b35;
+    --destructive-foreground: #fff8f6;
+    --border: #d5d0c6;
+    --input: #d5d0c6;
+    --ring: #2f6f6a;
     --radius: 0.75rem;
   }
 
-  .dark {
-    --background: hsl(240 10% 3.9%);
-    --foreground: hsl(0 0% 98%);
-    --card: hsl(240 10% 3.9%);
-    --card-foreground: hsl(0 0% 98%);
-    --popover: hsl(240 10% 3.9%);
-    --popover-foreground: hsl(0 0% 98%);
-    --primary: hsl(0 0% 98%);
-    --primary-foreground: hsl(240 5.9% 10%);
-    --secondary: hsl(240 3.7% 15.9%);
-    --secondary-foreground: hsl(0 0% 98%);
-    --muted: hsl(240 3.7% 15.9%);
-    --muted-foreground: hsl(240 5% 64.9%);
-    --accent: hsl(240 3.7% 15.9%);
-    --accent-foreground: hsl(0 0% 98%);
-    --destructive: hsl(0 62.8% 30.6%);
-    --destructive-foreground: hsl(0 85.7% 97.3%);
-    --border: hsl(240 3.7% 26.1%);
-    --input: hsl(240 3.7% 26.1%);
-    --ring: hsl(240 10% 3.9%);
+  html,
+  body {
+    min-height: 100%;
   }
 
   body {
-    background: var(--background);
+    margin: 0;
     color: var(--foreground);
     font-family: var(--font-sans);
-    min-height: 100vh;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(47, 111, 106, 0.18), transparent 55%),
+      radial-gradient(900px 500px at 95% 5%, rgba(201, 133, 58, 0.14), transparent 50%),
+      linear-gradient(165deg, #f7f4ee 0%, #eef3f2 45%, #f3efe6 100%);
+    background-attachment: fixed;
+  }
+
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
   }
 }
 
-code {
-  font-family: var(--font-mono);
+.animate-brand-rise {
+  animation: brand-rise 0.7s ease-out both;
+}
+
+.animate-panel-fade {
+  animation: panel-fade 0.35s ease-out both;
+}
+
+.mastery-bar > span {
+  animation: mastery-fill 0.8s ease-out both;
 }

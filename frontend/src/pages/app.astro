@@ -1,0 +1,26 @@
+---
+import "../styles/global.css";
+import AppShell from "../components/app/AppShell";
+
+const view = Astro.url.searchParams.get("view");
+const initialAuthView = view === "register" ? "register" : "login";
+---
+
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LARIA — Espacio de estudio</title>
+    <meta name="description" content="Espacio de estudio LARIA: materiales, tutor adaptativo, quizzes y perfil cognitivo." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Source+Sans+3:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="h-screen overflow-hidden antialiased">
+    <AppShell client:only="react" initialAuthView={initialAuthView} />
+  </body>
+</html>
