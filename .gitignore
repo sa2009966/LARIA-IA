@@ -63,6 +63,7 @@ temp/
 
 # ─── Docker ─────────────────────────────────────────────────────────────────
 .docker/
+.vercel
 
 # ─── Postman (credenciales locales si se exportan) ──────────────────────────
 postman/*local*
@@ -78,11 +79,15 @@ backend/scripts/*_fail_report.json
 backend/scripts/out/
 backend/scripts/.cache/
 
-# ─── Frontend (cuando exista en develop) ────────────────────────────────────
+# ─── Frontend ───────────────────────────────────────────────────────────────
 frontend/node_modules/
 frontend/dist/
 frontend/.astro/
+frontend/.vercel
+frontend/.pnpm-store/
+node_modules/
 
 # ─── Artefactos de agente / notebooks locales ───────────────────────────────
 *.canvas.data.json
 .ipynb_checkpoints/
+.pnpm-store/

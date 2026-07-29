@@ -5,7 +5,7 @@ Tutor inteligente adaptativo. Monorepo:
 | Carpeta | Contenido |
 |---------|-----------|
 | [`backend/`](backend/) | API FastAPI (DDD / hexagonal, MongoDB, OpenAI) |
-| [`frontend/`](frontend/) | Cliente (rama `feature/frontend`) |
+| [`frontend/`](frontend/) | Cliente Astro + React |
 
 ## Backend (rápido)
 
@@ -23,6 +23,14 @@ docker compose up --build -d
 ```
 
 Documentación: [`backend/docs/`](backend/docs/).
+
+## Frontend (rápido)
+
+```bash
+cd frontend
+cp .env.example .env   # PUBLIC_LARIA_API_URL
+pnpm install && pnpm dev
+```
 
 ## Ramas
 

@@ -11,8 +11,10 @@ export CACHE_BACKEND="${CACHE_BACKEND:-memory}"
 
 UVICORN="${UVICORN:-}"
 if [[ -z "$UVICORN" ]]; then
-  if [[ -x /home/alex/Descargas/Laria_ia/env_dashboard/bin/uvicorn ]]; then
-    UVICORN=/home/alex/Descargas/Laria_ia/env_dashboard/bin/uvicorn
+  if [[ -x .venv/bin/uvicorn ]]; then
+    UVICORN=.venv/bin/uvicorn
+  elif [[ -x venv/bin/uvicorn ]]; then
+    UVICORN=venv/bin/uvicorn
   elif command -v uvicorn >/dev/null 2>&1; then
     UVICORN="$(command -v uvicorn)"
   else
