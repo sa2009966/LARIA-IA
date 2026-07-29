@@ -119,14 +119,6 @@ class PedagogicalEngine:
         style = self._styles.select(profile, question=question)
         difficulty = self._difficulty.from_profile(profile, focus)
 
-        # #region agent log
-        import json as _json, time as _time, logging as _logging
-        _dbg = "/home/alex/Descargas/Laria_ia/.cursor/debug-1c57d2.log"
-        _plog = _logging.getLogger("laria.pedagogy")
-        with open(_dbg, "a", encoding="utf-8") as _f:
-            _f.write(_json.dumps({"sessionId": "1c57d2", "runId": "post-fix", "hypothesisId": "C", "location": "pedagogical_engine.py:select", "message": "engine select logging probe", "data": {"focus": list(focus)[:5], "blocked": blocked, "logger_handlers": len(_plog.handlers), "root_handlers": len(_logging.getLogger().handlers), "uses_logger_info": True, "effective_level": _plog.getEffectiveLevel()}, "timestamp": int(_time.time() * 1000)}) + "\n")
-        # #endregion
-
         evidence = (
             f"doc_mastery={doc_mastery:.2f}; concept_mastery={concept_m:.2f}; "
             f"confidence={conf:.2f}; pace={profile.pace if profile else 'unknown'}; "
