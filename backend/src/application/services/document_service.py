@@ -4,6 +4,7 @@ from typing import Optional
 from src.application.concurrency import with_concurrency_retry
 from src.application.dto.document_dto import DocumentDTO, UploadDocumentDTO, DocumentListDTO
 from src.domain.aggregates.document_aggregate import DocumentAggregate
+from src.domain.ports.document_blob_store import DocumentBlobStore
 from src.domain.ports.event_bus import EventBus
 from src.domain.ports.repositories import (
     DocumentRepository,
@@ -13,6 +14,11 @@ from src.domain.ports.repositories import (
     TutorInteractionRepository,
     TutorSessionRepository,
 )
+from src.infrastructure.config import settings
+
+
+class DocumentTooLargeError(ValueError):
+    """El material supera DOCUMENT_MAX_UPLOAD_BYTES."""
 
 
 class DocumentService:
@@ -25,6 +31,7 @@ class DocumentService:
         interaction_repository: Optional[TutorInteractionRepository] = None,
         profile_repository: Optional[StudentProfileRepository] = None,
         session_repository: Optional[TutorSessionRepository] = None,
+        blob_store: Optional[DocumentBlobStore] = None,
     ) -> None:
         self._doc_repo = document_repository
         self._event_bus = event_bus
@@ -33,9 +40,75 @@ class DocumentService:
         self._interaction_repo = interaction_repository
         self._profile_repo = profile_repository
         self._session_repo = session_repository
+        self._blob_store = blob_store
+
+    def _assert_size(self, raw: bytes) -> None:
+        max_bytes = int(settings.DOCUMENT_MAX_UPLOAD_BYTES)
+        if len(raw) > max_bytes:
+            raise DocumentTooLargeError(
+                f"El archivo supera el límite de {max_bytes} bytes "
+                f"({settings.DOCUMENT_MAX_UPLOAD_BYTES} = DOCUMENT_MAX_UPLOAD_BYTES)."
+            )
 
     async def upload(self, owner_id: UUID, dto: UploadDocumentDTO) -> DocumentDTO:
-        doc = DocumentAggregate.upload(owner_id, dto.filename, dto.content, dto.subject)
+        raw = dto.content.encode("utf-8")
+        return await self._persist_upload(
+            owner_id,
+            filename=dto.filename,
+            text=dto.content,
+            subject=dto.subject,
+            raw=raw,
+        )
+
+    async def upload_bytes(
+        self,
+        owner_id: UUID,
+        *,
+        filename: str,
+        data: bytes,
+        subject: str,
+    ) -> DocumentDTO:
+        self._assert_size(data)
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                "Solo se admiten archivos de texto UTF-8 (.txt, .md) en esta fase."
+            ) from exc
+        return await self._persist_upload(
+            owner_id,
+            filename=filename,
+            text=text,
+            subject=subject,
+            raw=data,
+        )
+
+    async def _persist_upload(
+        self,
+        owner_id: UUID,
+        *,
+        filename: str,
+        text: str,
+        subject: str,
+        raw: bytes,
+    ) -> DocumentDTO:
+        self._assert_size(raw)
+
+        blob_id: Optional[str] = None
+        if self._blob_store is not None:
+            blob_id = await self._blob_store.put(
+                raw,
+                filename=filename,
+                content_type="text/plain; charset=utf-8",
+            )
+
+        doc = DocumentAggregate.upload(
+            owner_id,
+            filename,
+            content=text if blob_id is None else "",
+            subject=subject,
+            content_blob_id=blob_id,
+        )
         await self._doc_repo.save(doc)
 
         if self._event_bus:
@@ -67,7 +140,6 @@ class DocumentService:
         if not doc.is_owned_by(requesting_user_id):
             raise PermissionError("No tienes permiso para eliminar este documento")
 
-        # Cascada: evita historial fantasma de evidencia/perfil ligado al documento.
         if self._attempt_repo is not None:
             await self._attempt_repo.delete_by_document(document_id)
         if self._quiz_repo is not None:

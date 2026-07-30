@@ -1,13 +1,23 @@
-from typing import Annotated
+from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 
 from src.application.dto.document_dto import UploadDocumentDTO
 from src.application.services.analyze_document_service import AnalyzeDocumentService
-from src.application.services.document_service import DocumentService
+from src.application.services.document_service import DocumentService, DocumentTooLargeError
 from src.application.services.quiz_service import QuizService
 from src.domain.ports.ia_analyst import IAAnalysisError
+from src.infrastructure.config import settings
 from src.interfaces.api.openapi_responses import (
     RESP_401_UNAUTHORIZED,
     RESP_403_FORBIDDEN,
@@ -33,6 +43,16 @@ from src.interfaces.schemas.quiz_schemas import QuizPublicResponse
 router = APIRouter(prefix="/documents", tags=["Documentos"])
 
 _MSG_NO_ENCONTRADO = "Recurso no encontrado"
+_ALLOWED_TEXT_SUFFIXES = (".txt", ".md")
+try:
+    _HTTP_413 = status.HTTP_413_CONTENT_TOO_LARGE
+except AttributeError:  # pragma: no cover
+    _HTTP_413 = 413
+_RESP_413 = {
+    _HTTP_413: {
+        "description": "El archivo supera DOCUMENT_MAX_UPLOAD_BYTES (200 MiB por defecto).",
+    }
+}
 
 
 def _map(doc) -> DocumentResponse:
@@ -60,15 +80,18 @@ def _http_not_found(exc: Exception) -> HTTPException:
     "/",
     response_model=DocumentResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Subir documento (texto)",
+    summary="Subir documento (texto JSON)",
     description=(
         "Registra un material educativo asociado al usuario del JWT. "
-        "El contenido se envía como texto en JSON (no multipart de archivo binario)."
+        "El contenido se envía como texto en JSON (máx. 100_000 caracteres). "
+        "El cuerpo se almacena en DocumentBlobStore (GridFS si Mongo). "
+        "Para archivos grandes use `POST /documents/upload` (multipart, hasta 200 MiB)."
     ),
     response_description="Metadatos del documento creado (incluye resultado de análisis previo si existiera).",
     responses={
         **RESP_401_UNAUTHORIZED,
         **RESP_422_VALIDATION,
+        **_RESP_413,
     },
 )
 async def upload_document(
@@ -81,7 +104,78 @@ async def upload_document(
         content=body.content,
         subject=body.subject,
     )
-    doc = await service.upload(UUID(current_user_id), dto)
+    try:
+        doc = await service.upload(UUID(current_user_id), dto)
+    except DocumentTooLargeError as exc:
+        raise HTTPException(
+            status_code=_HTTP_413,
+            detail=str(exc),
+        ) from exc
+    return _map(doc)
+
+
+@router.post(
+    "/upload",
+    response_model=DocumentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Subir documento (multipart, hasta 200 MiB)",
+    description=(
+        "Sube material educativo como archivo multipart (`file` + `subject` + `filename` opcional). "
+        f"Límite: {settings.DOCUMENT_MAX_UPLOAD_BYTES} bytes (DOCUMENT_MAX_UPLOAD_BYTES). "
+        "Fase 1: solo texto UTF-8 (.txt, .md). El blob va a GridFS (Mongo) o almacén en memoria."
+    ),
+    responses={
+        **RESP_401_UNAUTHORIZED,
+        **RESP_422_VALIDATION,
+        **_RESP_413,
+    },
+)
+async def upload_document_multipart(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[DocumentService, Depends(get_document_service)],
+    file: Annotated[UploadFile, File(description="Archivo de texto UTF-8")],
+    subject: Annotated[str, Form(min_length=1, max_length=128)],
+    filename: Annotated[Optional[str], Form()] = None,
+):
+    name = (filename or file.filename or "material.txt").strip() or "material.txt"
+    lower = name.lower()
+    if not lower.endswith(_ALLOWED_TEXT_SUFFIXES):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Solo se admiten archivos .txt o .md (UTF-8) en esta fase.",
+        )
+    max_bytes = int(settings.DOCUMENT_MAX_UPLOAD_BYTES)
+    data = await file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=_HTTP_413,
+            detail=(
+                f"El archivo supera el límite de {max_bytes} bytes "
+                "(DOCUMENT_MAX_UPLOAD_BYTES)."
+            ),
+        )
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El archivo está vacío.",
+        )
+    try:
+        doc = await service.upload_bytes(
+            UUID(current_user_id),
+            filename=name,
+            data=data,
+            subject=subject,
+        )
+    except DocumentTooLargeError as exc:
+        raise HTTPException(
+            status_code=_HTTP_413,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     return _map(doc)
 
 

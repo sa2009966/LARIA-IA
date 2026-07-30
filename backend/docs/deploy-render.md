@@ -23,7 +23,8 @@
 ## Notas
 
 - Plan **free** se duerme sin tráfico; el primer request puede tardar ~1 min.
-- `DB_PROVIDER=memory`: datos no persisten entre reinicios (ok para demo). Producción: Mongo Atlas + `APP_ENV=production`.
+- **Persistencia en Render:** el Web Service en la nube **no puede** usar el Mongo Docker de tu laptop (`localhost`). Este proyecto **no usa MongoDB Atlas**. En Render la demo sigue con `DB_PROVIDER=memory` (datos no persisten entre reinicios) hasta que exista un Mongo **alcanzable desde Render** (host propio / túnel / otro proveedor). Desarrollo local: Docker Compose + `DB_PROVIDER=mongodb` + GridFS.
+- Uploads grandes (hasta 200 MiB vía GridFS) requieren Mongo; en `memory` el blob queda solo en proceso.
 - No subas `.env` ni keys a git; solo variables en el dashboard de Render.
 
 ## Deploy automático vía API (opcional)

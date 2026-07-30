@@ -19,6 +19,7 @@ from src.domain.ports.embodiment import PresencePort, SpeechToTextPort, TextToSp
 from src.domain.ports.event_bus import EventBus
 from src.domain.ports.ia_analyst import IAAnalyst
 from src.domain.ports.metrics_port import MetricsPort
+from src.domain.ports.document_blob_store import DocumentBlobStore
 from src.domain.ports.repositories import (
     DocumentRepository,
     QuizAttemptRepository,
@@ -61,11 +62,28 @@ def get_user_repo() -> UserRepository:
 
 
 @lru_cache(maxsize=1)
+def get_document_blob_store() -> DocumentBlobStore:
+    if settings.DB_PROVIDER == "mongodb":
+        from src.infrastructure.mongodb.gridfs_document_blob_store import (
+            GridFSDocumentBlobStore,
+        )
+
+        return GridFSDocumentBlobStore()
+    from src.infrastructure.persistence.in_memory_document_blob_store import (
+        InMemoryDocumentBlobStore,
+    )
+
+    return InMemoryDocumentBlobStore()
+
+
+@lru_cache(maxsize=1)
 def get_document_repo() -> DocumentRepository:
+    blob_store = get_document_blob_store()
     if settings.DB_PROVIDER == "mongodb":
         from src.infrastructure.mongodb import MongoDBDocumentRepository
-        return MongoDBDocumentRepository()
-    return InMemoryDocumentRepository()
+
+        return MongoDBDocumentRepository(blob_store=blob_store)
+    return InMemoryDocumentRepository(blob_store=blob_store)
 
 
 @lru_cache(maxsize=1)
@@ -198,6 +216,7 @@ def get_document_service() -> DocumentService:
         interaction_repository=get_interaction_repo(),
         profile_repository=get_profile_repo(),
         session_repository=get_session_repo(),
+        blob_store=get_document_blob_store(),
     )
 
 

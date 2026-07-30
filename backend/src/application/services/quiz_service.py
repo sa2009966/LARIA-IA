@@ -72,6 +72,11 @@ class QuizService:
             raise ValueError(self._MSG_DOC_NO_ENCONTRADO)
         if not document.is_owned_by(user_id):
             raise PermissionError(self._MSG_DOC_PERMISO)
+        if not document.content:
+            body = await self._doc_repo.get_content(document_id)
+            if body is None:
+                raise ValueError(self._MSG_DOC_NO_ENCONTRADO)
+            document.content = body
         if self._ia_analyst is None and self._llm_gate is None:
             raise ValueError("IA Analyst not configured")
 

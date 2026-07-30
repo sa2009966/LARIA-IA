@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     MONGODB_URL: str = "mongodb://localhost:27017"
     MONGODB_DB_NAME: str = "laria_db"
 
+    # Upload de materiales (multipart / JSON). 200 MiB por defecto.
+    DOCUMENT_MAX_UPLOAD_BYTES: int = 209_715_200
+
     # Redis (rate limit horizontal + caché inteligente)
     REDIS_URL: str = "redis://localhost:6379/0"
     RATE_LIMIT_BACKEND: str = "memory"  # memory | redis

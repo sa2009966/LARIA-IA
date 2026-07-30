@@ -99,7 +99,7 @@ erDiagram
   }
 ```
 
-Nombres reales en Mongo: `users`, `documents`, `quizzes`, `quiz_attempts`, `tutor_interactions`, `tutor_sessions`, `student_profiles`, `event_outbox`. El análisis va embebido en `documents.analysis_result`.
+Nombres reales en Mongo: `users`, `documents`, `quizzes`, `quiz_attempts`, `tutor_interactions`, `tutor_sessions`, `student_profiles`, `event_outbox`, más GridFS `fs.files` / `fs.chunks` para el cuerpo del material. El análisis va embebido en `documents.analysis_result`.
 
 ## Colecciones
 
@@ -122,12 +122,17 @@ Nombres reales en Mongo: `users`, `documents`, `quizzes`, `quiz_attempts`, `tuto
 | `_id` | string (UUID) | PK |
 | `owner_id` | string (UUID) | → `users._id`; índice |
 | `filename` | string | |
-| `content` | string | omitido en listados (`projection`) |
+| `content` | string | vacío si hay blob; legacy inline; omitido en listados |
+| `content_blob_id` | string \| null | ObjectId hex de GridFS (`fs.files`) |
 | `subject` | string | p. ej. materia |
 | `status` | `uploaded` \| `analyzing` \| `analyzed` \| `error` | |
 | `uploaded_at` | datetime | |
 | `analysis_result` | object \| ausente | embebido (no colección aparte) |
 | `error_message` | string \| null | |
+
+### GridFS (`fs.files` / `fs.chunks`)
+
+Cuerpo del material (hasta `DOCUMENT_MAX_UPLOAD_BYTES`, 200 MiB por defecto). Evita el límite BSON de 16 MB en `documents`.
 
 **`analysis_result` embebido:**
 

@@ -29,6 +29,7 @@ class DocumentAggregate:
     owner_id: UUID = field(default_factory=uuid4)
     filename: str = ""
     content: str = ""
+    content_blob_id: Optional[str] = None
     subject: Subject = field(default_factory=lambda: Subject("Matemática"))
     status: DocumentStatus = DocumentStatus.UPLOADED
     uploaded_at: datetime = field(default_factory=_utc_now)
@@ -37,11 +38,19 @@ class DocumentAggregate:
     events: list[DomainEvent] = field(default_factory=list)
 
     @staticmethod
-    def upload(owner_id: UUID, filename: str, content: str, subject: str) -> "DocumentAggregate":
+    def upload(
+        owner_id: UUID,
+        filename: str,
+        content: str,
+        subject: str,
+        *,
+        content_blob_id: Optional[str] = None,
+    ) -> "DocumentAggregate":
         doc = DocumentAggregate(
             owner_id=owner_id,
             filename=filename,
             content=content,
+            content_blob_id=content_blob_id,
             subject=Subject(subject),
             status=DocumentStatus.UPLOADED,
         )

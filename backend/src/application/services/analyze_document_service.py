@@ -220,6 +220,15 @@ class AnalyzeDocumentService:
                 pass
         return answer
 
+    async def _hydrate_content(self, document: DocumentAggregate) -> DocumentAggregate:
+        if document.content:
+            return document
+        body = await self._doc_repo.get_content(document.id)
+        if body is None:
+            raise ValueError(f"Documento con id={document.id} no encontrado")
+        document.content = body
+        return document
+
     async def _get_document_if_owner(
         self, document_id: UUID, user_id: UUID
     ) -> DocumentAggregate:
@@ -228,4 +237,4 @@ class AnalyzeDocumentService:
             raise ValueError(f"Documento con id={document_id} no encontrado")
         if not document.is_owned_by(user_id):
             raise PermissionError(self._MSG_PERMISO)
-        return document
+        return await self._hydrate_content(document)

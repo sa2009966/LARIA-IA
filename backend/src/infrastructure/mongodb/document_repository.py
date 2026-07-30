@@ -4,6 +4,7 @@ from uuid import UUID
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from src.domain.aggregates.document_aggregate import DocumentAggregate, DocumentStatus
+from src.domain.ports.document_blob_store import DocumentBlobStore
 from src.domain.ports.repositories import DocumentRepository
 from src.domain.value_objects.analysis_result import AnalysisResult
 from src.domain.value_objects.subject import Subject
@@ -12,8 +13,13 @@ from src.infrastructure.mongodb.database import get_database
 
 class MongoDBDocumentRepository(DocumentRepository):
 
-    def __init__(self, database: Optional[AsyncIOMotorDatabase] = None) -> None:
+    def __init__(
+        self,
+        database: Optional[AsyncIOMotorDatabase] = None,
+        blob_store: Optional[DocumentBlobStore] = None,
+    ) -> None:
         self._database = database
+        self._blob_store = blob_store
 
     async def _get_db(self) -> AsyncIOMotorDatabase:
         if self._database is None:
@@ -34,7 +40,6 @@ class MongoDBDocumentRepository(DocumentRepository):
         concepts_raw = doc.get("key_concepts", [])
         concepts: list[str] = []
         for item in concepts_raw:
-            # Compatibilidad con documentos antiguos (tuple concept, score).
             if isinstance(item, (list, tuple)) and item:
                 concepts.append(str(item[0]))
             else:
@@ -55,18 +60,23 @@ class MongoDBDocumentRepository(DocumentRepository):
 
     @staticmethod
     def _to_doc(doc: DocumentAggregate) -> dict:
+        # Con blob: no embeber cuerpo (límite BSON 16MB). Legacy: content inline si no hay blob.
+        inline = "" if doc.content_blob_id else (doc.content or "")
         result = {
             "_id": str(doc.id),
             "owner_id": str(doc.owner_id),
             "filename": doc.filename,
-            "content": doc.content,
+            "content": inline,
+            "content_blob_id": doc.content_blob_id,
             "subject": doc.subject.value,
             "status": doc.status.value,
             "uploaded_at": doc.uploaded_at,
             "error_message": doc.error_message,
         }
         if doc.analysis_result is not None:
-            result["analysis_result"] = MongoDBDocumentRepository._analysis_result_to_doc(doc.analysis_result)
+            result["analysis_result"] = MongoDBDocumentRepository._analysis_result_to_doc(
+                doc.analysis_result
+            )
         return result
 
     @staticmethod
@@ -76,20 +86,30 @@ class MongoDBDocumentRepository(DocumentRepository):
             id=UUID(doc["_id"]),
             owner_id=UUID(doc["owner_id"]),
             filename=doc["filename"],
-            content=doc["content"],
+            content=doc.get("content") or "",
+            content_blob_id=doc.get("content_blob_id"),
             subject=subject,
             status=DocumentStatus(doc["status"]),
             uploaded_at=doc["uploaded_at"],
             error_message=doc.get("error_message"),
         )
         if "analysis_result" in doc and doc["analysis_result"] is not None:
-            agg.analysis_result = MongoDBDocumentRepository._analysis_result_from_doc(doc["analysis_result"])
+            agg.analysis_result = MongoDBDocumentRepository._analysis_result_from_doc(
+                doc["analysis_result"]
+            )
         return agg
 
     async def find_by_id(self, document_id: UUID) -> Optional[DocumentAggregate]:
         db = await self._get_db()
-        doc = await db.documents.find_one({"_id": str(document_id)})
-        return self._from_doc(doc) if doc else None
+        # Metadatos: no cargar content inline (puede ser legacy grande).
+        doc = await db.documents.find_one(
+            {"_id": str(document_id)},
+            projection={"content": 0},
+        )
+        if doc is None:
+            return None
+        doc.setdefault("content", "")
+        return self._from_doc(doc)
 
     async def find_by_owner(self, owner_id: UUID) -> list[DocumentAggregate]:
         db = await self._get_db()
@@ -107,10 +127,17 @@ class MongoDBDocumentRepository(DocumentRepository):
         db = await self._get_db()
         doc = await db.documents.find_one(
             {"_id": str(document_id)},
-            projection={"content": 1},
+            projection={"content": 1, "content_blob_id": 1},
         )
         if doc is None:
             return None
+        blob_id = doc.get("content_blob_id")
+        if blob_id and self._blob_store is not None:
+            try:
+                raw = await self._blob_store.get(str(blob_id))
+            except KeyError:
+                return ""
+            return raw.decode("utf-8", errors="replace")
         return doc.get("content", "") or ""
 
     async def save(self, document: DocumentAggregate) -> None:
@@ -120,4 +147,14 @@ class MongoDBDocumentRepository(DocumentRepository):
 
     async def delete(self, document_id: UUID) -> None:
         db = await self._get_db()
+        existing = await db.documents.find_one(
+            {"_id": str(document_id)},
+            projection={"content_blob_id": 1},
+        )
         await db.documents.delete_one({"_id": str(document_id)})
+        if (
+            existing
+            and existing.get("content_blob_id")
+            and self._blob_store is not None
+        ):
+            await self._blob_store.delete(str(existing["content_blob_id"]))

@@ -37,7 +37,8 @@ Todos requieren JWT. Solo el **propietario** opera sobre el recurso. Ajeno/inexi
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `POST` | `/api/v1/documents/` | Subir material (JSON: `filename`, `content`, `subject`) |
+| `POST` | `/api/v1/documents/` | Subir material (JSON: `filename`, `content`, `subject`; cuerpo → blob/GridFS) |
+| `POST` | `/api/v1/documents/upload` | Subir archivo multipart (`file`, `subject`, `filename` opcional; hasta 200 MiB; `.txt`/`.md`) |
 | `GET` | `/api/v1/documents/` | Listar mis documentos |
 | `GET` | `/api/v1/documents/{document_id}` | Obtener uno propio |
 | `DELETE` | `/api/v1/documents/{document_id}` | Eliminar (`204`) |
@@ -46,6 +47,13 @@ Todos requieren JWT. Solo el **propietario** opera sobre el recurso. Ajeno/inexi
 | `POST` | `/api/v1/documents/{document_id}/quiz` | Generar quiz (`num_questions` 1–20). **Sin** `correct_answer` en la respuesta |
 
 **IA fallida:** `502` con mensaje seguro (`IAAnalysisError`).
+
+**Almacenamiento / contratos (auditoría GridFS):**
+- El cuerpo del material **no** viaja en listados ni se embebe en BSON si hay `content_blob_id` (GridFS `fs.files` / `fs.chunks`).
+- JSON (`POST /documents/`) sigue válido para textos ≤ 100 000 caracteres; archivos grandes deben usar `POST /documents/upload`.
+- Respuesta de upload/list/get: solo metadatos (sin `content`). Analyze/ask/quiz hidratan desde el blob en servidor.
+- Front (Vercel): para PDFs u otros binarios aún no hay extractor; fase 1 = `.txt`/`.md` UTF-8. Límite configurable: `DOCUMENT_MAX_UPLOAD_BYTES` (200 MiB). Sobre límite → `413`.
+- Domínio limpio: routers solo validan HTTP; tamaño y blob viven en application/infrastructure.
 
 ---
 

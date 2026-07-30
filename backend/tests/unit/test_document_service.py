@@ -3,12 +3,18 @@ from uuid import uuid4
 
 import pytest
 
-from src.application.services.document_service import DocumentService
+from src.application.services.document_service import DocumentService, DocumentTooLargeError
 from src.application.dto.document_dto import UploadDocumentDTO, DocumentDTO, DocumentListDTO
 from src.domain.aggregates.document_aggregate import DocumentAggregate
 from src.domain.aggregates.student_profile import StudentProfile
+from src.domain.ports.document_blob_store import DocumentBlobStore
 from src.domain.ports.repositories import DocumentRepository
 from src.domain.ports.event_bus import EventBus
+from src.infrastructure.config import settings
+from src.infrastructure.persistence.in_memory_document_blob_store import (
+    InMemoryDocumentBlobStore,
+)
+from src.infrastructure.persistence.in_memory_document_repo import InMemoryDocumentRepository
 from src.infrastructure.persistence.in_memory_quiz_attempt_repo import InMemoryQuizAttemptRepository
 from src.infrastructure.persistence.in_memory_quiz_repo import InMemoryQuizRepository
 from src.infrastructure.persistence.in_memory_student_profile_repo import (
@@ -41,13 +47,33 @@ def event_bus_mock() -> AsyncMock:
 
 
 @pytest.fixture
-def servicio(repo_mock: AsyncMock, event_bus_mock: AsyncMock) -> DocumentService:
-    return DocumentService(document_repository=repo_mock, event_bus=event_bus_mock)
+def blob_store_mock() -> AsyncMock:
+    mock = AsyncMock(spec=DocumentBlobStore)
+    mock.put = AsyncMock(return_value="blob-test-id")
+    mock.get = AsyncMock(return_value=b"texto")
+    mock.delete = AsyncMock()
+    return mock
+
+
+@pytest.fixture
+def servicio(
+    repo_mock: AsyncMock, event_bus_mock: AsyncMock, blob_store_mock: AsyncMock
+) -> DocumentService:
+    return DocumentService(
+        document_repository=repo_mock,
+        event_bus=event_bus_mock,
+        blob_store=blob_store_mock,
+    )
 
 
 class TestDocumentService:
     @pytest.mark.asyncio
-    async def test_upload_crea_documento_con_owner_id(self, servicio: DocumentService, repo_mock: AsyncMock):
+    async def test_upload_crea_documento_con_owner_id(
+        self,
+        servicio: DocumentService,
+        repo_mock: AsyncMock,
+        blob_store_mock: AsyncMock,
+    ):
         owner_id = uuid4()
         dto = UploadDocumentDTO(filename="nota.txt", content="texto", subject="Matemática")
         result = await servicio.upload(owner_id, dto)
@@ -55,7 +81,37 @@ class TestDocumentService:
         assert result.owner_id == owner_id
         assert result.filename == "nota.txt"
         assert result.subject == "Matemática"
+        blob_store_mock.put.assert_awaited_once()
+        saved: DocumentAggregate = repo_mock.save.await_args.args[0]
+        assert saved.content_blob_id == "blob-test-id"
+        assert saved.content == ""
         repo_mock.save.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_upload_rechaza_si_supera_limite(
+        self, servicio: DocumentService, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(settings, "DOCUMENT_MAX_UPLOAD_BYTES", 10)
+        dto = UploadDocumentDTO(filename="nota.txt", content="12345678901", subject="Matemática")
+        with pytest.raises(DocumentTooLargeError):
+            await servicio.upload(uuid4(), dto)
+
+    @pytest.mark.asyncio
+    async def test_blob_store_no_embebe_contenido_en_repo(self):
+        blob = InMemoryDocumentBlobStore()
+        repo = InMemoryDocumentRepository(blob_store=blob)
+        service = DocumentService(document_repository=repo, blob_store=blob)
+        owner_id = uuid4()
+        body = "contenido pedagógico largo " * 20
+        await service.upload(
+            owner_id,
+            UploadDocumentDTO(filename="a.txt", content=body, subject="Matemática"),
+        )
+        listed = await repo.find_by_owner(owner_id)
+        assert listed and listed[0].content == ""
+        assert listed[0].content_blob_id
+        loaded = await repo.get_content(listed[0].id)
+        assert loaded == body
 
     @pytest.mark.asyncio
     async def test_get_by_id_lanza_si_no_existe(self, servicio: DocumentService, repo_mock: AsyncMock):
