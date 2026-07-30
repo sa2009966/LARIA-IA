@@ -47,6 +47,7 @@ env_dashboard/
 !.vscode/extensions.json
 .idea/
 .cursor/
+.agents/
 *.swp
 *.swo
 *~
