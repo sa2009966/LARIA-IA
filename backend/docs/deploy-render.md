@@ -26,7 +26,18 @@
 - `DB_PROVIDER=memory`: datos no persisten entre reinicios (ok para demo). Producción: Mongo Atlas + `APP_ENV=production`.
 - No subas `.env` ni keys a git; solo variables en el dashboard de Render.
 
-## Si ya creaste el Web Service a mano
+## Deploy automático vía API (opcional)
+
+Si tienes una API Key de Render (`rnd_...`):
+
+```bash
+cd ~/Descargas/Laria_ia/LARIA-IA
+export RENDER_API_KEY='rnd_...'   # Account Settings → API Keys
+./backend/scripts/deploy-render-api.sh
+```
+
+El script lee `OPENAI_API_KEY` de `backend/.env` (gitignored), genera `SECRET_KEY`, crea/actualiza `laria-backend` y dispara el deploy. **No imprime secretos.**
+
 
 Root Directory: `backend`  
 Dockerfile Path: `./Dockerfile` (con root `backend`) o `backend/Dockerfile` desde la raíz del repo  

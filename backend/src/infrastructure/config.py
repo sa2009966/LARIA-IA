@@ -1,10 +1,38 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Annotated, Any
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Valores que jamás deben usarse como SECRET_KEY en ejecución real.
 _INSECURE_SECRET_KEYS = {"", "cambia-esto-en-produccion", "changeme", "secret"}
 
 # Algoritmo JWT fijo (no configurable por entorno).
 JWT_ALGORITHM = "HS256"
+
+
+def _parse_cors_origins(value: Any) -> list[str]:
+    """Acepta JSON array o lista CSV (Render a veces rompe las comillas del JSON)."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip().rstrip("/") for v in value if str(v).strip()]
+    text = str(value).strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        import json
+
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            # Fallback: quitar corchetes/comillas rotas y tratar como CSV
+            text = text.strip("[]")
+        else:
+            if isinstance(parsed, list):
+                return [str(v).strip().rstrip("/") for v in parsed if str(v).strip()]
+            text = str(parsed)
+    parts = [p.strip().strip('"').strip("'").rstrip("/") for p in text.split(",")]
+    return [p for p in parts if p]
 
 
 class Settings(BaseSettings):
@@ -25,8 +53,13 @@ class Settings(BaseSettings):
     SECRET_KEY: str = ""
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
-    # CORS: orígenes permitidos del frontend (JSON array en la variable de entorno)
-    CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    # CORS: JSON array o CSV. NoDecode evita que pydantic-settings falle antes del validador.
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def _coerce_cors_origins(cls, value: Any) -> list[str]:
+        return _parse_cors_origins(value)
 
     # Admin inicial opcional (se crea al arrancar si ambos están definidos)
     ADMIN_USERNAME: str = "admin"
