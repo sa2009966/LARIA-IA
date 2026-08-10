@@ -62,6 +62,7 @@ tmp/
 temp/
 *.tmp
 .tmp-browser/
+.tmp-render/
 .agent-browser/
 .render_api_key.tmp
 backend/scripts/fix_render_deploy.py

@@ -58,11 +58,17 @@ class TestLoggingIntegration:
         assert len(root.handlers) == 1
 
     def test_health_emits_log_and_request_id(self, client: TestClient, caplog):
-        with caplog.at_level(logging.INFO, logger="src.main"):
+        """/health responde y propaga X-Request-Id; el cuerpo no loguea a INFO
+        (el middleware degrada /health a DEBUG para no saturar probes)."""
+        with caplog.at_level(logging.DEBUG, logger="laria.http"):
             r = client.get("/health")
         assert r.status_code == 200
         assert "X-Request-Id" in r.headers
-        assert any("health_check.invoked" in rec.message for rec in caplog.records)
+        assert r.json().get("status") == "ok"
+        assert any(
+            "request method=GET" in rec.message and "path=/health" in rec.message
+            for rec in caplog.records
+        )
 
     def test_http_middleware_logs_api_request(self, client: TestClient, caplog):
         email = f"log_{uuid4().hex[:8]}@example.com"
