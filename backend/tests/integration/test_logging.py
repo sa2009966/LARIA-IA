@@ -9,40 +9,18 @@ from fastapi.testclient import TestClient
 
 from src.domain.services.pedagogical_engine import PedagogicalEngine, TutorIntent
 from src.infrastructure.logging_setup import configure_logging, reset_logging_for_tests
-from src.interfaces.api import dependencies as deps
 from src.main import app
-
-
-def _clear_caches() -> None:
-    for name in (
-        "get_user_repo",
-        "get_document_repo",
-        "get_quiz_repo",
-        "get_attempt_repo",
-        "get_interaction_repo",
-        "get_profile_repo",
-        "get_session_repo",
-        "get_ia_analyst",
-        "get_event_bus",
-        "get_metrics",
-        "get_cache",
-        "get_llm_gate",
-        "get_model_router",
-        "get_pedagogical_engine",
-    ):
-        fn = getattr(deps, name, None)
-        if fn is not None and hasattr(fn, "cache_clear"):
-            fn.cache_clear()
+from tests.conftest import clear_dependency_caches
 
 
 @pytest.fixture
 def client():
-    _clear_caches()
+    clear_dependency_caches()
     reset_logging_for_tests()
     configure_logging(level="INFO", fmt="text")
     with TestClient(app) as c:
         yield c
-    _clear_caches()
+    clear_dependency_caches()
 
 
 class TestLoggingIntegration:

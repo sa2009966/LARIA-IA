@@ -111,6 +111,11 @@ async def upload_document(
             status_code=_HTTP_413,
             detail=str(exc),
         ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
     return _map(doc)
 
 
@@ -141,7 +146,7 @@ async def upload_document_multipart(
     lower = name.lower()
     if not lower.endswith(_ALLOWED_TEXT_SUFFIXES):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Solo se admiten archivos .txt o .md (UTF-8) en esta fase.",
         )
     max_bytes = int(settings.DOCUMENT_MAX_UPLOAD_BYTES)
@@ -156,7 +161,7 @@ async def upload_document_multipart(
         )
     if not data:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="El archivo está vacío.",
         )
     try:
@@ -173,7 +178,7 @@ async def upload_document_multipart(
         ) from exc
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
     return _map(doc)
@@ -212,12 +217,12 @@ async def list_my_documents(
     },
 )
 async def get_document(
-    document_id: str,
+    document_id: UUID,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ):
     try:
-        doc = await service.get_by_id(UUID(document_id), UUID(current_user_id))
+        doc = await service.get_by_id(document_id, UUID(current_user_id))
     except (ValueError, PermissionError) as exc:
         raise _http_not_found(exc)
     return _map(doc)
@@ -239,12 +244,12 @@ async def get_document(
     },
 )
 async def delete_document(
-    document_id: str,
+    document_id: UUID,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ):
     try:
-        await service.delete(UUID(document_id), UUID(current_user_id))
+        await service.delete(document_id, UUID(current_user_id))
     except (ValueError, PermissionError) as exc:
         raise _http_not_found(exc)
 
@@ -267,7 +272,7 @@ async def delete_document(
     },
 )
 async def analyze_document(
-    document_id: str,
+    document_id: UUID,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[AnalyzeDocumentService, Depends(get_analyze_service)],
     force_refresh: bool = Query(
@@ -276,7 +281,7 @@ async def analyze_document(
     ),
 ):
     try:
-        analysis = await service.execute(UUID(document_id), UUID(current_user_id), force_refresh=force_refresh)
+        analysis = await service.execute(document_id, UUID(current_user_id), force_refresh=force_refresh)
     except (ValueError, PermissionError) as exc:
         raise _http_not_found(exc)
     except IAAnalysisError as exc:
@@ -306,13 +311,13 @@ async def analyze_document(
     },
 )
 async def ask_question(
-    document_id: str,
+    document_id: UUID,
     body: QuestionRequest,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[AnalyzeDocumentService, Depends(get_analyze_service)],
 ):
     try:
-        answer = await service.answer_question(UUID(document_id), body.question, UUID(current_user_id))
+        answer = await service.answer_question(document_id, body.question, UUID(current_user_id))
     except (ValueError, PermissionError) as exc:
         raise _http_not_found(exc)
     except IAAnalysisError as exc:
@@ -338,7 +343,7 @@ async def ask_question(
     },
 )
 async def generate_quiz(
-    document_id: str,
+    document_id: UUID,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[QuizService, Depends(get_quiz_service)],
     num_questions: int = Query(
@@ -349,7 +354,7 @@ async def generate_quiz(
     ),
 ):
     try:
-        quiz = await service.generate(UUID(document_id), UUID(current_user_id), num_questions=num_questions)
+        quiz = await service.generate(document_id, UUID(current_user_id), num_questions=num_questions)
     except (ValueError, PermissionError) as exc:
         raise _http_not_found(exc)
     except IAAnalysisError as exc:

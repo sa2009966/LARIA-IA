@@ -1,10 +1,18 @@
-# Deploy en Render — backend LARIA
+# Deploy en Render — demo efímera (NO producción)
+
+> **Etiqueta:** el blueprint de [`render.yaml`](../../render.yaml) es una **demo efímera**.
+> Usa `APP_ENV=development`, `DB_PROVIDER=memory`, `EVENT_BUS_BACKEND=memory` y
+> `ENABLE_DOCS=true`. Los datos **no persisten** entre reinicios ni sleep del plan free.
+>
+> **Producción real** = Docker Compose local/servidor propio con Mongo + Redis +
+> `APP_ENV=production` (`ENABLE_DOCS=false`, `EVENT_BUS_BACKEND=outbox`). Ver
+> [`production-checklist.md`](./production-checklist.md).
 
 ## Qué hay en el repo
 
 | Archivo | Rol |
 |---------|-----|
-| [`render.yaml`](../../render.yaml) | Blueprint (Web Service Docker, plan free) |
+| [`render.yaml`](../../render.yaml) | Blueprint **demo** (`LARIA_DEPLOY_TIER=demo`, memory, plan free; servicio `laria-backend`) |
 | [`Dockerfile`](../Dockerfile) | Imagen; escucha `$PORT` (Render) o `8000` |
 
 ## Pasos (GitHub ya conectado)

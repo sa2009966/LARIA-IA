@@ -174,7 +174,9 @@ def get_event_bus() -> EventBus:
     if backend == "outbox" and settings.DB_PROVIDER == "mongodb":
         from src.infrastructure.mongodb.outbox_event_bus import MongoOutboxEventBus
 
-        return MongoOutboxEventBus()
+        return MongoOutboxEventBus(
+            metrics=get_metrics() if settings.METRICS_ENABLED else None,
+        )
     return InMemoryEventBus()
 
 
@@ -185,17 +187,20 @@ def get_pedagogical_engine() -> PedagogicalEngine:
 
 @lru_cache(maxsize=1)
 def get_speech_to_text() -> SpeechToTextPort:
-    return NullSpeechToText()
+    metrics = get_metrics() if settings.METRICS_ENABLED else None
+    return NullSpeechToText(metrics=metrics)
 
 
 @lru_cache(maxsize=1)
 def get_text_to_speech() -> TextToSpeechPort:
-    return NullTextToSpeech()
+    metrics = get_metrics() if settings.METRICS_ENABLED else None
+    return NullTextToSpeech(metrics=metrics)
 
 
 @lru_cache(maxsize=1)
 def get_presence() -> PresencePort:
-    return LogOnlyPresence()
+    metrics = get_metrics() if settings.METRICS_ENABLED else None
+    return LogOnlyPresence(metrics=metrics)
 
 
 @lru_cache(maxsize=1)
@@ -217,6 +222,7 @@ def get_document_service() -> DocumentService:
         profile_repository=get_profile_repo(),
         session_repository=get_session_repo(),
         blob_store=get_document_blob_store(),
+        max_upload_bytes=settings.DOCUMENT_MAX_UPLOAD_BYTES,
     )
 
 
@@ -230,6 +236,7 @@ def get_analyze_service() -> AnalyzeDocumentService:
         pedagogical_engine=get_pedagogical_engine(),
         session_repository=get_session_repo(),
         llm_gate=get_llm_gate(),
+        metrics=get_metrics() if settings.METRICS_ENABLED else None,
     )
 
 

@@ -1,5 +1,6 @@
 from uuid import UUID
 from typing import Optional
+import logging
 import time
 
 from src.application.concurrency import with_concurrency_retry
@@ -17,6 +18,7 @@ from src.domain.ports.repositories import (
 )
 from src.domain.ports.ia_analyst import IAAnalysisError, IAAnalyst
 from src.domain.ports.event_bus import EventBus
+from src.domain.ports.metrics_port import MetricsPort
 from src.domain.services.context_selector import ContextSelector
 from src.domain.services.learning_signal_detector import (
     LearningSignalDetector,
@@ -24,6 +26,8 @@ from src.domain.services.learning_signal_detector import (
 )
 from src.domain.services.pedagogical_engine import PedagogicalEngine, TutorIntent
 from src.domain.value_objects.analysis_result import AnalysisResult
+
+logger = logging.getLogger(__name__)
 
 
 class AnalyzeDocumentService:
@@ -39,6 +43,7 @@ class AnalyzeDocumentService:
         pedagogical_engine: Optional[PedagogicalEngine] = None,
         session_repository: Optional[TutorSessionRepository] = None,
         llm_gate: Optional[LlmGate] = None,
+        metrics: Optional[MetricsPort] = None,
     ) -> None:
         self._doc_repo = document_repository
         self._ia_analyst = ia_analyst
@@ -50,6 +55,7 @@ class AnalyzeDocumentService:
         self._signals = LearningSignalDetector()
         self._context = ContextSelector()
         self._llm_gate = llm_gate
+        self._metrics = metrics
 
     async def execute(
         self,
@@ -217,7 +223,16 @@ class AnalyzeDocumentService:
                     )
                 )
             except Exception:
-                pass
+                logger.exception(
+                    "event_publish_failed event=TutorQuestionAskedEvent student=%s document=%s",
+                    requesting_user_id,
+                    document_id,
+                )
+                if self._metrics:
+                    self._metrics.incr(
+                        "event_publish_failed",
+                        event="TutorQuestionAskedEvent",
+                    )
         return answer
 
     async def _hydrate_content(self, document: DocumentAggregate) -> DocumentAggregate:

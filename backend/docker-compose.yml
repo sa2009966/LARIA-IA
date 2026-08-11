@@ -32,6 +32,7 @@ services:
       MONGODB_DB_NAME: laria_db
       REDIS_URL: redis://redis:6379/0
       RATE_LIMIT_BACKEND: redis
+      CACHE_BACKEND: redis
       EVENT_BUS_BACKEND: outbox
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       SECRET_KEY: ${SECRET_KEY:?Define SECRET_KEY en .env (openssl rand -hex 32)}

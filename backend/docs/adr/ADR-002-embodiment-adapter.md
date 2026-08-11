@@ -17,9 +17,13 @@ con cariño: presencia sin pedagogía.
 - La política afectiva (`AffectPolicy`) deriva estados discretos
   (`calm | encouraging | patient | celebratory`) del perfil/decisión pedagógica,
   **no** de un LLM inventando humor.
-- Adaptadores actuales: stubs (`NullSpeechToText`, `NullTextToSpeech`, `LogOnlyPresence`).
+- Adaptadores actuales: stubs (`NullSpeechToText`, `NullTextToSpeech`, `LogOnlyPresence`)
+  con timeout (`asyncio.wait_for`) y métricas `speech_latency` / `command_failed` /
+  `device_errors` — fallos del dispositivo se tragan y no propagan al tutor.
 - Feature flag `EMBODIMENT_ENABLED=false` por defecto: el arranque y el motor
   pedagógico son idénticos al comportamiento sin cuerpo.
+- **Contrato:** los endpoints pedagógicos (`/ask`, quiz, profile) no invocan STT/TTS
+  en el camino crítico; embodiment es opt-in y fallible.
 - **Fuera de alcance ahora:** drivers reales (Whisper, TTS, ROS/serial, cámara).
 
 ## Riesgos documentados

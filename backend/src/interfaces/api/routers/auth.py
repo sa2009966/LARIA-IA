@@ -44,7 +44,14 @@ async def register(
     try:
         user = await service.register(dto)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+        detail = str(exc)
+        # Conflicto de identidad → 409; contraseña débil u otra validación → 422.
+        code = (
+            status.HTTP_409_CONFLICT
+            if detail.startswith("Ya existe")
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
+        )
+        raise HTTPException(status_code=code, detail=detail)
     return UserResponse(
         id=str(user.id),
         username=user.username,

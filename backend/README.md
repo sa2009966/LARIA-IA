@@ -54,12 +54,21 @@ MongoDB autenticado **sin** puertos expuestos al host. API en el puerto `8000`.
 
 ## Tests
 
+Canónico (desde `backend/`, con el Python de `env_dashboard`). El `tests/conftest.py`
+**fuerza** backends `memory` para que un `.env` local con Mongo no cuelgue TestClient:
+
 ```bash
-pip install -r requirements-dev.txt
-RATE_LIMIT_ENABLED=false pytest tests -q
+/home/alex/Descargas/Laria_ia/env_dashboard/bin/python -m pytest tests -q
 ```
 
-Incluye unitarios (`tests/unit`) y API (`tests/api` con TestClient).
+Alternativa tras `pip install -r requirements-dev.txt` en ese mismo venv:
+
+```bash
+pytest tests -q
+```
+
+Incluye unitarios (`tests/unit`), API (`tests/api`) e integración (`tests/integration`).
+Timeout por test: 30s (`pytest-timeout`). El warning de httpx+TestClient está filtrado en `pytest.ini`.
 
 ## Flujo de ramas (backend)
 

@@ -80,6 +80,7 @@ class LearningEvidenceProjector:
                 profile.pedagogical_memory.remember_strategy(event.pedagogical_mode)
             await self._profile_repo.save(profile)
             if self._metrics:
+                self._metrics.incr("profile_updates", source="ask")
                 self._metrics.incr(
                     "laria_struggle_signals",
                     kind=event.signal_kind or "unknown",
@@ -141,6 +142,7 @@ class LearningEvidenceProjector:
             )
             await self._profile_repo.save(profile)
             if self._metrics:
+                self._metrics.incr("profile_updates", source="quiz")
                 self._metrics.incr("laria_quiz_attempts")
                 self._metrics.observe("laria_quiz_score_ratio", ratio)
                 weak = len(profile.weakest_concepts(limit=20, use_effective=True))

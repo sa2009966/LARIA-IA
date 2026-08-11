@@ -93,17 +93,23 @@ async def _ensure_mongo_indexes() -> None:
 
 
 async def _outbox_worker_loop(stop: asyncio.Event) -> None:
-    from src.infrastructure.mongodb.outbox_event_bus import MongoOutboxEventBus
-    from src.interfaces.api.dependencies import get_event_bus
+    import logging
 
+    from src.infrastructure.mongodb.outbox_event_bus import MongoOutboxEventBus
+    from src.interfaces.api.dependencies import get_event_bus, get_metrics
+
+    logger = logging.getLogger("laria.outbox")
     bus = get_event_bus()
     if not isinstance(bus, MongoOutboxEventBus):
         return
+    metrics = get_metrics() if settings.METRICS_ENABLED else None
     while not stop.is_set():
         try:
             await bus.process_pending(limit=25)
         except Exception:
-            pass
+            logger.exception("outbox_worker_loop_error")
+            if metrics:
+                metrics.incr("outbox_failed", reason="worker_loop")
         try:
             await asyncio.wait_for(stop.wait(), timeout=1.0)
         except asyncio.TimeoutError:

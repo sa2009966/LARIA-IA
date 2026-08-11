@@ -4,26 +4,16 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from src.interfaces.api import dependencies as deps
 from src.main import app
-
-
-def _clear_caches() -> None:
-    deps.get_user_repo.cache_clear()
-    deps.get_document_repo.cache_clear()
-    deps.get_quiz_repo.cache_clear()
-    deps.get_attempt_repo.cache_clear()
-    deps.get_interaction_repo.cache_clear()
-    deps.get_ia_analyst.cache_clear()
-    deps.get_event_bus.cache_clear()
+from tests.conftest import clear_dependency_caches
 
 
 @pytest.fixture
 def client():
-    _clear_caches()
+    clear_dependency_caches()
     with TestClient(app) as c:
         yield c
-    _clear_caches()
+    clear_dependency_caches()
 
 
 def _register(client: TestClient, email: str, username: str, password: str = "SecurePass1x"):

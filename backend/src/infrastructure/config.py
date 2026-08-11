@@ -124,7 +124,7 @@ def validate_ia_settings(s: "Settings") -> None:
 
 
 def validate_runtime_settings(s: "Settings") -> None:
-    """Fail-fast de producción: Mongo obligatorio y URL definida."""
+    """Fail-fast de producción: Mongo, outbox, docs cerrados."""
     env = (s.APP_ENV or "development").lower().strip()
     if env not in {"development", "production"}:
         raise RuntimeError("APP_ENV debe ser 'development' o 'production'.")
@@ -135,12 +135,21 @@ def validate_runtime_settings(s: "Settings") -> None:
             )
         if not (s.MONGODB_URL or "").strip():
             raise RuntimeError("APP_ENV=production exige MONGODB_URL no vacío.")
+        if s.ENABLE_DOCS:
+            raise RuntimeError(
+                "APP_ENV=production exige ENABLE_DOCS=false (Swagger no en producción)."
+            )
         backend = (s.RATE_LIMIT_BACKEND or "memory").lower().strip()
         if backend not in {"memory", "redis"}:
             raise RuntimeError("RATE_LIMIT_BACKEND debe ser 'memory' o 'redis'.")
         bus = (s.EVENT_BUS_BACKEND or "memory").lower().strip()
         if bus not in {"memory", "outbox"}:
             raise RuntimeError("EVENT_BUS_BACKEND debe ser 'memory' o 'outbox'.")
+        if bus != "outbox":
+            raise RuntimeError(
+                "APP_ENV=production con DB_PROVIDER=mongodb exige EVENT_BUS_BACKEND=outbox "
+                "(durabilidad de evidencia pedagógica entre réplicas/reinicios)."
+            )
 
 
 settings = Settings()

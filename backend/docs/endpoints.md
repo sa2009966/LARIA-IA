@@ -70,15 +70,16 @@ Todos requieren JWT. Solo el **propietario** opera sobre el recurso. Ajeno/inexi
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `GET` | `/api/v1/learning/me` | Historial del estudiante: intentos de quiz + interacciones tutor |
+| `GET` | `/api/v1/learning/me` | Historial del estudiante: intentos de quiz + interacciones tutor + recomendaciones |
+| `GET` | `/api/v1/learning/me/profile` | Perfil cognitivo: mastery efectivo, memoria pedagógica, ritmo, señales de struggle |
 
-Vista embrionaria del progreso; alimentará el perfil cognitivo en iteraciones futuras.
+El perfil se actualiza vía projector a partir de `TutorQuestionAskedEvent` y `QuizAttemptCompletedEvent` (bus `memory` o `outbox`).
 
 ---
 
 ## Subjects válidos (documentos)
 
-Whitelist en dominio (`Subject`), entre otros: Matemática, Ciencias, Física, Química, Biología, Historia, Geografía, Lengua, Literatura, Filosofía, Inglés, Educación Física, Artística (y variantes sin tilde).
+Whitelist en dominio (`Subject`), entre otros: Matemática, Ciencias, Física, Química, Biología, Historia, Geografía, Lengua, Literatura, Filosofía, Inglés, Educación Física, Artística (y variantes sin tilde). Subject inválido en upload → **422**.
 
 ---
 
@@ -89,7 +90,8 @@ Whitelist en dominio (`Subject`), entre otros: Matemática, Ciencias, Física, Q
 | `401` | Token ausente/inválido/usuario inactivo |
 | `403` | Rol insuficiente (p. ej. admin) |
 | `404` | Recurso no encontrado **o** no autorizado (ownership) |
-| `409` | Conflicto de registro |
-| `422` | Validación de body/query |
+| `409` | Conflicto de registro (email/username ya existentes) |
+| `413` | Upload supera `DOCUMENT_MAX_UPLOAD_BYTES` |
+| `422` | Validación de body/query/path (UUID malformado, subject inválido, contraseña débil) |
 | `429` | Rate limit |
 | `502` | Fallo del proveedor de IA |

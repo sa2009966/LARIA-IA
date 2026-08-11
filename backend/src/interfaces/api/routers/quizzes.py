@@ -35,12 +35,12 @@ _MSG_NO_ENCONTRADO = "Recurso no encontrado"
     },
 )
 async def get_quiz(
-    quiz_id: str,
+    quiz_id: UUID,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[QuizService, Depends(get_quiz_service)],
 ):
     try:
-        quiz = await service.get_quiz(UUID(quiz_id), UUID(current_user_id))
+        quiz = await service.get_quiz(quiz_id, UUID(current_user_id))
     except (ValueError, PermissionError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_MSG_NO_ENCONTRADO)
     return quiz_to_public_response(quiz)
@@ -62,7 +62,7 @@ async def get_quiz(
     },
 )
 async def submit_attempt(
-    quiz_id: str,
+    quiz_id: UUID,
     body: QuizAttemptRequest,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[QuizService, Depends(get_quiz_service)],
@@ -75,7 +75,7 @@ async def submit_attempt(
             detail="Las claves de `answers` deben ser índices numéricos de pregunta.",
         )
     try:
-        result = await service.submit_attempt(UUID(quiz_id), UUID(current_user_id), answers)
+        result = await service.submit_attempt(quiz_id, UUID(current_user_id), answers)
     except PermissionError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_MSG_NO_ENCONTRADO)
     except ValueError as exc:

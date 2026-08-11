@@ -10,7 +10,6 @@ from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.ports.document_blob_store import DocumentBlobStore
 from src.domain.ports.repositories import DocumentRepository
 from src.domain.ports.event_bus import EventBus
-from src.infrastructure.config import settings
 from src.infrastructure.persistence.in_memory_document_blob_store import (
     InMemoryDocumentBlobStore,
 )
@@ -88,10 +87,8 @@ class TestDocumentService:
         repo_mock.save.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_upload_rechaza_si_supera_limite(
-        self, servicio: DocumentService, monkeypatch: pytest.MonkeyPatch
-    ):
-        monkeypatch.setattr(settings, "DOCUMENT_MAX_UPLOAD_BYTES", 10)
+    async def test_upload_rechaza_si_supera_limite(self, repo_mock: AsyncMock):
+        servicio = DocumentService(document_repository=repo_mock, max_upload_bytes=10)
         dto = UploadDocumentDTO(filename="nota.txt", content="12345678901", subject="Matemática")
         with pytest.raises(DocumentTooLargeError):
             await servicio.upload(uuid4(), dto)

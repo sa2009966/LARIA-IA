@@ -85,11 +85,11 @@ async def list_users(
     },
 )
 async def deactivate_user(
-    user_id: str,
+    user_id: UUID,
     _: Annotated[UserAggregate, Depends(require_admin)],
     service: Annotated[UserService, Depends(get_user_service)],
 ):
     try:
-        await service.deactivate_user(UUID(user_id))
+        await service.deactivate_user(user_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

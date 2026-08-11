@@ -14,7 +14,9 @@ from src.domain.ports.repositories import (
     TutorInteractionRepository,
     TutorSessionRepository,
 )
-from src.infrastructure.config import settings
+
+# Default alineado a Settings.DOCUMENT_MAX_UPLOAD_BYTES (inyectado desde DI).
+_DEFAULT_MAX_UPLOAD_BYTES = 209_715_200
 
 
 class DocumentTooLargeError(ValueError):
@@ -32,6 +34,7 @@ class DocumentService:
         profile_repository: Optional[StudentProfileRepository] = None,
         session_repository: Optional[TutorSessionRepository] = None,
         blob_store: Optional[DocumentBlobStore] = None,
+        max_upload_bytes: int = _DEFAULT_MAX_UPLOAD_BYTES,
     ) -> None:
         self._doc_repo = document_repository
         self._event_bus = event_bus
@@ -41,13 +44,14 @@ class DocumentService:
         self._profile_repo = profile_repository
         self._session_repo = session_repository
         self._blob_store = blob_store
+        self._max_upload_bytes = int(max_upload_bytes)
 
     def _assert_size(self, raw: bytes) -> None:
-        max_bytes = int(settings.DOCUMENT_MAX_UPLOAD_BYTES)
+        max_bytes = self._max_upload_bytes
         if len(raw) > max_bytes:
             raise DocumentTooLargeError(
                 f"El archivo supera el límite de {max_bytes} bytes "
-                f"({settings.DOCUMENT_MAX_UPLOAD_BYTES} = DOCUMENT_MAX_UPLOAD_BYTES)."
+                f"(DOCUMENT_MAX_UPLOAD_BYTES)."
             )
 
     async def upload(self, owner_id: UUID, dto: UploadDocumentDTO) -> DocumentDTO:
