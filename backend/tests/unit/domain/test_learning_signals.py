@@ -19,7 +19,7 @@ class TestLearningSignalDetector:
     def test_confusion(self):
         s = LearningSignalDetector().detect("No entiendo cómo despejar x")
         assert s.kind == LearningSignalKind.CONFUSION
-        assert "resolver ecuación" in s.concepts_hint
+        assert "resolver ecuacion" in s.concepts_hint
 
     def test_none(self):
         s = LearningSignalDetector().detect("¿Cuál es la propiedad distributiva?")

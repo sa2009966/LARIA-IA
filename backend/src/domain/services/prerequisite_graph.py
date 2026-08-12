@@ -4,10 +4,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.domain.aggregates.student_profile import StudentProfile
+from src.domain.concept_identity import canonicalize_concept
 
 
 def _norm(label: str) -> str:
-    return label.strip().lower()
+    return canonicalize_concept(label)
 
 
 # concepto → lista de prerrequisitos directos
@@ -33,9 +34,8 @@ _DEFAULT_EDGES: dict[str, tuple[str, ...]] = {
     "dinámica": ("cinemática",),
 }
 
-# Alias → clave canónica del grafo
+# Alias → clave canónica del grafo (se pliegan al resolver)
 _ALIASES: dict[str, str] = {
-    "ecuacion": "ecuación",
     "ecuaciones": "ecuaciones lineales",
     "sistema": "sistemas",
     "matriz": "matrices",
@@ -65,7 +65,10 @@ class PrerequisiteGraph:
 
     def canonicalize(self, concept: str) -> str:
         key = _norm(concept)
-        return _ALIASES.get(key, key)
+        alias = _ALIASES.get(key)
+        if alias is None:
+            return key
+        return _norm(alias)
 
     def prerequisites_of(self, concept: str) -> tuple[str, ...]:
         key = self.canonicalize(concept)

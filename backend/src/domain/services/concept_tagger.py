@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 
+from src.domain.concept_identity import canonicalize_concept
 from src.domain.value_objects.question import QuizQuestion
 
 _DEFAULT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -26,8 +26,7 @@ _DEFAULT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
 
 def _fold(text: str) -> str:
-    nfkd = unicodedata.normalize("NFKD", text)
-    return "".join(c for c in nfkd if not unicodedata.combining(c)).lower()
+    return canonicalize_concept(text)
 
 
 class ConceptTagger:
@@ -49,15 +48,15 @@ class ConceptTagger:
         tags: list[str] = []
         for pattern, label in self._patterns:
             if pattern.search(blob) and label not in tags:
-                tags.append(label)
+                tags.append(canonicalize_concept(label))
         for concept in document_concepts:
-            key = concept.strip().lower()
+            key = canonicalize_concept(concept)
             if not key:
                 continue
-            if _fold(key) in blob and key not in tags:
+            if key in blob and key not in tags:
                 tags.append(key)
         if not tags and document_concepts:
-            tags.append(document_concepts[0].strip().lower())
+            tags.append(canonicalize_concept(document_concepts[0]))
         if not tags:
             tags.append("general")
         return QuizQuestion(

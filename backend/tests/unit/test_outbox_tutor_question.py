@@ -52,6 +52,10 @@ class _FakeCollection:
         self.docs: list[dict] = []
 
     async def insert_one(self, doc):
+        for i, existing in enumerate(self.docs):
+            if existing.get("_id") == doc.get("_id"):
+                self.docs[i] = doc
+                return
         self.docs.append(doc)
 
     def find(self, query):
@@ -95,11 +99,13 @@ def test_serialize_tutor_question_keeps_pedagogical_fields():
     )
     payload = _serialize(event)
     assert payload["event_type"] == "TutorQuestionAskedEvent"
+    assert payload["event_id"] == str(event.event_id)
     assert payload["signal_kind"] == "struggle"
     assert payload["concepts"] == ["fracciones"]
     assert payload["cognitive_style"] == "visual"
     restored = _deserialize({"event_type": payload["event_type"], "payload": payload})
     assert restored is not None
+    assert restored.event_id == event.event_id
     assert restored.student_id == sid
     assert restored.concepts == ("fracciones",)
     assert restored.pedagogical_mode == "socratic"
@@ -212,3 +218,46 @@ async def test_unsupported_increments_outbox_unsupported_not_failed():
         k.startswith('outbox_failed{reason="unsupported_event"}') or k == "outbox_failed"
         for k in snap["counters"]
     )
+
+
+@pytest.mark.asyncio
+async def test_outbox_reprocess_same_row_does_not_double_evidence():
+    metrics = InMemoryMetrics()
+    bus = MongoOutboxEventBus(database=_FakeDB(), metrics=metrics)
+    profiles = InMemoryStudentProfileRepository()
+    interactions = InMemoryTutorInteractionRepository()
+    projector = LearningEvidenceProjector(
+        interactions,
+        bus,
+        profile_repository=profiles,
+        metrics=metrics,
+    )
+    await projector.register()
+
+    student_id = uuid4()
+    document_id = uuid4()
+    event = TutorQuestionAskedEvent(
+        aggregate_id=document_id,
+        student_id=student_id,
+        document_id=document_id,
+        question="no entiendo",
+        answer="pista...",
+        signal_kind="confusion",
+        signal_strength=0.9,
+        concepts=("algebra",),
+    )
+    await bus.publish(event)
+    assert await bus.process_pending(limit=10) == 1
+    profile = await profiles.find_by_student(student_id)
+    assert profile is not None
+    assert profile.total_struggle_signals == 1
+
+    row = bus._database.event_outbox.docs[0]
+    row["processed_at"] = None
+    row["last_error"] = None
+    n = await bus.process_pending(limit=10)
+    assert n == 1
+    profile = await profiles.find_by_student(student_id)
+    assert profile is not None
+    assert profile.total_struggle_signals == 1
+    assert row["last_error"] is None

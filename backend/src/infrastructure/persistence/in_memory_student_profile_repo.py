@@ -68,6 +68,7 @@ def _clone_profile(profile: StudentProfile, version: int | None = None) -> Stude
         total_struggle_signals=profile.total_struggle_signals,
         pedagogical_memory=_copy_memory(profile.pedagogical_memory),
         learning_velocity=profile.learning_velocity,
+        applied_event_ids=list(profile.applied_event_ids),
         updated_at=profile.updated_at,
         version=profile.version if version is None else version,
     )

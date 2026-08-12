@@ -108,3 +108,104 @@ async def test_projector_ask_struggle_on_memory_bus():
     profile = await profiles.find_by_student(student)
     assert profile is not None
     assert profile.total_struggle_signals >= 1
+
+
+@pytest.mark.asyncio
+async def test_replay_same_ask_event_does_not_double_struggle():
+    interactions = InMemoryTutorInteractionRepository()
+    profiles = InMemoryStudentProfileRepository()
+    bus = InMemoryEventBus()
+    projector = LearningEvidenceProjector(
+        interactions,
+        bus,
+        profile_repository=profiles,
+    )
+    await projector.register()
+
+    student = uuid4()
+    doc = uuid4()
+    event = TutorQuestionAskedEvent(
+        aggregate_id=doc,
+        student_id=student,
+        document_id=doc,
+        question="no entiendo",
+        answer="pista...",
+        signal_kind="confusion",
+        signal_strength=0.9,
+        concepts=("algebra",),
+    )
+    await bus.publish(event)
+    await bus.publish(event)
+
+    profile = await profiles.find_by_student(student)
+    assert profile is not None
+    assert profile.total_struggle_signals == 1
+    assert profile.was_event_applied(event.event_id)
+
+
+@pytest.mark.asyncio
+async def test_replay_same_quiz_event_does_not_double_attempts():
+    interactions = InMemoryTutorInteractionRepository()
+    profiles = InMemoryStudentProfileRepository()
+    bus = InMemoryEventBus()
+    projector = LearningEvidenceProjector(
+        interactions,
+        bus,
+        profile_repository=profiles,
+    )
+    await projector.register()
+
+    student = uuid4()
+    doc = uuid4()
+    quiz_id = uuid4()
+    event = QuizAttemptCompletedEvent(
+        aggregate_id=uuid4(),
+        quiz_id=quiz_id,
+        document_id=doc,
+        student_id=student,
+        score=2,
+        total=3,
+    )
+    await bus.publish(event)
+    await bus.publish(event)
+
+    profile = await profiles.find_by_student(student)
+    assert profile is not None
+    assert profile.total_attempts == 1
+    rows = await interactions.find_by_student(student)
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_high_latency_none_signal_still_projects():
+    interactions = InMemoryTutorInteractionRepository()
+    profiles = InMemoryStudentProfileRepository()
+    bus = InMemoryEventBus()
+    projector = LearningEvidenceProjector(
+        interactions,
+        bus,
+        profile_repository=profiles,
+    )
+    await projector.register()
+
+    student = uuid4()
+    doc = uuid4()
+    from src.domain.aggregates.student_profile import HIGH_LATENCY_THRESHOLD_MS
+
+    await bus.publish(
+        TutorQuestionAskedEvent(
+            aggregate_id=doc,
+            student_id=student,
+            document_id=doc,
+            question="explica variable",
+            answer="...",
+            signal_kind="none",
+            concepts=("variable",),
+            latency_ms=HIGH_LATENCY_THRESHOLD_MS + 1000.0,
+        )
+    )
+    profile = await profiles.find_by_student(student)
+    assert profile is not None
+    assert profile.total_struggle_signals == 0
+    assert profile.mastery_by_concept["variable"].latency_ms_ema >= HIGH_LATENCY_THRESHOLD_MS
+    assert profile.mastery_by_concept["variable"].evidence_count >= 1

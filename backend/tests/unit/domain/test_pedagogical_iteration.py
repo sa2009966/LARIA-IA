@@ -7,6 +7,7 @@ from src.domain.aggregates.student_profile import (
     EvidenceSample,
     StudentProfile,
 )
+from src.domain.concept_identity import canonicalize_concept
 from src.domain.services.cognitive_style import CognitiveStyle, CognitiveStyleSelector
 from src.domain.services.difficulty_calculator import DifficultyCalculator, DifficultySignals
 from src.domain.services.model_router import LlmTask, ModelRouter
@@ -32,7 +33,8 @@ class TestMultiSignalMastery:
             "ecuación",
             EvidenceSample(kind=EvidenceKind.HELP_REQUEST, score_ratio=1.0, help_level=0.8),
         )
-        assert profile.mastery_by_concept["ecuación"].help_requests >= 1
+        eq = canonicalize_concept("ecuación")
+        assert profile.mastery_by_concept[eq].help_requests >= 1
         assert profile.concept_mastery_for("ecuación") < high
 
     def test_repeated_error_increases_streak(self):

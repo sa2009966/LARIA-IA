@@ -6,8 +6,12 @@ from enum import Enum
 from math import exp, log
 from uuid import UUID
 
+from src.domain.concept_identity import canonicalize_concept
+
 
 DEFAULT_HALF_LIFE_DAYS = 14.0
+HIGH_LATENCY_THRESHOLD_MS = 8000.0
+_MAX_APPLIED_EVENT_IDS = 256
 
 
 def _utc_now() -> datetime:
@@ -15,7 +19,7 @@ def _utc_now() -> datetime:
 
 
 def _norm_concept(label: str) -> str:
-    return label.strip().lower()
+    return canonicalize_concept(label)
 
 
 class EvidenceKind(str, Enum):
@@ -256,8 +260,20 @@ class StudentProfile:
     total_struggle_signals: int = 0
     pedagogical_memory: PedagogicalMemory = field(default_factory=PedagogicalMemory)
     learning_velocity: float = 0.0  # EMA de deltas de mastery
+    applied_event_ids: list[str] = field(default_factory=list)
     updated_at: datetime = field(default_factory=_utc_now)
     version: int = 0
+
+    def was_event_applied(self, event_id: UUID) -> bool:
+        return str(event_id) in self.applied_event_ids
+
+    def mark_event_applied(self, event_id: UUID) -> None:
+        key = str(event_id)
+        if key in self.applied_event_ids:
+            return
+        self.applied_event_ids.append(key)
+        if len(self.applied_event_ids) > _MAX_APPLIED_EVENT_IDS:
+            self.applied_event_ids = self.applied_event_ids[-_MAX_APPLIED_EVENT_IDS:]
 
     @staticmethod
     def create(student_id: UUID) -> "StudentProfile":
@@ -379,9 +395,34 @@ class StudentProfile:
                     help_level=help_level or (0.5 if kind == EvidenceKind.HELP_REQUEST else 0.0),
                 ),
             )
+        if latency_ms is not None and latency_ms >= HIGH_LATENCY_THRESHOLD_MS:
+            self.record_high_latency(document_id, concepts, latency_ms)
         self._push_errors(concepts)
         if entry.mastery < 0.4:
             self.pace = "slow"
+        self.updated_at = _utc_now()
+
+    def record_high_latency(
+        self,
+        document_id: UUID,
+        concepts: tuple[str, ...] = (),
+        latency_ms: float = 0.0,
+    ) -> None:
+        """Señal explícita HIGH_LATENCY (no incrementa struggle)."""
+        for concept in concepts:
+            key = _norm_concept(concept)
+            if not key:
+                continue
+            self.record_concept_evidence(
+                key,
+                EvidenceSample(
+                    kind=EvidenceKind.HIGH_LATENCY,
+                    score_ratio=0.25,
+                    weight=0.8,
+                    document_id=document_id,
+                    latency_ms=latency_ms,
+                ),
+            )
         self.updated_at = _utc_now()
 
     def clear_document(self, document_id: UUID) -> None:

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 
 def _utc_now() -> datetime:
@@ -8,6 +8,7 @@ def _utc_now() -> datetime:
 
 
 class DomainEvent:
+    event_id: UUID
     aggregate_id: UUID
     timestamp: datetime
     event_type: str
@@ -16,6 +17,7 @@ class DomainEvent:
 @dataclass(kw_only=True)
 class DomainEventBase(DomainEvent):
     aggregate_id: UUID
+    event_id: UUID = field(default_factory=uuid4)
     timestamp: datetime = field(default_factory=_utc_now)
 
     @property

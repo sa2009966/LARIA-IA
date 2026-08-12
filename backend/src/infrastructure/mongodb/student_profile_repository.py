@@ -65,6 +65,7 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             "total_attempts": profile.total_attempts,
             "total_struggle_signals": profile.total_struggle_signals,
             "learning_velocity": profile.learning_velocity,
+            "applied_event_ids": list(profile.applied_event_ids),
             "pedagogical_memory": {
                 "frequent_misconceptions": list(mem.frequent_misconceptions),
                 "successful_examples": list(mem.successful_examples),
@@ -125,6 +126,7 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             total_struggle_signals=int(doc.get("total_struggle_signals", 0)),
             pedagogical_memory=memory,
             learning_velocity=float(doc.get("learning_velocity", 0.0)),
+            applied_event_ids=list(doc.get("applied_event_ids") or []),
             updated_at=doc["updated_at"],
             version=int(doc.get("version", 0)),
         )

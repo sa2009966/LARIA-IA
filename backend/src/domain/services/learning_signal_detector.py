@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
+from src.domain.concept_identity import canonicalize_concept
+
 
 class LearningSignalKind(str, Enum):
     CONFUSION = "confusion"  # no entiende / perdido
@@ -64,7 +66,9 @@ class LearningSignalDetector:
             return LearningSignal(LearningSignalKind.NONE, 0.0, ())
 
         concepts = tuple(
-            label for pattern, label in _CONCEPT_PATTERNS if pattern.search(text)
+            canonicalize_concept(label)
+            for pattern, label in _CONCEPT_PATTERNS
+            if pattern.search(text)
         )
 
         if _NOVICE.search(text):

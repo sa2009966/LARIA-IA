@@ -35,10 +35,16 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _event_id_of(event: DomainEvent) -> str:
+    eid = getattr(event, "event_id", None)
+    return str(eid) if eid is not None else str(uuid4())
+
+
 def _serialize(event: DomainEvent) -> dict[str, Any]:
     if isinstance(event, QuizAttemptCompletedEvent):
         return {
             "event_type": event.event_type,
+            "event_id": str(event.event_id),
             "aggregate_id": str(event.aggregate_id),
             "timestamp": event.timestamp.isoformat(),
             "quiz_id": str(event.quiz_id),
@@ -50,6 +56,7 @@ def _serialize(event: DomainEvent) -> dict[str, Any]:
     if isinstance(event, TutorQuestionAskedEvent):
         return {
             "event_type": event.event_type,
+            "event_id": str(event.event_id),
             "aggregate_id": str(event.aggregate_id),
             "timestamp": event.timestamp.isoformat(),
             "student_id": str(event.student_id),
@@ -66,6 +73,7 @@ def _serialize(event: DomainEvent) -> dict[str, Any]:
         }
     return {
         "event_type": getattr(event, "event_type", type(event).__name__),
+        "event_id": _event_id_of(event),
         "aggregate_id": str(getattr(event, "aggregate_id", "")),
         "timestamp": getattr(event, "timestamp", _utc_now()).isoformat(),
         "payload": {},
@@ -75,8 +83,11 @@ def _serialize(event: DomainEvent) -> dict[str, Any]:
 def _deserialize(doc: dict[str, Any]) -> DomainEvent | None:
     et = doc.get("event_type")
     payload = doc.get("payload") or doc
+    event_id_raw = payload.get("event_id") or doc.get("_id")
+    event_id = UUID(str(event_id_raw)) if event_id_raw else uuid4()
     if et == "QuizAttemptCompletedEvent":
         return QuizAttemptCompletedEvent(
+            event_id=event_id,
             aggregate_id=UUID(payload["aggregate_id"]),
             quiz_id=UUID(payload["quiz_id"]),
             document_id=UUID(payload["document_id"]),
@@ -89,6 +100,7 @@ def _deserialize(doc: dict[str, Any]) -> DomainEvent | None:
         if isinstance(concepts, list):
             concepts = tuple(concepts)
         return TutorQuestionAskedEvent(
+            event_id=event_id,
             aggregate_id=UUID(payload["aggregate_id"]),
             student_id=UUID(payload["student_id"]),
             document_id=UUID(payload["document_id"]),
@@ -131,7 +143,7 @@ class MongoOutboxEventBus(EventBus):
         payload = _serialize(event)
         await db.event_outbox.insert_one(
             {
-                "_id": str(uuid4()),
+                "_id": _event_id_of(event),
                 "event_type": payload["event_type"],
                 "payload": payload,
                 "created_at": _utc_now(),
