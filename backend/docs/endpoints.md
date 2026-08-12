@@ -5,7 +5,9 @@ Auth: cabecera `Authorization: Bearer <access_token>` salvo donde se indique.
 
 Swagger: `GET /docs` (si `ENABLE_DOCS=true`)  
 OpenAPI: `GET /openapi.json`  
-Health: `GET /health` (sin prefijo `/api/v1`)  
+Health: `GET /health` (sin prefijo `/api/v1`)
+Ready: `GET /ready` (Mongo/Redis según config; 503 si dependencia caída)
+Metrics: `GET /metrics` (Prometheus text si `METRICS_ENABLED=true`; **404** si `false`)
 Raíz: `GET /` → redirect a `/docs` o JSON de servicio si docs off.
 
 ---
@@ -95,3 +97,12 @@ Whitelist en dominio (`Subject`), entre otros: Matemática, Ciencias, Física, Q
 | `422` | Validación de body/query/path (UUID malformado, subject inválido, contraseña débil) |
 | `429` | Rate limit |
 | `502` | Fallo del proveedor de IA |
+| `503` | `/ready` degradado (Mongo/Redis no alcanzables) |
+
+### Ops
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `GET` | `/health` | Liveness (siempre 200 si el proceso responde) |
+| `GET` | `/ready` | Readiness de dependencias |
+| `GET` | `/metrics` | Contadores `outbox_*`, `outbox_unsupported`, `profile_updates`, `laria_llm_latency_ms`, etc. **404** si `METRICS_ENABLED=false`. |

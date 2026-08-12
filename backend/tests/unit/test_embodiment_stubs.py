@@ -1,10 +1,17 @@
 import pytest
 
-from src.domain.ports.embodiment import AffectState
+from src.domain.ports.embodiment import (
+    AffectState,
+    DeviceCommand,
+    DeviceCommandKind,
+    SafetyClass,
+)
 from src.domain.services.affect_policy import AffectPolicy
 from src.infrastructure.config import settings
 from src.infrastructure.embodiment.stubs import (
     LogOnlyPresence,
+    NullDeviceCommand,
+    NullSensorInput,
     NullSpeechToText,
     NullTextToSpeech,
 )
@@ -52,3 +59,27 @@ async def test_stt_failure_swallowed_with_metrics():
     assert text == ""
     snap = metrics.snapshot()
     assert any("device_errors" in k for k in snap["counters"])
+
+
+@pytest.mark.asyncio
+async def test_device_command_stub_blocks_motion_and_acks_info():
+    metrics = InMemoryMetrics()
+    port = NullDeviceCommand(metrics=metrics)
+    info = await port.send(DeviceCommand(kind=DeviceCommandKind.LED, safety_class=SafetyClass.INFO))
+    assert info.ok is True
+    motion = await port.send(
+        DeviceCommand(kind=DeviceCommandKind.GESTURE, safety_class=SafetyClass.MOTION)
+    )
+    assert motion.ok is False
+    assert "blocked" in motion.detail
+    snap = metrics.snapshot()
+    assert any("forbidden_command_blocked" in k for k in snap["counters"])
+
+
+@pytest.mark.asyncio
+async def test_degraded_skips_actuators():
+    metrics = InMemoryMetrics()
+    port = NullDeviceCommand(metrics=metrics, degraded=True)
+    ack = await port.send(DeviceCommand(kind=DeviceCommandKind.SPEAK))
+    assert ack.degraded is True
+    assert await NullSensorInput().poll() is None

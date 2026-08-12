@@ -82,6 +82,10 @@ async def _warm_embodiment_stubs() -> None:
     get_text_to_speech()
     get_presence()
     get_affect_policy()
+    from src.interfaces.api.dependencies import get_device_command, get_sensor_input
+
+    get_device_command()
+    get_sensor_input()
 
 
 async def _ensure_mongo_indexes() -> None:
@@ -191,6 +195,47 @@ def root():
 @app.get("/health", tags=["Health"])
 def health_check():
     return {"status": "ok", "version": settings.APP_VERSION}
+
+
+@app.get("/ready", tags=["Health"])
+async def readiness_check():
+    """Readiness: dependencias opcionales según DB/Redis configurados. No sustituye /health."""
+    checks: dict[str, str] = {"app": "ok"}
+    ready = True
+    if settings.DB_PROVIDER == "mongodb":
+        try:
+            from src.infrastructure.mongodb.database import get_database
+
+            db = await get_database()
+            await db.command("ping")
+            checks["mongodb"] = "ok"
+        except Exception as exc:  # noqa: BLE001
+            checks["mongodb"] = f"error:{type(exc).__name__}"
+            ready = False
+    else:
+        checks["mongodb"] = "skipped"
+    redis_needed = (
+        (settings.RATE_LIMIT_BACKEND or "").lower() == "redis"
+        or (settings.CACHE_BACKEND or "").lower() == "redis"
+    )
+    if redis_needed:
+        try:
+            import redis
+
+            client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+            client.ping()
+            checks["redis"] = "ok"
+        except Exception as exc:  # noqa: BLE001
+            checks["redis"] = f"error:{type(exc).__name__}"
+            ready = False
+    else:
+        checks["redis"] = "skipped"
+    status = "ready" if ready else "degraded"
+    code = 200 if ready else 503
+    return JSONResponse(
+        {"status": status, "version": settings.APP_VERSION, "checks": checks},
+        status_code=code,
+    )
 
 
 @app.get("/metrics", tags=["Health"], include_in_schema=False)

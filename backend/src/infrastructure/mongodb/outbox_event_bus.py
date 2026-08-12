@@ -169,7 +169,7 @@ class MongoOutboxEventBus(EventBus):
                     },
                 )
                 if self._metrics:
-                    self._metrics.incr("outbox_failed", reason="unsupported_event")
+                    self._metrics.incr("outbox_unsupported", reason="unsupported_event")
                 et = row.get("event_type", "?")
                 if et not in _SUPPORTED:
                     logger.warning("outbox_unsupported_event type=%s", et)

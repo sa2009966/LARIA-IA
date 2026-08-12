@@ -5,8 +5,12 @@
 > `ENABLE_DOCS=true`. Los datos **no persisten** entre reinicios ni sleep del plan free.
 >
 > **Producción real** = Docker Compose local/servidor propio con Mongo + Redis +
-> `APP_ENV=production` (`ENABLE_DOCS=false`, `EVENT_BUS_BACKEND=outbox`). Ver
+> `APP_ENV=production` (`ENABLE_DOCS=false`, `EVENT_BUS_BACKEND=outbox`,
+> `RATE_LIMIT_BACKEND=redis`, `CACHE_BACKEND=redis`). Ver
 > [`production-checklist.md`](./production-checklist.md).
+>
+> **Staging recomendado:** misma forma Compose/prod en un VPS de equipo (secrets distintos).
+> No usar Render free como staging con datos reales.
 
 ## Qué hay en el repo
 
@@ -24,9 +28,15 @@
 5. (Recomendado) edita **`CORS_ORIGINS`** con tu front de Vercel, p. ej.  
    `["https://tu-app.vercel.app","http://localhost:4321"]`
 6. **Apply** / Deploy. Espera el build (~3–8 min en free).
-7. URL del servicio: `https://laria-backend.onrender.com` (el subdominio exacto lo muestra Render).
-8. Prueba: `GET https://<tu-servicio>.onrender.com/health`
-9. En el frontend (Vercel / otra PC): `PUBLIC_API_URL=https://<tu-servicio>.onrender.com`
+7. URL pública actual: `https://laria-ia.onrender.com` (el blueprint nombra el servicio `laria-backend`; el subdominio real lo muestra Render).
+8. Prueba: `GET https://laria-ia.onrender.com/health` y `GET https://laria-ia.onrender.com/ready`
+9. En el frontend (Vercel): `PUBLIC_LARIA_API_URL=https://laria-ia.onrender.com`
+
+`feature/backend` tiene **auto-deploy**. Un `git push` a esa rama actualiza el demo público. El hook Cursor (`.cursor/hooks/`) pide confirmación; `.githooks/pre-push` exige pytest en verde y bloquea force-push. Instalar el hook git en cada clon:
+
+```bash
+ln -sfn ../../.githooks/pre-push .git/hooks/pre-push
+```
 
 ## Notas
 

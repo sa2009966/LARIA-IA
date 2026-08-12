@@ -116,7 +116,10 @@ def test_pedagogical_flow_register_to_profile(client: TestClient, run_id: int):
 
     quiz = client.post(f"/api/v1/documents/{doc_id}/quiz?num_questions=1", headers=headers)
     assert quiz.status_code == 200, quiz.text
-    quiz_id = quiz.json()["id"]
+    quiz_body = quiz.json()
+    for q in quiz_body.get("questions", []):
+        assert "correct_answer" not in q
+    quiz_id = quiz_body["id"]
 
     attempt = client.post(
         f"/api/v1/quizzes/{quiz_id}/attempts",
@@ -124,12 +127,19 @@ def test_pedagogical_flow_register_to_profile(client: TestClient, run_id: int):
         json={"answers": {"0": "A"}},
     )
     assert attempt.status_code == 200, attempt.text
+    assert attempt.json()["questions"][0]["correct_answer"] == "A"
 
     hist = client.get("/api/v1/learning/me", headers=headers)
     assert hist.status_code == 200
-    assert len(hist.json()["attempts"]) >= 1
+    hist_body = hist.json()
+    assert len(hist_body["attempts"]) >= 1
+    assert len(hist_body["tutor_interactions"]) >= 1
 
     profile = client.get("/api/v1/learning/me/profile", headers=headers)
     assert profile.status_code == 200, profile.text
     body = profile.json()
     assert body["total_attempts"] >= 1
+    assert body["total_struggle_signals"] >= 1
+    assert len(body.get("mastery_by_document") or []) >= 1
+    recs = hist_body.get("recommendations") or []
+    assert isinstance(recs, list)

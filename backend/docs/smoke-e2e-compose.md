@@ -41,7 +41,19 @@ Con dos workers/réplicas apuntando al mismo Redis, el contador de
 `RATE_LIMIT_BACKEND=redis` es compartido (smoke manual: disparar auth desde
 dos clientes hasta 429).
 
-## Nota sobre IA
+## Smoke automatizable
 
-En CI no se llama a OpenAI: usar el test API con stub. Contra Compose real se
-necesita `OPENAI_API_KEY` válida o un mock en el borde (no incluido en la imagen).
+```bash
+# Con stack Compose arriba:
+COMPOSE_SMOKE=1 /home/alex/Descargas/Laria_ia/env_dashboard/bin/python \
+  scripts/smoke_compose_e2e.py
+
+# Incluye reinicio de `app` y reconsulta de profile/documentos:
+COMPOSE_SMOKE=1 COMPOSE_SMOKE_RESTART=1 /home/alex/Descargas/Laria_ia/env_dashboard/bin/python \
+  scripts/smoke_compose_e2e.py
+```
+
+Si OpenAI no está disponible, el script valida health/ready/auth/upload y sale 0 ante 502 de IA.
+
+Nota: `docker-compose.yml` fuerza `ENABLE_DOCS=false` aunque `.env` diga `true`
+(fail-fast de `APP_ENV=production`).

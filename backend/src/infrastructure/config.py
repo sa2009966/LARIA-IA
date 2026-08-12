@@ -54,7 +54,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # CORS: JSON array o CSV. NoDecode evita que pydantic-settings falle antes del validador.
-    CORS_ORIGINS: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = [
+        "http://localhost:3000",
+        "http://localhost:4321",
+    ]
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
@@ -95,6 +98,11 @@ class Settings(BaseSettings):
     FORGETTING_HALF_LIFE_DAYS: float = 14.0
     LOG_LEVEL: str = "INFO"  # DEBUG | INFO | WARNING | ERROR
     LOG_FORMAT: str = "text"  # text | json
+
+
+def _is_wildcard_cors_origin(origin: str) -> bool:
+    token = origin.strip().rstrip("/")
+    return token in {"*", "null"} or token.endswith("*")
 
 
 def validate_security_settings(s: "Settings") -> None:
@@ -149,6 +157,28 @@ def validate_runtime_settings(s: "Settings") -> None:
             raise RuntimeError(
                 "APP_ENV=production con DB_PROVIDER=mongodb exige EVENT_BUS_BACKEND=outbox "
                 "(durabilidad de evidencia pedagógica entre réplicas/reinicios)."
+            )
+        if backend != "redis":
+            raise RuntimeError(
+                "APP_ENV=production exige RATE_LIMIT_BACKEND=redis (rate limit compartido)."
+            )
+        cache = (s.CACHE_BACKEND or "memory").lower().strip()
+        if cache not in {"memory", "redis"}:
+            raise RuntimeError("CACHE_BACKEND debe ser 'memory' o 'redis'.")
+        if cache != "redis":
+            raise RuntimeError("APP_ENV=production exige CACHE_BACKEND=redis.")
+        if not (s.REDIS_URL or "").strip():
+            raise RuntimeError("APP_ENV=production exige REDIS_URL no vacío.")
+        if not s.RATE_LIMIT_ENABLED:
+            raise RuntimeError("APP_ENV=production exige RATE_LIMIT_ENABLED=true.")
+        origins = [str(o).strip() for o in (s.CORS_ORIGINS or []) if str(o).strip()]
+        if not origins:
+            raise RuntimeError(
+                "APP_ENV=production exige CORS_ORIGINS no vacío (orígenes del front real)."
+            )
+        if any(_is_wildcard_cors_origin(o) for o in origins):
+            raise RuntimeError(
+                "APP_ENV=production no admite CORS_ORIGINS comodín (*)."
             )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import UUID
@@ -62,6 +63,10 @@ class LlmGate:
         if self._metrics:
             self._metrics.incr(name, **labels)
 
+    def _observe_ms(self, name: str, started: float, **labels: str) -> None:
+        if self._metrics:
+            self._metrics.observe(name, (time.perf_counter() - started) * 1000.0, **labels)
+
     async def analyze(
         self,
         document: DocumentAggregate,
@@ -91,7 +96,9 @@ class LlmGate:
 
         choice = self._router.select(LlmTask.ANALYZE)
         logger.info("analyze cache=miss model=%s doc_id=%s", choice.model, document.id)
+        started = time.perf_counter()
         result = await self._call_analyze(document, choice.model)
+        self._observe_ms("laria_llm_latency_ms", started, task="analyze", model=choice.model)
         if self._cache is not None:
             await self._cache.set(
                 cache_key,
@@ -133,7 +140,9 @@ class LlmGate:
                 return hit
 
         logger.info("ask cache=miss model=%s reason=%s", choice.model, choice.reason)
+        started = time.perf_counter()
         answer = await self._call_answer(context, question, decision, choice.model)
+        self._observe_ms("laria_llm_latency_ms", started, task="ask", model=choice.model)
         if self._cache is not None:
             await self._cache.set(cache_key, answer, ttl_seconds=3600)
         self._emit("laria_llm_calls", task="ask", model=choice.model, outcome="ok")

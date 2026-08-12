@@ -61,10 +61,13 @@ class TestLoggingIntegration:
             )
         assert r.status_code == 201
         assert "X-Request-Id" in r.headers
-        assert any(
-            "request method=POST" in rec.message and "/api/v1/auth/register" in rec.message
-            for rec in caplog.records
-        )
+        joined = " ".join(rec.message for rec in caplog.records)
+        assert "request method=POST" in joined
+        assert "/api/v1/auth/register" in joined
+        assert "SecurePass1x" not in joined
+        assert "password" not in joined.lower()
+        assert "Bearer " not in joined
+        assert email not in joined
 
     def test_pedagogical_engine_logs_decision(self, client: TestClient, caplog):
         with caplog.at_level(logging.INFO, logger="laria.pedagogy"):

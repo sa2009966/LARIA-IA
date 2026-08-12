@@ -6,7 +6,11 @@ from uuid import uuid4
 import pytest
 
 from src.application.services.learning_evidence_projector import LearningEvidenceProjector
-from src.domain.events.domain_events import TutorQuestionAskedEvent, UserRegisteredEvent
+from src.domain.events.domain_events import (
+    QuizAttemptCompletedEvent,
+    TutorQuestionAskedEvent,
+    UserRegisteredEvent,
+)
 from src.infrastructure.metrics.in_memory_metrics import InMemoryMetrics
 from src.infrastructure.mongodb.outbox_event_bus import (
     MongoOutboxEventBus,
@@ -143,6 +147,68 @@ async def test_process_pending_projects_ask_into_profile():
     profile = await profiles.find_by_student(student_id)
     assert profile is not None
     assert profile.total_struggle_signals >= 1
+    row = bus._database.event_outbox.docs[0]
+    assert row["last_error"] is None
+    assert row["processed_at"] is not None
     snap = metrics.snapshot()
     assert any(k.startswith("outbox_processed") for k in snap["counters"])
     assert any(k.startswith("profile_updates") for k in snap["counters"])
+
+
+@pytest.mark.asyncio
+async def test_process_pending_projects_quiz_into_profile():
+    metrics = InMemoryMetrics()
+    bus = MongoOutboxEventBus(database=_FakeDB(), metrics=metrics)
+    profiles = InMemoryStudentProfileRepository()
+    interactions = InMemoryTutorInteractionRepository()
+    projector = LearningEvidenceProjector(
+        interactions,
+        bus,
+        profile_repository=profiles,
+        metrics=metrics,
+    )
+    await projector.register()
+
+    student_id = uuid4()
+    document_id = uuid4()
+    quiz_id = uuid4()
+    await bus.publish(
+        QuizAttemptCompletedEvent(
+            aggregate_id=uuid4(),
+            quiz_id=quiz_id,
+            document_id=document_id,
+            student_id=student_id,
+            score=2,
+            total=3,
+        )
+    )
+    n = await bus.process_pending(limit=10)
+    assert n == 1
+    profile = await profiles.find_by_student(student_id)
+    assert profile is not None
+    assert profile.total_attempts >= 1
+    assert profile.mastery_for(document_id) == pytest.approx(2 / 3)
+    row = bus._database.event_outbox.docs[0]
+    assert row["last_error"] is None
+    assert row["processed_at"] is not None
+    snap = metrics.snapshot()
+    assert any(k.startswith("outbox_processed") for k in snap["counters"])
+    assert any("profile_updates" in k for k in snap["counters"])
+
+
+@pytest.mark.asyncio
+async def test_unsupported_increments_outbox_unsupported_not_failed():
+    metrics = InMemoryMetrics()
+    bus = MongoOutboxEventBus(database=_FakeDB(), metrics=metrics)
+    await bus.publish(UserRegisteredEvent(aggregate_id=uuid4(), email="x@y.com"))
+    n = await bus.process_pending(limit=5)
+    assert n == 0
+    row = bus._database.event_outbox.docs[0]
+    assert row["last_error"] == "unsupported_event"
+    assert row["processed_at"] is not None
+    snap = metrics.snapshot()
+    assert any("outbox_unsupported" in k for k in snap["counters"])
+    assert not any(
+        k.startswith('outbox_failed{reason="unsupported_event"}') or k == "outbox_failed"
+        for k in snap["counters"]
+    )

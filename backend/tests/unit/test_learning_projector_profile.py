@@ -5,7 +5,7 @@ import pytest
 from src.application.services.learning_evidence_projector import LearningEvidenceProjector
 from src.domain.aggregates.quiz_aggregate import QuizAggregate
 from src.domain.aggregates.quiz_attempt_aggregate import QuizAttemptAggregate
-from src.domain.events.domain_events import QuizAttemptCompletedEvent
+from src.domain.events.domain_events import QuizAttemptCompletedEvent, TutorQuestionAskedEvent
 from src.domain.value_objects.question import Difficulty, QuizQuestion
 from src.infrastructure.persistence.in_memory_event_bus import InMemoryEventBus
 from src.infrastructure.persistence.in_memory_quiz_attempt_repo import (
@@ -76,3 +76,35 @@ async def test_projector_maps_failed_items_to_concepts():
     assert profile.concept_mastery_for("variable") == 0.0
     assert profile.concept_mastery_for("ecuacion") == 1.0
     assert "variable" in profile.frequent_errors
+
+
+@pytest.mark.asyncio
+async def test_projector_ask_struggle_on_memory_bus():
+    interactions = InMemoryTutorInteractionRepository()
+    profiles = InMemoryStudentProfileRepository()
+    bus = InMemoryEventBus()
+    projector = LearningEvidenceProjector(
+        interactions,
+        bus,
+        profile_repository=profiles,
+    )
+    await projector.register()
+
+    student = uuid4()
+    doc = uuid4()
+    await bus.publish(
+        TutorQuestionAskedEvent(
+            aggregate_id=doc,
+            student_id=student,
+            document_id=doc,
+            question="no entiendo",
+            answer="pista...",
+            signal_kind="struggle",
+            signal_strength=0.9,
+            concepts=("algebra",),
+        )
+    )
+
+    profile = await profiles.find_by_student(student)
+    assert profile is not None
+    assert profile.total_struggle_signals >= 1

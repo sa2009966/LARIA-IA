@@ -42,9 +42,11 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:4321","http://localhost:3000"]}
       DEBUG: "false"
-      ENABLE_DOCS: ${ENABLE_DOCS:-false}
+      RATE_LIMIT_ENABLED: "true"
+      # Forzado: producción Compose no admite Swagger (validate_runtime_settings).
+      ENABLE_DOCS: "false"
 
 volumes:
   mongo_data:

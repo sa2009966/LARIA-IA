@@ -38,7 +38,6 @@ def _map(user) -> UserResponse:
     response_description="Perfil completo del usuario actual.",
     responses={
         **RESP_401_UNAUTHORIZED,
-        **RESP_404_NOT_FOUND,
     },
 )
 async def get_me(

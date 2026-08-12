@@ -70,6 +70,10 @@ pytest tests -q
 Incluye unitarios (`tests/unit`), API (`tests/api`) e integración (`tests/integration`).
 Timeout por test: 30s (`pytest-timeout`). El warning de httpx+TestClient está filtrado en `pytest.ini`.
 
+**Nota (hang histórico):** si `DB_PROVIDER=mongodb` filtraba desde `.env` y Mongo no respondía,
+`TestClient` parecía colgarse en `starlette.testclient.__enter__` por el lifespan → índices Motor.
+La causa no era httpx/Starlette; `httpx2` no es obligatorio. Migrar a `httpx.ASGITransport` es mejora futura.
+
 ## Flujo de ramas (backend)
 
 ```

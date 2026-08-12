@@ -18,7 +18,10 @@ RESP_401_UNAUTHORIZED = {
 
 RESP_403_FORBIDDEN = {
     status.HTTP_403_FORBIDDEN: {
-        "description": "Autenticado pero sin permisos sobre el recurso (p. ej. documento de otro usuario).",
+        "description": (
+            "Autenticado pero con rol insuficiente (p. ej. se requiere `admin`). "
+            "Ownership de documentos/quizzes ajenos responde 404, no 403."
+        ),
         "model": HTTPErrorBody,
     },
 }

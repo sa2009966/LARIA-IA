@@ -20,7 +20,6 @@ from src.domain.ports.ia_analyst import IAAnalysisError
 from src.infrastructure.config import settings
 from src.interfaces.api.openapi_responses import (
     RESP_401_UNAUTHORIZED,
-    RESP_403_FORBIDDEN,
     RESP_404_NOT_FOUND,
     RESP_422_VALIDATION,
 )
@@ -212,7 +211,6 @@ async def list_my_documents(
     response_description="Metadatos y estado de análisis del documento.",
     responses={
         **RESP_401_UNAUTHORIZED,
-        **RESP_403_FORBIDDEN,
         **RESP_404_NOT_FOUND,
     },
 )
@@ -239,7 +237,6 @@ async def get_document(
             "description": "Documento eliminado; no se devuelve JSON.",
         },
         **RESP_401_UNAUTHORIZED,
-        **RESP_403_FORBIDDEN,
         **RESP_404_NOT_FOUND,
     },
 )
@@ -266,7 +263,6 @@ async def delete_document(
     response_description="Resumen, conceptos clave y preguntas sugeridas.",
     responses={
         **RESP_401_UNAUTHORIZED,
-        **RESP_403_FORBIDDEN,
         **RESP_404_NOT_FOUND,
         **RESP_422_VALIDATION,
     },
@@ -305,7 +301,6 @@ async def analyze_document(
     response_description="Respuesta del tutor virtual.",
     responses={
         **RESP_401_UNAUTHORIZED,
-        **RESP_403_FORBIDDEN,
         **RESP_404_NOT_FOUND,
         **RESP_422_VALIDATION,
     },
@@ -337,7 +332,6 @@ async def ask_question(
     response_description="Quiz persistido con id y preguntas sin respuestas correctas.",
     responses={
         **RESP_401_UNAUTHORIZED,
-        **RESP_403_FORBIDDEN,
         **RESP_404_NOT_FOUND,
         **RESP_422_VALIDATION,
     },

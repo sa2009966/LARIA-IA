@@ -15,7 +15,13 @@ from src.application.services.quiz_service import QuizService
 from src.application.services.user_service import UserService
 from src.domain.aggregates.user_aggregate import UserAggregate
 from src.domain.ports.cache_port import CachePort
-from src.domain.ports.embodiment import PresencePort, SpeechToTextPort, TextToSpeechPort
+from src.domain.ports.embodiment import (
+    DeviceCommandPort,
+    PresencePort,
+    SensorInputPort,
+    SpeechToTextPort,
+    TextToSpeechPort,
+)
 from src.domain.ports.event_bus import EventBus
 from src.domain.ports.ia_analyst import IAAnalyst
 from src.domain.ports.metrics_port import MetricsPort
@@ -36,6 +42,8 @@ from src.domain.services.recommendation_engine import RecommendationEngine
 from src.infrastructure.config import JWT_ALGORITHM, settings
 from src.infrastructure.embodiment.stubs import (
     LogOnlyPresence,
+    NullDeviceCommand,
+    NullSensorInput,
     NullSpeechToText,
     NullTextToSpeech,
 )
@@ -201,6 +209,18 @@ def get_text_to_speech() -> TextToSpeechPort:
 def get_presence() -> PresencePort:
     metrics = get_metrics() if settings.METRICS_ENABLED else None
     return LogOnlyPresence(metrics=metrics)
+
+
+@lru_cache(maxsize=1)
+def get_device_command() -> DeviceCommandPort:
+    metrics = get_metrics() if settings.METRICS_ENABLED else None
+    return NullDeviceCommand(metrics=metrics)
+
+
+@lru_cache(maxsize=1)
+def get_sensor_input() -> SensorInputPort:
+    metrics = get_metrics() if settings.METRICS_ENABLED else None
+    return NullSensorInput(metrics=metrics)
 
 
 @lru_cache(maxsize=1)

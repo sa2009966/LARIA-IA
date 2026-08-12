@@ -10,7 +10,13 @@ import time
 
 from src.domain.ports.embodiment import (
     AffectState,
+    CommandAck,
+    DeviceCommand,
+    DeviceCommandPort,
     PresencePort,
+    SafetyClass,
+    SensorInputPort,
+    SensorReading,
     SpeechToTextPort,
     TextToSpeechPort,
 )
@@ -19,6 +25,7 @@ from src.domain.ports.metrics_port import MetricsPort
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_S = 2.0
+_DEVICE_TIMEOUT_S = 0.5
 
 
 class NullSpeechToText(SpeechToTextPort):
@@ -119,3 +126,67 @@ class LogOnlyPresence(PresencePort):
             if self._metrics:
                 self._metrics.incr("command_failed", component="presence")
                 self._metrics.incr("device_errors", component="presence")
+
+
+class NullDeviceCommand(DeviceCommandPort):
+    """No-op con allowlist de safety: MOTION/ESTOP se registran pero no ejecutan hardware."""
+
+    def __init__(
+        self,
+        *,
+        timeout_s: float = _DEVICE_TIMEOUT_S,
+        metrics: MetricsPort | None = None,
+        degraded: bool = False,
+    ) -> None:
+        self._timeout_s = timeout_s
+        self._metrics = metrics
+        self._degraded = degraded
+        if metrics:
+            metrics.gauge("embodiment_degraded", 1.0 if degraded else 0.0)
+
+    async def send(self, command: DeviceCommand) -> CommandAck:
+        started = time.perf_counter()
+        if command.safety_class == SafetyClass.ESTOP:
+            if self._metrics:
+                self._metrics.incr("safety_interlock", kind="estop")
+            return CommandAck(command_id=command.command_id, ok=True, detail="estop_ack")
+        if self._degraded:
+            if self._metrics:
+                self._metrics.incr("affect_render_skipped", reason="degraded")
+            return CommandAck(
+                command_id=command.command_id,
+                ok=False,
+                detail="degraded",
+                degraded=True,
+            )
+        if command.safety_class == SafetyClass.MOTION:
+            if self._metrics:
+                self._metrics.incr("forbidden_command_blocked", kind=command.kind.value)
+            # Stub: no ejecuta motion real; acusa bloqueo seguro.
+            return CommandAck(
+                command_id=command.command_id,
+                ok=False,
+                detail="motion_blocked_in_stub",
+            )
+        try:
+            await asyncio.wait_for(asyncio.sleep(0), timeout=self._timeout_s)
+            if self._metrics:
+                self._metrics.observe(
+                    "device_command_latency",
+                    (time.perf_counter() - started) * 1000.0,
+                    kind=command.kind.value,
+                )
+            return CommandAck(command_id=command.command_id, ok=True, detail="noop")
+        except asyncio.TimeoutError:
+            if self._metrics:
+                self._metrics.incr("device_command_timeout", kind=command.kind.value)
+            return CommandAck(command_id=command.command_id, ok=False, detail="timeout")
+
+
+class NullSensorInput(SensorInputPort):
+    def __init__(self, *, metrics: MetricsPort | None = None) -> None:
+        self._metrics = metrics
+
+    async def poll(self) -> SensorReading | None:
+        _ = self._metrics
+        return None

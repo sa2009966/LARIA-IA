@@ -11,19 +11,22 @@ Marca cada ítem PASS/FAIL antes de exponer el API fuera de demo.
 | `MONGODB_URL` | Alcanzable; auth; sin exponer puerto al host público | |
 | `EVENT_BUS_BACKEND` | `outbox` (fail-fast en production+mongodb) | |
 | `ENABLE_DOCS` | `false` (fail-fast si true en production) | |
-| `CACHE_BACKEND` / `RATE_LIMIT_BACKEND` | `redis` con `REDIS_URL` | |
+| `CACHE_BACKEND` | `redis` (fail-fast en production) | |
+| `RATE_LIMIT_BACKEND` | `redis` (fail-fast en production) | |
+| `REDIS_URL` | no vacío en production | |
 | `SECRET_KEY` | ≥32 chars, no default, rotada | |
 | `OPENAI_API_KEY` | Presente; no en git | |
-| `CORS_ORIGINS` | Solo orígenes del front real | |
+| `CORS_ORIGINS` | No vacío; sin `*`; orígenes del front (Compose local puede usar `:4321`) | |
 | Render blueprint | Etiquetado **demo**; no usarlo como prod | |
 
 ## Evidencia pedagógica
 
 | Ítem | Criterio | PASS/FAIL |
 |------|----------|-----------|
-| Ask → perfil | Tras `/ask`, `GET /learning/me/profile` refleja struggle/style | |
-| Quiz → perfil | Tras attempt, mastery/conceptos actualizados | |
-| Outbox | `outbox_processed` sube; 0 `unsupported_event` para ask/quiz | |
+| Ask → perfil | Tras `/ask` con struggle, `total_struggle_signals >= 1` | |
+| Quiz → perfil | Tras attempt, `total_attempts` y mastery documento | |
+| Outbox | `outbox_processed` sube; ask/quiz con `last_error=null` | |
+| Unsupported | eventos no pedagógicos → `outbox_unsupported` (no mezclar con failed) | |
 | Persistencia | Datos vivos tras reinicio del contenedor `app` | |
 
 ## Observabilidad y seguridad
@@ -31,7 +34,8 @@ Marca cada ítem PASS/FAIL antes de exponer el API fuera de demo.
 | Ítem | Criterio | PASS/FAIL |
 |------|----------|-----------|
 | `/health` | 200; no spam INFO | |
-| `/metrics` | Contadores `outbox_*`, `profile_updates`, request-id en respuestas | |
+| `/ready` | 200 si Mongo/Redis OK; 503 si caída | |
+| `/metrics` | `outbox_*`, `outbox_unsupported`, `profile_updates`, `laria_llm_latency_ms` | |
 | Logs | Sin tokens, passwords ni bodies | |
 | Ownership | Recurso ajeno → 404 | |
 | Auth | Password débil → 422; conflicto → 409; UUID malo → 422 | |
@@ -41,7 +45,8 @@ Marca cada ítem PASS/FAIL antes de exponer el API fuera de demo.
 | Ítem | Criterio | PASS/FAIL |
 |------|----------|-----------|
 | `EMBODIMENT_ENABLED=false` | Arranque y `/ask` idénticos | |
-| `EMBODIMENT_ENABLED=true` | Stubs con timeout; fallo TTS/STT no → 500 en pedagogía | |
+| `EMBODIMENT_ENABLED=true` | Stubs STT/TTS/Presence/Device/Sensor; fallo ≠ 500 en pedagogía | |
+| DeviceCommandPort | motion bloqueado en stub; ESTOP ack; gauge `embodiment_degraded` | |
 
 ## Cuándo usar outbox vs memory
 
@@ -49,5 +54,9 @@ Marca cada ítem PASS/FAIL antes de exponer el API fuera de demo.
 |------|----------------|
 | `memory` | Una réplica / demo / beta temprana (Render demo) |
 | `outbox` | 2+ réplicas o durabilidad del evento si el proceso muere post-respuesta |
+
+## Staging recomendado
+
+Misma imagen Compose que producción (`APP_ENV=production`, Mongo+Redis+outbox, docs off) en un VPS o máquina de equipo, con secrets distintos. **No** usar Render free como staging persistente.
 
 Compose local ya usa forma de producción (mongo + redis + outbox + cache redis).
