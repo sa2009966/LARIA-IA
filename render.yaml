@@ -25,7 +25,7 @@ services:
       - key: DB_PROVIDER
         value: mongodb
       - key: MONGODB_URL
-        value: mongodb+srv://USER:PASS@cluster0.psrrt96.mongodb.net/laria_db?appName=Cluster0
+        sync: false
       - key: MONGODB_DB_NAME
         value: laria_db
       - key: RATE_LIMIT_BACKEND
