@@ -12,7 +12,6 @@ services:
     plan: free
     region: oregon
     branch: feature/backend
-    rootDir: backend
     dockerfilePath: ./Dockerfile
     dockerCommand: "sh -c 'uvicorn src.main:app --host 0.0.0.0 --port $PORT'"
     healthCheckPath: /health
