@@ -24,6 +24,9 @@ _DEFAULT_EDGES: dict[str, tuple[str, ...]] = {
     "matrices": ("sistemas", "ecuaciones lineales"),
     "desigualdad": ("ecuación", "variable"),
     "resolver ecuación": ("ecuación", "variable"),
+    "términos semejantes": ("variable", "expresión algebraica"),
+    "factorización": ("propiedad distributiva", "expresión algebraica"),
+    "ecuación cuadrática": ("ecuación", "factorización"),
     # Cálculo
     "funciones": ("variable", "expresión algebraica"),
     "derivadas": ("funciones",),
@@ -46,6 +49,12 @@ _ALIASES: dict[str, str] = {
     "distributiva": "propiedad distributiva",
     "álgebra": "variable",
     "algebra": "variable",
+    "despejar": "resolver ecuación",
+    "cuadrática": "ecuación cuadrática",
+    "cuadratica": "ecuación cuadrática",
+    "factorizar": "factorización",
+    "términos": "términos semejantes",
+    "terminos": "términos semejantes",
 }
 
 
@@ -73,6 +82,15 @@ class PrerequisiteGraph:
     def prerequisites_of(self, concept: str) -> tuple[str, ...]:
         key = self.canonicalize(concept)
         return self._edges.get(key, ())
+
+    def successors_of(self, concept: str) -> tuple[str, ...]:
+        """Conceptos que listan a `concept` como prerrequisito directo (inverso de `prerequisites_of`)."""
+        key = self.canonicalize(concept)
+        found: list[str] = []
+        for candidate, prereqs in self._edges.items():
+            if key in prereqs:
+                found.append(candidate)
+        return tuple(found)
 
     def all_prerequisites(self, concept: str) -> tuple[str, ...]:
         """DFS transitivo, orden topológico inverso (bases primero)."""

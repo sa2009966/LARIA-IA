@@ -206,9 +206,8 @@ class RecommendationEngine:
     def _find_ready_successor(self, concept: str, profile: StudentProfile) -> str | None:
         graph = self._gate.graph
         canon = graph.canonicalize(concept)
-        for candidate, prereqs in graph._edges.items():  # noqa: SLF001 — lectura intencional del grafo
-            if canon in prereqs:
-                gate = self._gate.evaluate(candidate, profile)
-                if not gate.blocked and profile.effective_concept_mastery(candidate) < 0.7:
-                    return candidate
+        for candidate in graph.successors_of(canon):
+            gate = self._gate.evaluate(candidate, profile)
+            if not gate.blocked and profile.effective_concept_mastery(candidate) < 0.7:
+                return candidate
         return None

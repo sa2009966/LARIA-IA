@@ -103,6 +103,27 @@ class TestHttpContracts:
         r = client.get(f"/api/v1/documents/{doc_id}", headers=b)
         assert r.status_code == 404
 
+    def test_ownership_ajeno_analyze_ask_quiz_404(self, client: TestClient):
+        owner = _auth_headers(client)
+        other = _auth_headers(client)
+        up = client.post(
+            "/api/v1/documents/",
+            headers=owner,
+            json={"filename": "t.txt", "content": "contenido ajeno", "subject": "Historia"},
+        )
+        assert up.status_code == 201
+        doc_id = up.json()["id"]
+        analyze = client.post(f"/api/v1/documents/{doc_id}/analyze", headers=other)
+        assert analyze.status_code == 404
+        ask = client.post(
+            f"/api/v1/documents/{doc_id}/ask",
+            headers=other,
+            json={"question": "¿De qué trata?"},
+        )
+        assert ask.status_code == 404
+        quiz = client.post(f"/api/v1/documents/{doc_id}/quiz", headers=other)
+        assert quiz.status_code == 404
+
     def test_ia_error_502(self, client: TestClient):
         headers = _auth_headers(client)
         up = client.post(
@@ -136,6 +157,57 @@ class TestHttpContracts:
             r = client.post(f"/api/v1/documents/{doc_id}/analyze", headers=headers)
         finally:
             app.dependency_overrides.pop(deps.get_analyze_service, None)
+        assert r.status_code == 502, r.text
+
+    def test_quiz_generate_ia_error_502(self, client: TestClient):
+        headers = _auth_headers(client)
+        up = client.post(
+            "/api/v1/documents/",
+            headers=headers,
+            json={
+                "filename": "t.txt",
+                "content": "El numerador es la parte de arriba de una fracción.",
+                "subject": "Matemática",
+            },
+        )
+        assert up.status_code == 201
+        doc_id = up.json()["id"]
+        mock_ia = AsyncMock()
+        mock_ia.generate_quiz = AsyncMock(side_effect=IAAnalysisError("upstream boom"))
+
+        def _quiz() -> QuizService:
+            return QuizService(
+                document_repository=deps.get_document_repo(),
+                quiz_repository=deps.get_quiz_repo(),
+                attempt_repository=deps.get_attempt_repo(),
+                interaction_repository=deps.get_interaction_repo(),
+                ia_analyst=mock_ia,
+                event_bus=deps.get_event_bus(),
+                profile_repository=deps.get_profile_repo(),
+                pedagogical_engine=deps.get_pedagogical_engine(),
+                session_repository=deps.get_session_repo(),
+            )
+
+        app.dependency_overrides[deps.get_quiz_service] = _quiz
+        try:
+            r = client.post(f"/api/v1/documents/{doc_id}/quiz?num_questions=1", headers=headers)
+        finally:
+            app.dependency_overrides.pop(deps.get_quiz_service, None)
+        assert r.status_code == 502, r.text
+
+    def test_quiz_attempt_ia_error_502(self, client: TestClient):
+        headers = _auth_headers(client)
+        mock_svc = AsyncMock()
+        mock_svc.submit_attempt = AsyncMock(side_effect=IAAnalysisError("upstream boom"))
+        app.dependency_overrides[deps.get_quiz_service] = lambda: mock_svc
+        try:
+            r = client.post(
+                f"/api/v1/quizzes/{uuid4()}/attempts",
+                headers=headers,
+                json={"answers": {"0": "A"}},
+            )
+        finally:
+            app.dependency_overrides.pop(deps.get_quiz_service, None)
         assert r.status_code == 502, r.text
 
     def test_list_get_sin_content(self, client: TestClient):
@@ -517,3 +589,170 @@ class TestHttpContracts:
             codes.append(r.status_code)
         assert codes[-1] == 429
         assert 201 in codes
+
+    def test_openapi_documenta_502_y_429(self, client: TestClient):
+        spec = client.get("/openapi.json")
+        assert spec.status_code == 200, spec.text
+        paths = spec.json()["paths"]
+        register = paths["/api/v1/auth/register"]["post"]["responses"]
+        token = paths["/api/v1/auth/token"]["post"]["responses"]
+        ask = paths["/api/v1/documents/{document_id}/ask"]["post"]["responses"]
+        analyze = paths["/api/v1/documents/{document_id}/analyze"]["post"]["responses"]
+        quiz_gen = paths["/api/v1/documents/{document_id}/quiz"]["post"]["responses"]
+        attempt = paths["/api/v1/quizzes/{quiz_id}/attempts"]["post"]["responses"]
+        metrics = paths["/metrics"]["get"]["responses"]
+        assert "429" in register and "429" in token
+        assert "502" in ask and "502" in analyze and "502" in quiz_gen and "502" in attempt
+        assert "404" in metrics
+        not_found = paths["/api/v1/documents/{document_id}"]["get"]["responses"]["404"]
+        desc = (not_found.get("description") or "").lower()
+        assert "404" in desc or "ajeno" in desc or "accesible" in desc
+
+    def test_quiz_attempt_claves_no_numericas_422(self, client: TestClient):
+        headers = _auth_headers(client)
+        r = client.post(
+            f"/api/v1/quizzes/{uuid4()}/attempts",
+            headers=headers,
+            json={"answers": {"abc": "A", "1": "B"}},
+        )
+        assert r.status_code == 422
+        assert "numéricos" in r.json()["detail"].lower()
+
+    def test_quiz_attempt_value_error_no_404_devuelve_422(self, client: TestClient):
+        headers = _auth_headers(client)
+        mock_svc = AsyncMock()
+        mock_svc.submit_attempt = AsyncMock(
+            side_effect=ValueError("Índice de pregunta inválido")
+        )
+        app.dependency_overrides[deps.get_quiz_service] = lambda: mock_svc
+        try:
+            r = client.post(
+                f"/api/v1/quizzes/{uuid4()}/attempts",
+                headers=headers,
+                json={"answers": {"0": "A"}},
+            )
+        finally:
+            app.dependency_overrides.pop(deps.get_quiz_service, None)
+        assert r.status_code == 422
+        assert "inválido" in r.json()["detail"].lower()
+
+    def test_upload_multipart_suffix_invalido_422(self, client: TestClient):
+        headers = _auth_headers(client)
+        files = {"file": ("nota.pdf", BytesIO(b"contenido"), "application/pdf")}
+        r = client.post(
+            "/api/v1/documents/upload",
+            headers=headers,
+            files=files,
+            data={"subject": "Historia"},
+        )
+        assert r.status_code == 422
+        assert ".txt" in r.json()["detail"] or ".md" in r.json()["detail"]
+
+    def test_upload_multipart_vacio_422(self, client: TestClient):
+        headers = _auth_headers(client)
+        files = {"file": ("nota.txt", BytesIO(b""), "text/plain")}
+        r = client.post(
+            "/api/v1/documents/upload",
+            headers=headers,
+            files=files,
+            data={"subject": "Historia"},
+        )
+        assert r.status_code == 422
+        assert "vacío" in r.json()["detail"].lower()
+
+    def test_upload_multipart_no_utf8_422(self, client: TestClient):
+        headers = _auth_headers(client)
+        files = {"file": ("nota.txt", BytesIO(b"\xff\xfe\xfd"), "text/plain")}
+        r = client.post(
+            "/api/v1/documents/upload",
+            headers=headers,
+            files=files,
+            data={"subject": "Historia"},
+        )
+        assert r.status_code == 422
+        assert "utf-8" in r.json()["detail"].lower()
+
+    def test_upload_multipart_document_too_large_from_service_413(self, client: TestClient):
+        from src.application.services.document_service import DocumentTooLargeError
+
+        headers = _auth_headers(client)
+        mock_svc = AsyncMock()
+        mock_svc.upload_bytes = AsyncMock(
+            side_effect=DocumentTooLargeError("El archivo supera el límite de 10 bytes")
+        )
+        app.dependency_overrides[deps.get_document_service] = lambda: mock_svc
+        try:
+            files = {"file": ("nota.txt", BytesIO(b"hola"), "text/plain")}
+            r = client.post(
+                "/api/v1/documents/upload",
+                headers=headers,
+                files=files,
+                data={"subject": "Historia"},
+            )
+        finally:
+            app.dependency_overrides.pop(deps.get_document_service, None)
+        assert r.status_code == 413
+        assert "límite" in r.json()["detail"].lower()
+
+    def test_root_redirects_to_docs_when_enabled(self, client: TestClient):
+        r = client.get("/", follow_redirects=False)
+        assert r.status_code in (307, 302)
+        assert r.headers["location"].endswith("/docs")
+
+    def test_root_json_when_docs_disabled(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        from src.infrastructure.config import settings
+
+        monkeypatch.setattr(settings, "ENABLE_DOCS", False)
+        r = client.get("/")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["service"] == "LARIA"
+        assert body["health"] == "/health"
+
+    def test_unhandled_exception_controlled_500(self):
+        """Exception genérica → 500 con HTTPErrorBody; sin stack trace ni secretos."""
+        secret = "SUPER_SECRET_TOKEN_xyz"
+        path = "/__phase5_boom__"
+
+        async def boom():
+            raise RuntimeError(f"boom with {secret} and Traceback")
+
+        app.add_api_route(path, boom, methods=["GET"], include_in_schema=False)
+        clear_dependency_caches()
+        try:
+            # raise_server_exceptions=False: ServerErrorMiddleware ya convierte a 500.
+            with TestClient(app, raise_server_exceptions=False) as client:
+                r = client.get(path, headers={"X-Request-Id": "phase5-rid-500"})
+                assert r.status_code == 500
+                body = r.json()
+                assert body == {"detail": "Error interno del servidor."}
+                text = r.text
+                assert secret not in text
+                assert "Traceback" not in text
+                assert "RuntimeError" not in text
+                assert r.headers.get("X-Request-Id") == "phase5-rid-500"
+        finally:
+            app.router.routes = [
+                route
+                for route in app.router.routes
+                if getattr(route, "path", None) != path
+            ]
+            clear_dependency_caches()
+
+    def test_http_exception_sigue_404_y_401(self, client: TestClient):
+        """HTTPException de routers no se convierte en 500."""
+        missing = client.get(f"/api/v1/documents/{uuid4()}", headers=_auth_headers(client))
+        assert missing.status_code == 404
+        assert missing.status_code != 500
+        assert "detail" in missing.json()
+
+        unauth = client.get("/api/v1/documents/")
+        assert unauth.status_code == 401
+        assert unauth.status_code != 500
+        assert "detail" in unauth.json()
+
+    def test_openapi_incluye_plantilla_500(self):
+        from src.interfaces.api import openapi_responses as oapi
+
+        assert 500 in oapi.RESP_500_INTERNAL
+        assert oapi.RESP_500_INTERNAL[500]["model"].__name__ == "HTTPErrorBody"

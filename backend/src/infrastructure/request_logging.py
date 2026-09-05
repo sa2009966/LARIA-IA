@@ -32,8 +32,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             raise
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         response.headers["X-Request-Id"] = request_id
-        # /health y /metrics a DEBUG para no saturar
-        log = logger.debug if path in {"/health", "/metrics"} else logger.info
+        # /health, /ready y /metrics a DEBUG para no saturar probes
+        log = logger.debug if path in {"/health", "/ready", "/metrics"} else logger.info
         log(
             "request method=%s path=%s status=%s request_id=%s duration_ms=%.1f",
             method,

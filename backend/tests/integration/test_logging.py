@@ -48,6 +48,23 @@ class TestLoggingIntegration:
             for rec in caplog.records
         )
 
+    def test_ready_no_spam_info(self, client: TestClient, caplog):
+        """/ready es probe: DEBUG sí, INFO no. Sin cuerpos ni tokens."""
+        with caplog.at_level(logging.INFO, logger="laria.http"):
+            r = client.get("/ready")
+        assert r.status_code == 200
+        assert "X-Request-Id" in r.headers
+        assert not any(
+            "path=/ready" in rec.message for rec in caplog.records if rec.levelno >= logging.INFO
+        )
+        with caplog.at_level(logging.DEBUG, logger="laria.http"):
+            r2 = client.get("/ready")
+        assert r2.status_code == 200
+        assert any(
+            "request method=GET" in rec.message and "path=/ready" in rec.message
+            for rec in caplog.records
+        )
+
     def test_http_middleware_logs_api_request(self, client: TestClient, caplog):
         email = f"log_{uuid4().hex[:8]}@example.com"
         with caplog.at_level(logging.INFO, logger="laria.http"):
@@ -83,3 +100,27 @@ class TestLoggingIntegration:
         out = capsys.readouterr().out
         assert "json_probe_ok" in out
         assert '"level": "INFO"' in out or '"level":"INFO"' in out
+
+    def test_request_failed_logs_request_id_on_exception(self, caplog):
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+
+        from src.infrastructure.request_logging import RequestLoggingMiddleware
+
+        async def boom(_request):
+            raise RuntimeError("boom")
+
+        mini = Starlette(routes=[Route("/boom", boom)])
+        mini.add_middleware(RequestLoggingMiddleware)
+
+        with caplog.at_level(logging.ERROR, logger="laria.http"):
+            with TestClient(mini, raise_server_exceptions=False) as c:
+                r = c.get("/boom", headers={"X-Request-Id": "trace-abc-123"})
+        assert r.status_code == 500
+        failed = [
+            rec
+            for rec in caplog.records
+            if "request_failed" in rec.message and "trace-abc-123" in rec.message
+        ]
+        assert failed
+        assert failed[0].levelno >= logging.ERROR

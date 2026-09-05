@@ -77,6 +77,42 @@ async def test_device_command_stub_blocks_motion_and_acks_info():
 
 
 @pytest.mark.asyncio
+async def test_stt_success_records_latency_metric():
+    metrics = InMemoryMetrics()
+
+    class _OkSTT(NullSpeechToText):
+        async def _do_transcribe(self, audio_bytes: bytes) -> str:
+            return "hola"
+
+    text = await _OkSTT(metrics=metrics).transcribe(b"wav")
+    assert text == "hola"
+    snap = metrics.snapshot()
+    assert any("speech_latency" in k for k in snap["histograms"])
+
+
+@pytest.mark.asyncio
+async def test_tts_success_records_latency_metric():
+    metrics = InMemoryMetrics()
+
+    class _OkTTS(NullTextToSpeech):
+        async def _do_synthesize(self, text: str, affect: AffectState) -> bytes:
+            return b"audio"
+
+    audio = await _OkTTS(metrics=metrics).synthesize("hola", AffectState.CALM)
+    assert audio == b"audio"
+    snap = metrics.snapshot()
+    assert any("speech_latency" in k for k in snap["histograms"])
+
+
+@pytest.mark.asyncio
+async def test_presence_express_with_metrics():
+    metrics = InMemoryMetrics()
+    await LogOnlyPresence(metrics=metrics).express(AffectState.CALM, "mensaje")
+    snap = metrics.snapshot()
+    assert snap["counters"] or snap["histograms"]
+
+
+@pytest.mark.asyncio
 async def test_degraded_skips_actuators():
     metrics = InMemoryMetrics()
     port = NullDeviceCommand(metrics=metrics, degraded=True)

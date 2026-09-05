@@ -77,7 +77,19 @@ class TestAuthApi:
         )
         assert r.status_code == 401
 
-    def test_student_no_lista_usuarios(self, client: TestClient):
+    def test_admin_lista_usuarios_200(self, admin_client):
+        client, admin_email = admin_client
+        admin_token = _token(client, admin_email)
+        stu_email = f"stu_{uuid4().hex[:8]}@example.com"
+        assert _register(client, stu_email, f"stu_{uuid4().hex[:6]}").status_code == 201
+        r = client.get("/api/v1/users/", headers=_auth_header(admin_token))
+        assert r.status_code == 200, r.text
+        emails = {u["email"] for u in r.json()}
+        assert admin_email in emails
+        assert stu_email in emails
+        for u in r.json():
+            assert "password" not in u
+            assert "hashed_password" not in u
         email = f"stu_{uuid4().hex[:8]}@example.com"
         _register(client, email, f"stu_{uuid4().hex[:6]}")
         token = _token(client, email)
@@ -96,6 +108,31 @@ class TestAuthApi:
     def test_learning_sin_token_401(self, client: TestClient):
         assert client.get("/api/v1/learning/me").status_code == 401
         assert client.get("/api/v1/learning/me/profile").status_code == 401
+
+    def test_documents_routes_sin_token_401(self, client: TestClient):
+        doc_id = uuid4()
+        assert client.post(
+            "/api/v1/documents/",
+            json={"filename": "t.txt", "content": "hola", "subject": "Historia"},
+        ).status_code == 401
+        assert client.post("/api/v1/documents/upload").status_code == 401
+        assert client.get("/api/v1/documents/").status_code == 401
+        assert client.get(f"/api/v1/documents/{doc_id}").status_code == 401
+        assert client.delete(f"/api/v1/documents/{doc_id}").status_code == 401
+        assert client.post(f"/api/v1/documents/{doc_id}/analyze").status_code == 401
+        assert client.post(
+            f"/api/v1/documents/{doc_id}/ask",
+            json={"question": "¿De qué trata?"},
+        ).status_code == 401
+        assert client.post(f"/api/v1/documents/{doc_id}/quiz").status_code == 401
+
+    def test_quizzes_routes_sin_token_401(self, client: TestClient):
+        quiz_id = uuid4()
+        assert client.get(f"/api/v1/quizzes/{quiz_id}").status_code == 401
+        assert client.post(
+            f"/api/v1/quizzes/{quiz_id}/attempts",
+            json={"answers": {"0": "A"}},
+        ).status_code == 401
 
     def test_admin_delete_user_204_y_jwt_inactivo_401(self, admin_client):
         client, admin_email = admin_client

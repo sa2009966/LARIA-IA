@@ -26,6 +26,7 @@ flowchart TB
     VOs[Value Objects]
     Events[Domain Events]
     Ports[Ports]
+    Engine[PedagogicalEngine]
     Policy[TutorPolicy]
   end
   subgraph infrastructure [Infrastructure]
@@ -40,7 +41,9 @@ flowchart TB
   Services --> Ports
   Projector --> Ports
   Services --> Aggregates
-  OpenAI --> Policy
+  Services --> Engine
+  Engine --> Policy
+  Policy -.->|prompts| OpenAI
   Mongo -.->|implements| Ports
   Memory -.->|implements| Ports
   OpenAI -.->|implements| IAAnalyst

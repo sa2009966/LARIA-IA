@@ -12,7 +12,14 @@ def test_ia_routes_have_stricter_limits():
     assert docs is not None and docs[1] <= 30
 
 
-def test_sliding_window_blocks_when_exceeded():
+def test_sliding_window_evicts_expired_hits():
+    import time as time_mod
+    from unittest.mock import patch
+
+    counter = SlidingWindowCounter()
+    with patch("src.infrastructure.rate_limit.time.monotonic", side_effect=[0.0, 100.0, 100.0]):
+        assert counter.allow("k", 1, 60.0)
+        assert counter.allow("k", 1, 60.0)
     counter = SlidingWindowCounter()
     assert counter.allow("k", 2, 60.0)
     assert counter.allow("k", 2, 60.0)

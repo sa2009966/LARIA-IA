@@ -22,6 +22,8 @@ from src.interfaces.api.openapi_responses import (
     RESP_401_UNAUTHORIZED,
     RESP_404_NOT_FOUND,
     RESP_422_VALIDATION,
+    RESP_429_RATE_LIMIT,
+    RESP_502_BAD_GATEWAY,
 )
 from src.interfaces.api.dependencies import (
     get_analyze_service,
@@ -90,6 +92,7 @@ def _http_not_found(exc: Exception) -> HTTPException:
     responses={
         **RESP_401_UNAUTHORIZED,
         **RESP_422_VALIDATION,
+        **RESP_429_RATE_LIMIT,
         **_RESP_413,
     },
 )
@@ -131,6 +134,7 @@ async def upload_document(
     responses={
         **RESP_401_UNAUTHORIZED,
         **RESP_422_VALIDATION,
+        **RESP_429_RATE_LIMIT,
         **_RESP_413,
     },
 )
@@ -191,6 +195,7 @@ async def upload_document_multipart(
     response_description="Lista de documentos del propietario.",
     responses={
         **RESP_401_UNAUTHORIZED,
+        **RESP_429_RATE_LIMIT,
     },
 )
 async def list_my_documents(
@@ -212,6 +217,7 @@ async def list_my_documents(
     responses={
         **RESP_401_UNAUTHORIZED,
         **RESP_404_NOT_FOUND,
+        **RESP_429_RATE_LIMIT,
     },
 )
 async def get_document(
@@ -238,6 +244,7 @@ async def get_document(
         },
         **RESP_401_UNAUTHORIZED,
         **RESP_404_NOT_FOUND,
+        **RESP_429_RATE_LIMIT,
     },
 )
 async def delete_document(
@@ -265,6 +272,8 @@ async def delete_document(
         **RESP_401_UNAUTHORIZED,
         **RESP_404_NOT_FOUND,
         **RESP_422_VALIDATION,
+        **RESP_429_RATE_LIMIT,
+        **RESP_502_BAD_GATEWAY,
     },
 )
 async def analyze_document(
@@ -303,6 +312,8 @@ async def analyze_document(
         **RESP_401_UNAUTHORIZED,
         **RESP_404_NOT_FOUND,
         **RESP_422_VALIDATION,
+        **RESP_429_RATE_LIMIT,
+        **RESP_502_BAD_GATEWAY,
     },
 )
 async def ask_question(
@@ -334,6 +345,8 @@ async def ask_question(
         **RESP_401_UNAUTHORIZED,
         **RESP_404_NOT_FOUND,
         **RESP_422_VALIDATION,
+        **RESP_429_RATE_LIMIT,
+        **RESP_502_BAD_GATEWAY,
     },
 )
 async def generate_quiz(

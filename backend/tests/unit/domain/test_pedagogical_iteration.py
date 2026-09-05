@@ -86,6 +86,27 @@ class TestPrerequisites:
         assert decision.blocked_by_prereq or decision.mode == PedagogicalMode.SCAFFOLD
         assert decision.target_difficulty == Difficulty.EASY
 
+    def test_advanced_topic_weak_prereq_blocks_and_focuses_base(self):
+        profile = StudentProfile.create(uuid4())
+        doc = uuid4()
+        profile.record_concept_result("integrales", 0.2, document_id=doc)
+        decision = PedagogicalEngine().select(
+            profile,
+            doc,
+            TutorIntent.ASK,
+            document_concepts=("funciones", "derivadas", "integrales"),
+        )
+        assert decision.blocked_by_prereq is True
+        assert decision.focus_concepts[0] in {
+            "funciones",
+            "derivadas",
+            "variable",
+            "expresion algebraica",
+        }
+        assert decision.focus_concepts[0] != "integrales"
+        assert decision.mode == PedagogicalMode.SCAFFOLD
+        assert decision.target_difficulty == Difficulty.EASY
+
 
 class TestCognitiveAndDifficulty:
     def test_style_from_question(self):
@@ -116,6 +137,58 @@ class TestRecommendations:
         kinds = {r.kind for r in recs}
         assert "forgotten" in kinds or "review_priority" in kinds or "review_concept" in kinds
         assert any(r.suggested_minutes for r in recs)
+
+    def test_next_topic_uses_public_successors_not_private_edges(self):
+        profile = StudentProfile.create(uuid4())
+        profile.record_concept_result("variable", 0.6)
+        recs = RecommendationEngine().build(profile)
+        next_topics = [r for r in recs if r.kind == "next_topic"]
+        assert next_topics
+        graph = PrerequisiteGraph()
+        canon = graph.canonicalize("variable")
+        assert next_topics[0].concept in graph.successors_of(canon)
+
+    def test_find_ready_successor_does_not_touch_private_edges(self):
+        import inspect
+
+        src = inspect.getsource(RecommendationEngine._find_ready_successor)
+        assert "successors_of" in src
+        assert "_edges" not in src
+
+    def test_next_topic_skips_when_prereq_gate_blocked(self):
+        profile = StudentProfile.create(uuid4())
+        profile.record_concept_result("integrales", 0.55)
+        recs = RecommendationEngine().build(profile)
+        assert not any(r.kind == "next_topic" and r.concept == "integrales" for r in recs)
+
+    def test_mastered_concepts_recommendation(self):
+        profile = StudentProfile.create(uuid4())
+        for _ in range(8):
+            profile.record_concept_result("variable", 0.95)
+        assert profile.mastered_concepts(limit=1)
+        recs = RecommendationEngine().build(profile)
+        mastered = [r for r in recs if r.kind == "mastered"]
+        assert mastered
+        assert mastered[0].concept == "variable"
+
+    def test_weak_document_suggests_review_and_easier_quiz(self):
+        doc = uuid4()
+        profile = StudentProfile.create(uuid4())
+        profile.record_quiz_result(doc, 0.2)
+        recs = RecommendationEngine().build(profile)
+        kinds = {r.kind for r in recs}
+        assert "review" in kinds
+        assert "easier_quiz" in kinds
+        assert any(r.document_id == doc for r in recs if r.kind == "review")
+
+    def test_moderate_document_suggests_guided_explain(self):
+        doc = uuid4()
+        profile = StudentProfile.create(uuid4())
+        profile.record_quiz_result(doc, 0.55)
+        recs = RecommendationEngine().build(profile)
+        guided = [r for r in recs if r.kind == "guided_explain"]
+        assert guided
+        assert guided[0].document_id == doc
 
 
 class TestModelRouter:

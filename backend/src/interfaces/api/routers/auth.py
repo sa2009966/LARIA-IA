@@ -11,6 +11,7 @@ from src.interfaces.api.openapi_responses import (
     RESP_401_UNAUTHORIZED,
     RESP_409_CONFLICT,
     RESP_422_VALIDATION,
+    RESP_429_RATE_LIMIT,
 )
 from src.interfaces.schemas.user_schemas import TokenResponse, UserRegisterRequest, UserResponse
 
@@ -30,6 +31,7 @@ router = APIRouter(prefix="/auth", tags=["Autenticación"])
     responses={
         **RESP_409_CONFLICT,
         **RESP_422_VALIDATION,
+        **RESP_429_RATE_LIMIT,
     },
 )
 async def register(
@@ -76,6 +78,7 @@ async def register(
     responses={
         **RESP_401_UNAUTHORIZED,
         **RESP_422_VALIDATION,
+        **RESP_429_RATE_LIMIT,
     },
 )
 async def login(

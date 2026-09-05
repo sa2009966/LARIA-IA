@@ -62,9 +62,15 @@ feature/backend ──PR/merge──► develop ──testeo──► main
 
 ## Qué falta (roadmap)
 
-- Ontología de misconceptions más rica
+Fase 4 (dominio, esta iteración): catálogo de misconceptions de álgebra (`MisconceptionCatalog` + `MisconceptionResolver` vía `canonicalize_concept`), prioridad de misconceptions mapeadas en `PedagogicalEngine.select`, y `PrerequisiteGraph.successors_of` para `next_topic`. La escritura sigue en `remember_misconception` / projector; no hay API HTTP de plan de estudio.
+
+Pendiente:
+
+- Ampliar el catálogo más allá de álgebra
+- Producto HTTP de “quiero aprender X” / plan de estudio (depende de esta fundación)
 - Transacciones multi-doc en delete cascada
-- Observabilidad (métricas de outbox / latencia OpenAI)
+
+Observabilidad operativa ya está en el borde: `/health`, `/ready`, `/metrics` (`outbox_*`, `profile_updates`, `laria_llm_latency_ms`) y logs con `X-Request-Id` (sin cuerpos ni tokens).
 
 ## Contacto de documentación
 

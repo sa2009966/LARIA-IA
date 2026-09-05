@@ -1,9 +1,17 @@
 from contextlib import asynccontextmanager
 import asyncio
+import logging
+import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.infrastructure.config import (
     settings,
@@ -15,11 +23,15 @@ from src.infrastructure.logging_setup import configure_logging
 from src.infrastructure.rate_limit import RateLimitMiddleware
 from src.infrastructure.request_logging import RequestLoggingMiddleware
 from src.interfaces.api.routers import auth, documents, learning, quizzes, users
+from src.interfaces.schemas.http_errors import HTTPErrorBody
 
 configure_logging(level=settings.LOG_LEVEL, fmt=settings.LOG_FORMAT)
 validate_security_settings(settings)
 validate_ia_settings(settings)
 validate_runtime_settings(settings)
+
+_logger = logging.getLogger("laria.http")
+_INTERNAL_ERROR_DETAIL = "Error interno del servidor."
 
 
 async def _bootstrap_admin() -> None:
@@ -176,6 +188,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """500 controlado para Exception genérica. No convierte HTTPException/422 en 500.
+
+    Starlette registra el handler de `Exception` en ServerErrorMiddleware (fuera de
+    RequestLoggingMiddleware); por eso fijamos X-Request-Id aquí si falta.
+    """
+    if isinstance(exc, StarletteHTTPException):
+        return await http_exception_handler(request, exc)
+    if isinstance(exc, RequestValidationError):
+        return await request_validation_exception_handler(request, exc)
+
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    _logger.exception(
+        "unhandled_exception method=%s path=%s request_id=%s exc_type=%s",
+        request.method,
+        request.url.path,
+        request_id,
+        type(exc).__name__,
+    )
+    body = HTTPErrorBody(detail=_INTERNAL_ERROR_DETAIL)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=body.model_dump(),
+        headers={"X-Request-Id": request_id},
+    )
+
+
 PREFIX = "/api/v1"
 
 app.include_router(auth.router, prefix=PREFIX)
@@ -238,7 +279,19 @@ async def readiness_check():
     )
 
 
-@app.get("/metrics", tags=["Health"], include_in_schema=False)
+@app.get(
+    "/metrics",
+    tags=["Health"],
+    summary="Métricas Prometheus",
+    description=(
+        "Texto Prometheus (`outbox_*`, `profile_updates`, `laria_llm_latency_ms`, …). "
+        "Responde **404** si `METRICS_ENABLED=false`."
+    ),
+    responses={
+        200: {"description": "Contadores en formato Prometheus text."},
+        404: {"description": "Métricas deshabilitadas (`METRICS_ENABLED=false`)."},
+    },
+)
 def metrics_endpoint():
     if not settings.METRICS_ENABLED:
         return JSONResponse({"detail": "metrics disabled"}, status_code=404)

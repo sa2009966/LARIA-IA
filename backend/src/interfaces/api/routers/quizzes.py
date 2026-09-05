@@ -10,6 +10,8 @@ from src.interfaces.api.openapi_responses import (
     RESP_401_UNAUTHORIZED,
     RESP_404_NOT_FOUND,
     RESP_422_VALIDATION,
+    RESP_429_RATE_LIMIT,
+    RESP_502_BAD_GATEWAY,
 )
 from src.interfaces.api.quiz_mappers import quiz_to_public_response
 from src.interfaces.schemas.quiz_schemas import (
@@ -32,6 +34,7 @@ _MSG_NO_ENCONTRADO = "Recurso no encontrado"
     responses={
         **RESP_401_UNAUTHORIZED,
         **RESP_404_NOT_FOUND,
+        **RESP_429_RATE_LIMIT,
     },
 )
 async def get_quiz(
@@ -59,6 +62,8 @@ async def get_quiz(
         **RESP_401_UNAUTHORIZED,
         **RESP_404_NOT_FOUND,
         **RESP_422_VALIDATION,
+        **RESP_429_RATE_LIMIT,
+        **RESP_502_BAD_GATEWAY,
     },
 )
 async def submit_attempt(

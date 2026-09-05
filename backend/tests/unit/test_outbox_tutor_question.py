@@ -4,6 +4,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from src.application.services.learning_evidence_projector import LearningEvidenceProjector
 from src.domain.events.domain_events import (
@@ -218,6 +219,45 @@ async def test_unsupported_increments_outbox_unsupported_not_failed():
         k.startswith('outbox_failed{reason="unsupported_event"}') or k == "outbox_failed"
         for k in snap["counters"]
     )
+
+
+@pytest.mark.asyncio
+async def test_outbox_handler_failure_increments_failed_metric():
+    metrics = InMemoryMetrics()
+    bus = MongoOutboxEventBus(database=_FakeDB(), metrics=metrics)
+    student_id, document_id = uuid4(), uuid4()
+
+    async def _boom(_event):
+        raise RuntimeError("handler exploded")
+
+    await bus.subscribe(TutorQuestionAskedEvent, _boom)
+    await bus.publish(
+        TutorQuestionAskedEvent(
+            aggregate_id=document_id,
+            student_id=student_id,
+            document_id=document_id,
+            question="q",
+            answer="a",
+        )
+    )
+    assert await bus.process_pending(limit=5) == 0
+    row = bus._database.event_outbox.docs[0]
+    assert row["last_error"] == "handler exploded"
+    assert row["processed_at"] is None
+    assert row["attempts"] == 1
+    snap = metrics.snapshot()
+    assert any("outbox_failed" in k for k in snap["counters"])
+
+
+@pytest.mark.asyncio
+async def test_outbox_lazy_database_via_get_db():
+    mock_db = _FakeDB()
+    bus = MongoOutboxEventBus()
+    with patch(
+        "src.infrastructure.mongodb.outbox_event_bus.get_database",
+        AsyncMock(return_value=mock_db),
+    ):
+        assert await bus.count_pending() == 0
 
 
 @pytest.mark.asyncio

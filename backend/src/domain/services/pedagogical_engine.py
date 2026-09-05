@@ -5,8 +5,11 @@ import logging
 
 from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.aggregates.tutor_session import SessionStep, TutorSession
+from src.domain.catalog.misconception_catalog import MisconceptionEntry
+from src.domain.concept_identity import canonicalize_concept
 from src.domain.services.cognitive_style import CognitiveStyle, CognitiveStyleSelector
 from src.domain.services.difficulty_calculator import DifficultyCalculator
+from src.domain.services.misconception_resolver import MisconceptionResolver
 from src.domain.services.prerequisite_graph import PrerequisiteGate, PrerequisiteGraph
 from src.domain.value_objects.question import Difficulty
 
@@ -49,10 +52,12 @@ class PedagogicalEngine:
         gate: PrerequisiteGate | None = None,
         difficulty_calculator: DifficultyCalculator | None = None,
         style_selector: CognitiveStyleSelector | None = None,
+        misconception_resolver: MisconceptionResolver | None = None,
     ) -> None:
         self._gate = gate or PrerequisiteGate(PrerequisiteGraph())
         self._difficulty = difficulty_calculator or DifficultyCalculator()
         self._styles = style_selector or CognitiveStyleSelector()
+        self._misconceptions = misconception_resolver or MisconceptionResolver()
 
     def select(
         self,
@@ -71,11 +76,32 @@ class PedagogicalEngine:
         if profile is not None:
             weak = tuple(profile.weakest_concepts(limit=5, document_id=document_id, use_effective=True))
         errors = tuple((profile.frequent_errors[:5] if profile else []))
-        memory_mis = ()
+        mapped_focus: list[str] = []
+        unmapped_memory: list[str] = []
+        mapped_entries: list[MisconceptionEntry] = []
         if profile is not None:
-            memory_mis = tuple(profile.pedagogical_memory.frequent_misconceptions[:3])
-        focus = weak or errors or memory_mis or tuple(
-            c.strip().lower() for c in document_concepts[:5] if c
+            for raw in profile.pedagogical_memory.frequent_misconceptions[:8]:
+                entry = self._misconceptions.resolve_entry(raw)
+                if entry is None:
+                    key = canonicalize_concept(raw)
+                    if key and key not in unmapped_memory:
+                        unmapped_memory.append(key)
+                    continue
+                mapped_entries.append(entry)
+                if entry.id not in mapped_focus:
+                    mapped_focus.append(entry.id)
+                anchor = canonicalize_concept(entry.anchor_concept)
+                if anchor and anchor not in mapped_focus:
+                    mapped_focus.append(anchor)
+        doc_focus = tuple(
+            canonicalize_concept(c) for c in document_concepts[:5] if c and canonicalize_concept(c)
+        )
+        focus = (
+            tuple(mapped_focus[:5])
+            or errors
+            or weak
+            or tuple(unmapped_memory[:5])
+            or doc_focus
         )
         if session and session.focus_concepts:
             session_focus = tuple(session.focus_concepts[:5])
@@ -128,6 +154,8 @@ class PedagogicalEngine:
             f"hints={len(session.hints_given) if session else 0}; "
             f"style={style.value}; blocked_prereq={blocked}"
         )
+        if mapped_entries:
+            evidence += f"; mapped_misconception={mapped_entries[0].id}"
 
         in_hint = (
             session is not None
@@ -166,6 +194,12 @@ class PedagogicalEngine:
         # Memoria: si hay analogías exitosas y estilo analogy, reforzar objetivo
         if profile and style == CognitiveStyle.ANALOGY and profile.pedagogical_memory.successful_analogies:
             objective += " Reutiliza analogías que ya funcionaron con este estudiante."
+        if mapped_entries:
+            top = mapped_entries[0]
+            objective += (
+                f" Prioriza la misconception {top.id} con estrategia {top.remediation_strategy}"
+                f" (ancla: {canonicalize_concept(top.anchor_concept)})."
+            )
 
         decision = PedagogicalDecision(
             mode=mode,

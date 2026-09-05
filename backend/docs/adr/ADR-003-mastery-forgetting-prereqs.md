@@ -54,3 +54,13 @@ LARIA ya proyectaba evidencia de quizzes a `ConceptMastery` (EMA de aciertos) y 
 - API de perfil expone `effective_mastery`, `confidence`, memoria pedagógica.
 - Recomendaciones incluyen forgotten / pending / next_topic / study_time.
 - Tests de dominio deben cubrir olvido, gate y multi-señal sin red.
+
+## Addendum Fase 4 (2026-08-17) — catálogo de misconceptions y sucesores públicos
+
+Extensión del mismo bounded context (no un segundo motor ni un segundo grafo):
+
+- **Catálogo de dominio** (`src/domain/catalog/misconception_catalog.py`): entradas de álgebra con `id`, `subject`, `anchor_concept`, `aliases`, `remediation_strategy`. El ancla es una clave de `PrerequisiteGraph`.
+- **Resolver** (`MisconceptionResolver` / `resolve_misconception`): `canonicalize_concept(label)` + match por id/alias/ancla → `catalog.id` o `None` (unmapped). La persistencia sigue siendo `PedagogicalMemory.remember_misconception`; el mapeo es en lectura dentro de `PedagogicalEngine.select`.
+- **Prioridad de foco:** misconceptions **mapeadas** al catálogo superan a `weakest_concepts` genérico. El fallback de `document_concepts` usa `canonicalize_concept` (no solo `strip().lower()`).
+- **`PrerequisiteGraph.successors_of`:** inverso público de `prerequisites_of`. `RecommendationEngine._find_ready_successor` deja de leer `graph._edges`.
+- **Fuera de este addendum:** plan de estudio HTTP, segundo `canonicalize_*`, mutación extra del grafo singleton, reabrir evidencia Fase 2.
