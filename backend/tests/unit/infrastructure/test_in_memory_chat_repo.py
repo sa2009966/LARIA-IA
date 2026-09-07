@@ -52,14 +52,14 @@ class TestInMemoryChatRepository:
         assert titles == {"Chat 1", "Chat 2"}
 
     @pytest.mark.asyncio
-    async def test_find_by_owner_messages_cleared(self, repo, owner_id):
+    async def test_find_by_owner_returns_copies_with_messages(self, repo, owner_id):
         chat = ChatAggregate.create(owner_id=owner_id, title="Con mensajes")
         chat.add_message(role="user", content="Hola")
         await repo.save(chat)
 
         chats = await repo.find_by_owner(owner_id)
         assert len(chats) == 1
-        assert chats[0].messages == []
+        assert len(chats[0].messages) == 1
 
     @pytest.mark.asyncio
     async def test_find_by_owner_does_not_mutate_persisted_messages(self, repo, owner_id):

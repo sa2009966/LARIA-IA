@@ -68,14 +68,9 @@ class MongoDBChatRepository(ChatRepository):
 
     async def find_by_owner(self, owner_id: UUID) -> list[ChatAggregate]:
         db = await self._get_db()
-        cursor = (
-            db.chats.find({"owner_id": str(owner_id)})
-            .sort("updated_at", -1)
-            .projection({"messages": 0})
-        )
+        cursor = db.chats.find({"owner_id": str(owner_id)}).sort("updated_at", -1)
         results = []
         async for doc in cursor:
-            doc["messages"] = []
             results.append(self._from_doc(doc))
         return results
 
