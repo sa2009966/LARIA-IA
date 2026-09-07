@@ -22,7 +22,7 @@ from src.infrastructure.config import (
 from src.infrastructure.logging_setup import configure_logging
 from src.infrastructure.rate_limit import RateLimitMiddleware
 from src.infrastructure.request_logging import RequestLoggingMiddleware
-from src.interfaces.api.routers import auth, documents, learning, quizzes, users
+from src.interfaces.api.routers import auth, chats, documents, learning, quizzes, users
 from src.interfaces.schemas.http_errors import HTTPErrorBody
 
 configure_logging(level=settings.LOG_LEVEL, fmt=settings.LOG_FORMAT)
@@ -224,6 +224,7 @@ app.include_router(users.router, prefix=PREFIX)
 app.include_router(documents.router, prefix=PREFIX)
 app.include_router(quizzes.router, prefix=PREFIX)
 app.include_router(learning.router, prefix=PREFIX)
+app.include_router(chats.router, prefix=PREFIX)
 
 
 @app.get("/", include_in_schema=False)

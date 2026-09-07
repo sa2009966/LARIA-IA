@@ -23,6 +23,7 @@ async def test_ensure_all_indexes_creates_schema_indexes():
     db.tutor_sessions = _collection()
     db.student_profiles = _collection()
     db.event_outbox = _collection()
+    db.chats = _collection()
 
     await ensure_all_indexes(db)
 
@@ -53,3 +54,6 @@ async def test_ensure_all_indexes_creates_schema_indexes():
     assert db.tutor_interactions.create_index.await_count == 2
     assert db.tutor_sessions.create_index.await_count == 2
     assert db.event_outbox.create_index.await_count == 2
+    assert db.chats.create_index.await_count == 2
+    db.chats.create_index.assert_any_await("owner_id")
+    db.chats.create_index.assert_any_await("updated_at")

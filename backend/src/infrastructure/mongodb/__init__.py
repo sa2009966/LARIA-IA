@@ -7,6 +7,7 @@ from src.infrastructure.mongodb.quiz_attempt_repository import MongoDBQuizAttemp
 from src.infrastructure.mongodb.tutor_interaction_repository import MongoDBTutorInteractionRepository
 from src.infrastructure.mongodb.student_profile_repository import MongoDBStudentProfileRepository
 from src.infrastructure.mongodb.tutor_session_repository import MongoDBTutorSessionRepository
+from src.infrastructure.mongodb.chat_repository import MongoDBChatRepository
 
 __all__ = [
     "get_database",
@@ -19,4 +20,5 @@ __all__ = [
     "MongoDBTutorInteractionRepository",
     "MongoDBStudentProfileRepository",
     "MongoDBTutorSessionRepository",
+    "MongoDBChatRepository",
 ]

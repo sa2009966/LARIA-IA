@@ -9,6 +9,7 @@ from src.domain.aggregates.quiz_attempt_aggregate import QuizAttemptAggregate
 from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.aggregates.tutor_interaction import TutorInteractionAggregate
 from src.domain.aggregates.tutor_session import TutorSession
+from src.domain.aggregates.chat import ChatAggregate
 from src.domain.value_objects.email import Email
 
 
@@ -151,4 +152,23 @@ class TutorSessionRepository(ABC):
 
     @abstractmethod
     async def delete_by_document(self, document_id: UUID) -> int:
+        ...
+
+
+class ChatRepository(ABC):
+    @abstractmethod
+    async def find_by_id(self, chat_id: UUID) -> Optional[ChatAggregate]:
+        ...
+
+    @abstractmethod
+    async def find_by_owner(self, owner_id: UUID) -> list[ChatAggregate]:
+        """Lista chats del propietario (sin mensajes, solo metadata)."""
+        ...
+
+    @abstractmethod
+    async def save(self, chat: ChatAggregate) -> None:
+        ...
+
+    @abstractmethod
+    async def delete(self, chat_id: UUID) -> None:
         ...

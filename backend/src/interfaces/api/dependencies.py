@@ -27,6 +27,7 @@ from src.domain.ports.ia_analyst import IAAnalyst
 from src.domain.ports.metrics_port import MetricsPort
 from src.domain.ports.document_blob_store import DocumentBlobStore
 from src.domain.ports.repositories import (
+    ChatRepository,
     DocumentRepository,
     QuizAttemptRepository,
     QuizRepository,
@@ -49,6 +50,7 @@ from src.infrastructure.embodiment.stubs import (
 )
 from src.infrastructure.openai.openai_ia_analyst import OpenAIAnalyst
 from src.infrastructure.persistence import (
+    InMemoryChatRepository,
     InMemoryDocumentRepository,
     InMemoryEventBus,
     InMemoryQuizAttemptRepository,
@@ -132,6 +134,14 @@ def get_session_repo() -> TutorSessionRepository:
         from src.infrastructure.mongodb import MongoDBTutorSessionRepository
         return MongoDBTutorSessionRepository()
     return InMemoryTutorSessionRepository()
+
+
+@lru_cache(maxsize=1)
+def get_chat_repo() -> ChatRepository:
+    if settings.DB_PROVIDER == "mongodb":
+        from src.infrastructure.mongodb import MongoDBChatRepository
+        return MongoDBChatRepository()
+    return InMemoryChatRepository()
 
 
 @lru_cache(maxsize=1)

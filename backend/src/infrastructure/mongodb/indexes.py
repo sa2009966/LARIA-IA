@@ -22,3 +22,5 @@ async def ensure_all_indexes(database: AsyncIOMotorDatabase | None = None) -> No
     )
     await db.event_outbox.create_index("processed_at")
     await db.event_outbox.create_index([("processed_at", 1), ("created_at", 1)])
+    await db.chats.create_index("owner_id")
+    await db.chats.create_index("updated_at")
