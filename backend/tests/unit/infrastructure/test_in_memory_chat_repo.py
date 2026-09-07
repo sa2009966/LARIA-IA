@@ -62,6 +62,23 @@ class TestInMemoryChatRepository:
         assert chats[0].messages == []
 
     @pytest.mark.asyncio
+    async def test_find_by_owner_does_not_mutate_persisted_messages(self, repo, owner_id):
+        """Regresión: find_by_owner NO debe vaciar los mensajes del chat persistido."""
+        chat = ChatAggregate.create(owner_id=owner_id, title="Con mensajes")
+        chat.add_message(role="user", content="Hola")
+        chat.add_message(role="assistant", content="Hola, ¿en qué ayudo?")
+        await repo.save(chat)
+
+        # Listar (summary) → NO debe mutar el objeto guardado
+        await repo.find_by_owner(owner_id)
+
+        found = await repo.find_by_id(chat.id)
+        assert found is not None
+        assert len(found.messages) == 2
+        assert found.messages[0].content == "Hola"
+        assert found.messages[1].role == "assistant"
+
+    @pytest.mark.asyncio
     async def test_delete(self, repo, owner_id):
         chat = ChatAggregate.create(owner_id=owner_id)
         await repo.save(chat)

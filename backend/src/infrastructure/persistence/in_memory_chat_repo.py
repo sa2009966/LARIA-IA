@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Optional
 from uuid import UUID
 
@@ -16,9 +17,13 @@ class InMemoryChatRepository(ChatRepository):
     async def find_by_owner(self, owner_id: UUID) -> list[ChatAggregate]:
         chats = [c for c in self._chats.values() if c.owner_id == owner_id]
         chats.sort(key=lambda c: c.updated_at, reverse=True)
+        # Devolver copias sin mensajes (summary), SIN mutar el objeto persistido.
+        result = []
         for c in chats:
-            c.messages = []
-        return chats
+            clone = deepcopy(c)
+            clone.messages = []
+            result.append(clone)
+        return result
 
     async def save(self, chat: ChatAggregate) -> None:
         self._chats[chat.id] = chat
