@@ -51,7 +51,6 @@ _CACHE_NAMES = (
     "get_llm_gate",
     "get_model_router",
     "get_pedagogical_engine",
-    "get_speech_to_text",
     "get_text_to_speech",
     "get_presence",
     "get_device_command",

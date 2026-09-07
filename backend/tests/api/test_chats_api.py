@@ -120,10 +120,18 @@ class TestChatsAPI:
         assert r.status_code == 200
         assert r.json()["document_id"] == doc_id
 
-    def test_add_message(self, client):
+    def test_add_message(self, client, monkeypatch):
         token = _register_and_token(client, "chat")
         headers = {"Authorization": "Bearer " + token}
         created = client.post("/api/v1/chats/", headers=headers, json={"title": "Chat"}).json()
+
+        class FakeTutor:
+            async def answer(self, document_id, question, student_id):
+                return "Respuesta del tutor: " + question
+
+        from src.interfaces.api import dependencies
+
+        app.dependency_overrides[dependencies.get_chat_tutor_service] = lambda: FakeTutor()
 
         r = client.post(
             "/api/v1/chats/" + created["id"] + "/messages",
@@ -132,9 +140,11 @@ class TestChatsAPI:
         )
         assert r.status_code == 200
         messages = r.json()["messages"]
-        assert len(messages) == 1
+        assert len(messages) == 2
         assert messages[0]["content"] == "Hola tutor"
         assert messages[0]["role"] == "user"
+        assert messages[1]["content"] == "Respuesta del tutor: Hola tutor"
+        assert messages[1]["role"] == "assistant"
 
     def test_add_message_with_metadata(self, client):
         token = _register_and_token(client, "chat")
@@ -226,3 +236,60 @@ class TestChatsAPI:
     def test_invalid_token_401(self, client):
         r = client.get("/api/v1/chats/", headers={"Authorization": "Bearer fake-token"})
         assert r.status_code == 401
+
+    def test_add_message_user_tutor_error_fallback(self, client):
+        token = _register_and_token(client, "chat")
+        headers = {"Authorization": "Bearer " + token}
+        created = client.post("/api/v1/chats/", headers=headers, json={}).json()
+
+        # Simular que el tutor falla totalmente.
+        class FailingTutor:
+            async def answer(self, document_id, question, student_id):
+                raise RuntimeError("boom")
+
+        from src.interfaces.api import dependencies
+
+        app.dependency_overrides[dependencies.get_chat_tutor_service] = lambda: FailingTutor()
+
+        r = client.post(
+            "/api/v1/chats/" + created["id"] + "/messages",
+            headers=headers,
+            json={"role": "user", "content": "pregunta que falla"},
+        )
+        assert r.status_code == 200
+        messages = r.json()["messages"]
+        assert len(messages) == 2
+        assert messages[0]["role"] == "user"
+        assert messages[1]["role"] == "system"
+        assert messages[1]["metadata"] == {"source": "error"}
+
+    def test_add_message_user_with_document_passes_doc_id(self, client):
+        token = _register_and_token(client, "chat")
+        headers = {"Authorization": "Bearer " + token}
+        doc_id = str(uuid4())
+        created = client.post(
+            "/api/v1/chats/", headers=headers, json={"document_id": doc_id}
+        ).json()
+
+        captured = {}
+
+        class CapturingTutor:
+            async def answer(self, document_id, question, student_id):
+                captured["document_id"] = document_id
+                captured["question"] = question
+                captured["student_id"] = student_id
+                return "ok"
+
+        from src.interfaces.api import dependencies
+
+        app.dependency_overrides[dependencies.get_chat_tutor_service] = lambda: CapturingTutor()
+
+        r = client.post(
+            "/api/v1/chats/" + created["id"] + "/messages",
+            headers=headers,
+            json={"role": "user", "content": "explícame grafos"},
+        )
+        assert r.status_code == 200
+        assert str(captured["document_id"]) == doc_id
+        assert captured["question"] == "explícame grafos"
+        assert captured["student_id"] is not None

@@ -3,9 +3,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from src.application.services.chat_tutor_service import ChatTutorService
 from src.domain.aggregates.chat import ChatAggregate
 from src.domain.ports.repositories import ChatRepository
-from src.interfaces.api.dependencies import get_chat_repo, get_current_user_id
+from src.interfaces.api.dependencies import (
+    get_chat_repo,
+    get_chat_tutor_service,
+    get_current_user_id,
+)
 from src.interfaces.schemas.chat_schemas import (
     ChatAddMessageRequest,
     ChatCreateRequest,
@@ -118,6 +123,7 @@ async def add_message(
     body: ChatAddMessageRequest,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     repo: Annotated[ChatRepository, Depends(get_chat_repo)],
+    tutor: Annotated[ChatTutorService, Depends(get_chat_tutor_service)],
 ):
     chat = await repo.find_by_id(chat_id)
     if chat is None or str(chat.owner_id) != current_user_id:
@@ -126,6 +132,26 @@ async def add_message(
         chat.add_message(role=body.role, content=body.content, metadata=body.metadata)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+    if body.role == "user":
+        try:
+            answer = await tutor.answer(
+                document_id=chat.document_id,
+                question=body.content,
+                student_id=UUID(current_user_id),
+            )
+            chat.add_message(
+                role="assistant",
+                content=answer,
+                metadata={"source": "tutor"},
+            )
+        except Exception:
+            chat.add_message(
+                role="system",
+                content="Lo siento, no pude generar una respuesta en este momento. Intenta de nuevo.",
+                metadata={"source": "error"},
+            )
+
     await repo.save(chat)
     return _map_chat(chat)
 

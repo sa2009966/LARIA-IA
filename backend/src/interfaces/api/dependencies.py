@@ -144,6 +144,16 @@ def get_chat_repo() -> ChatRepository:
     return InMemoryChatRepository()
 
 
+def get_chat_tutor_service() -> "ChatTutorService":
+    from src.application.services.chat_tutor_service import ChatTutorService
+
+    return ChatTutorService(
+        analyze_service=get_analyze_service(),
+        llm_gate=get_llm_gate(),
+        document_repository=get_document_repo(),
+    )
+
+
 @lru_cache(maxsize=1)
 def get_metrics() -> MetricsPort:
     from src.infrastructure.metrics.in_memory_metrics import InMemoryMetrics
