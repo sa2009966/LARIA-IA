@@ -1,0 +1,103 @@
+# ─── Entorno (nunca versionar credenciales ni secretos) ─────────────────────
+.env
+.env.local
+.env.*
+!.env.example
+.envrc
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+.secrets/
+credentials.json
+*service-account*.json
+docker-compose.override.yml
+
+# ─── Python ─────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+*.sqlite3
+*.db
+
+# ─── Entornos virtuales ─────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+env_dashboard/
+
+# ─── IDE / Editor / Cursor ──────────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.cursor/*
+!.cursor/hooks.json
+!.cursor/hooks/
+!.cursor/hooks/**
+.agents/
+*.swp
+*.swo
+*~
+
+# ─── SO ─────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Logs / temporales ──────────────────────────────────────────────────────
+*.log
+tmp/
+temp/
+*.tmp
+.tmp-browser/
+.tmp-render/
+.agent-browser/
+.render_api_key.tmp
+backend/scripts/fix_render_deploy.py
+backend/scripts/set_cors_and_redeploy.py
+
+# ─── Docker ─────────────────────────────────────────────────────────────────
+.docker/
+.vercel
+
+# ─── Postman (credenciales locales si se exportan) ──────────────────────────
+postman/*local*
+postman/*secret*
+
+# ─── Evaluaciones / reportes locales (scripts) ──────────────────────────────
+scripts/*_report.json
+scripts/*_fail_report.json
+scripts/out/
+scripts/.cache/
+backend/scripts/*_report.json
+backend/scripts/*_fail_report.json
+backend/scripts/out/
+backend/scripts/.cache/
+
+# ─── Frontend ───────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.astro/
+frontend/.vercel
+frontend/.pnpm-store/
+node_modules/
+
+# ─── Artefactos de agente / notebooks locales ───────────────────────────────
+*.canvas.data.json
+.ipynb_checkpoints/
+.pnpm-store/
