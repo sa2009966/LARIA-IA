@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # Hook pre-push para el frontend LARIA (Next.js).
-# Evita que Render auto-despliegue el backend: bloquea force-push a ramas protegidas.
-# Ejecuta typecheck + lint antes de pushear a feature/frontend (Vercel auto-despliega).
+# Evita force-push a ramas protegidas (protege el backend/Render).
+# Valida el frontend con `next build` antes de pushear a feature/frontend (Vercel auto-despliega).
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
 PROTECTED='refs/heads/feature/backend refs/heads/develop refs/heads/main'
-FRONTEND_BRANCH='refs/heads/feature/frontend'
 
 zero='0000000000000000000000000000000000000000'
 while read -r local_ref local_sha remote_ref remote_sha; do
@@ -14,7 +13,6 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   if [[ "$local_sha" == "$zero" ]]; then
     continue
   fi
-  # Bloquear force-push a ramas protegidas
   for ref in $PROTECTED; do
     if [[ "$remote_ref" == "$ref" && "$remote_sha" != "$zero" ]]; then
       if ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; then
@@ -28,31 +26,23 @@ done
 
 # Validación del frontend solo para la rama feature/frontend
 if [[ "$(git rev-parse --abbrev-ref HEAD)" == "feature/frontend" ]]; then
-  echo "pre-push: validando frontend Next.js (typecheck + lint)..." >&2
+  echo "pre-push: validando frontend Next.js (next build)..." >&2
 
   if ! command -v node >/dev/null 2>&1; then
     echo "pre-push: node no encontrado. Instala Node para validar el frontend." >&2
     exit 1
   fi
 
-  # Instalar dependencias si no existen
   if [[ ! -d "$ROOT/node_modules" ]]; then
     echo "pre-push: instalando dependencias..." >&2
-    npm install --no-fund --no-audit >/dev/null 2>&1
+    pnpm install --no-fund --no-audit >/dev/null 2>&1
   fi
 
-  echo "pre-push: tsc --noEmit (typecheck)..." >&2
-  npx tsc --noEmit --skipLibCheck || {
-    echo "pre-push: ERROR de tipos TypeScript. Corrige antes de pushear." >&2
+  echo "pre-push: ejecutando next build (validación de producción)... Esto puede tardar. >&2"
+  timeout 300s npx next build && echo "pre-push: build OK." >&2 || {
+    echo "pre-push: ERROR en next build. Corrige antes de pushear." >&2
     exit 1
   }
-
-  echo "pre-push: ESLint..." >&2
-  npx next lint 2>/dev/null || npx eslint . --no-error-on-unmatched-pattern || {
-    echo "pre-push: eslint falló o no está configurado; continuando." >&2
-  }
-
-  echo "pre-push: validación del frontend OK." >&2
 fi
 
 exit 0
