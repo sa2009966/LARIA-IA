@@ -13,8 +13,13 @@ from fastapi import (
 )
 
 from src.application.dto.document_dto import UploadDocumentDTO
+from src.application.file_parser import is_supported
 from src.application.services.analyze_document_service import AnalyzeDocumentService
-from src.application.services.document_service import DocumentService, DocumentTooLargeError
+from src.application.services.document_service import (
+    DocumentService,
+    DocumentTooLargeError,
+    UnsupportedFileError,
+)
 from src.application.services.quiz_service import QuizService
 from src.domain.ports.ia_analyst import IAAnalysisError
 from src.infrastructure.config import settings
@@ -44,11 +49,14 @@ from src.interfaces.schemas.quiz_schemas import QuizPublicResponse
 router = APIRouter(prefix="/documents", tags=["Documentos"])
 
 _MSG_NO_ENCONTRADO = "Recurso no encontrado"
-_ALLOWED_TEXT_SUFFIXES = (".txt", ".md")
 try:
     _HTTP_413 = status.HTTP_413_CONTENT_TOO_LARGE
 except AttributeError:  # pragma: no cover
     _HTTP_413 = 413
+_RESUME_FORMATOS = (
+    "Texto (.txt, .md, .csv, .json, .log), código (.py, .js, .ts, ...), "
+    "PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx)"
+)
 _RESP_413 = {
     _HTTP_413: {
         "description": "El archivo supera DOCUMENT_MAX_UPLOAD_BYTES (200 MiB por defecto).",
@@ -129,7 +137,7 @@ async def upload_document(
     description=(
         "Sube material educativo como archivo multipart (`file` + `subject` + `filename` opcional). "
         f"Límite: {settings.DOCUMENT_MAX_UPLOAD_BYTES} bytes (DOCUMENT_MAX_UPLOAD_BYTES). "
-        "Fase 1: solo texto UTF-8 (.txt, .md). El blob va a GridFS (Mongo) o almacén en memoria."
+        f"Formatos soportados: {_RESUME_FORMATOS}. El blob va a GridFS (Mongo) o almacén en memoria."
     ),
     responses={
         **RESP_401_UNAUTHORIZED,
@@ -141,16 +149,15 @@ async def upload_document(
 async def upload_document_multipart(
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[DocumentService, Depends(get_document_service)],
-    file: Annotated[UploadFile, File(description="Archivo de texto UTF-8")],
+    file: Annotated[UploadFile, File(description=f"Archivo ({_RESUME_FORMATOS})")],
     subject: Annotated[str, Form(min_length=1, max_length=128)],
     filename: Annotated[Optional[str], Form()] = None,
 ):
     name = (filename or file.filename or "material.txt").strip() or "material.txt"
-    lower = name.lower()
-    if not lower.endswith(_ALLOWED_TEXT_SUFFIXES):
+    if not is_supported(name):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Solo se admiten archivos .txt o .md (UTF-8) en esta fase.",
+            detail=f"Formato no soportado. Se aceptan: {_RESUME_FORMATOS}.",
         )
     max_bytes = int(settings.DOCUMENT_MAX_UPLOAD_BYTES)
     data = await file.read(max_bytes + 1)
@@ -179,7 +186,7 @@ async def upload_document_multipart(
             status_code=_HTTP_413,
             detail=str(exc),
         ) from exc
-    except ValueError as exc:
+    except (UnsupportedFileError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),

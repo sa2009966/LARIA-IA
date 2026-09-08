@@ -638,7 +638,7 @@ class TestHttpContracts:
 
     def test_upload_multipart_suffix_invalido_422(self, client: TestClient):
         headers = _auth_headers(client)
-        files = {"file": ("nota.pdf", BytesIO(b"contenido"), "application/pdf")}
+        files = {"file": ("nota.exe", BytesIO(b"contenido"), "application/octet-stream")}
         r = client.post(
             "/api/v1/documents/upload",
             headers=headers,
@@ -646,7 +646,7 @@ class TestHttpContracts:
             data={"subject": "Historia"},
         )
         assert r.status_code == 422
-        assert ".txt" in r.json()["detail"] or ".md" in r.json()["detail"]
+        assert "formato" in r.json()["detail"].lower()
 
     def test_upload_multipart_vacio_422(self, client: TestClient):
         headers = _auth_headers(client)
@@ -660,9 +660,10 @@ class TestHttpContracts:
         assert r.status_code == 422
         assert "vacío" in r.json()["detail"].lower()
 
-    def test_upload_multipart_no_utf8_422(self, client: TestClient):
+    def test_upload_multipart_pdf_invalido_422(self, client: TestClient):
+        # PDF con bytes no legibles como PDF → error de parseo
         headers = _auth_headers(client)
-        files = {"file": ("nota.txt", BytesIO(b"\xff\xfe\xfd"), "text/plain")}
+        files = {"file": ("nota.pdf", BytesIO(b"no es un pdf real"), "application/pdf")}
         r = client.post(
             "/api/v1/documents/upload",
             headers=headers,
@@ -670,7 +671,6 @@ class TestHttpContracts:
             data={"subject": "Historia"},
         )
         assert r.status_code == 422
-        assert "utf-8" in r.json()["detail"].lower()
 
     def test_upload_multipart_document_too_large_from_service_413(self, client: TestClient):
         from src.application.services.document_service import DocumentTooLargeError

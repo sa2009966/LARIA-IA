@@ -3,6 +3,7 @@ from typing import Optional
 
 from src.application.concurrency import with_concurrency_retry
 from src.application.dto.document_dto import DocumentDTO, UploadDocumentDTO, DocumentListDTO
+from src.application.file_parser import is_supported, parse_file
 from src.domain.aggregates.document_aggregate import DocumentAggregate
 from src.domain.ports.document_blob_store import DocumentBlobStore
 from src.domain.ports.event_bus import EventBus
@@ -21,6 +22,13 @@ _DEFAULT_MAX_UPLOAD_BYTES = 209_715_200
 
 class DocumentTooLargeError(ValueError):
     """El material supera DOCUMENT_MAX_UPLOAD_BYTES."""
+
+
+class UnsupportedFileError(ValueError):
+    """El formato del archivo no está soportado o no se pudo extraer texto."""
+
+    # Re-exportamos UnsupportedFormatError para no acoplar el router a file_parser.
+    pass
 
 
 class DocumentService:
@@ -73,12 +81,16 @@ class DocumentService:
         subject: str,
     ) -> DocumentDTO:
         self._assert_size(data)
+        if not is_supported(filename):
+            raise UnsupportedFileError(
+                "Solo se admiten archivos de texto, PDF, DOCX, XLSX, PPTX o código."
+            )
         try:
-            text = data.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ValueError(
-                "Solo se admiten archivos de texto UTF-8 (.txt, .md) en esta fase."
-            ) from exc
+            text = parse_file(filename, data)
+        except Exception as exc:
+            raise UnsupportedFileError(str(exc)) from exc
+        if not text or not text.strip():
+            raise UnsupportedFileError("No se pudo extraer texto del archivo.")
         return await self._persist_upload(
             owner_id,
             filename=filename,
