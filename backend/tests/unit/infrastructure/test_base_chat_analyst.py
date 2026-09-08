@@ -199,3 +199,67 @@ async def test_chat_passes_max_tokens(mock_client: AsyncMock):
 def test_extract_json_malformed_braces_raises():
     with pytest.raises(IAAnalysisError, match="inválida"):
         BaseChatAnalyst._extract_json("{not-json}")
+
+
+def _sse_lines(chunks):
+    out = []
+    for c in chunks:
+        out.append("data: " + json.dumps({"choices": [{"delta": {"content": c}}]}) + "")
+    out.append("data: [DONE]")
+    return out
+
+
+async def _aiter_lines(lines):
+    for l in lines:
+        yield l
+
+
+@pytest.mark.asyncio
+async def test_answer_question_stream_yields_tokens(mock_client: AsyncMock):
+    analyst = _StubAnalyst(
+        api_url="https://example.test/v1/chat",
+        model="test-model",
+        api_key="sk-test",
+        http_client=mock_client,
+    )
+    lines = _sse_lines(["Ho", "la ", "mundo"])
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.aiter_lines = lambda: _aiter_lines(lines)
+    mock_cm = AsyncMock()
+    mock_cm.__aenter__.return_value = mock_response
+    mock_cm.__aexit__ = AsyncMock(return_value=False)
+    mock_client.stream.return_value = mock_cm
+
+    got = []
+    async for token in analyst.answer_question_stream("ctx", "pregunta", None):
+        got.append(token)
+
+    assert "".join(got) == "Hola mundo"
+
+
+@pytest.mark.asyncio
+async def test_answer_question_stream_malformed_chunk_skipped(mock_client: AsyncMock):
+    analyst = _StubAnalyst(
+        api_url="https://example.test/v1/chat",
+        model="test-model",
+        api_key="sk-test",
+        http_client=mock_client,
+    )
+    lines = [
+        "data: not-json",
+        "data: " + json.dumps({"choices": [{"delta": {"content": "x"}}]}),
+        "data: [DONE]",
+    ]
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.aiter_lines = lambda: _aiter_lines(lines)
+    mock_cm = AsyncMock()
+    mock_cm.__aenter__.return_value = mock_response
+    mock_cm.__aexit__ = AsyncMock(return_value=False)
+    mock_client.stream.return_value = mock_cm
+
+    got = []
+    async for token in analyst.answer_question_stream("ctx", "pregunta", None):
+        got.append(token)
+    assert got == ["x"]

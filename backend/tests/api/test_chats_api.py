@@ -313,3 +313,64 @@ class TestChatsAPI:
         assert str(captured["document_id"]) == doc_id
         assert captured["question"] == "explícame grafos"
         assert captured["student_id"] is not None
+
+
+class TestChatsStreaming:
+
+    def test_stream_emits_events_and_persists(self, client):
+        token = _register_and_token(client, "chat")
+        headers = {"Authorization": "Bearer " + token}
+        created = client.post("/api/v1/chats/", headers=headers, json={}).json()
+        chat_id = created["id"]
+
+        class FakeTutor:
+            async def answer_stream(self, document_id, question, student_id):
+                yield "Hola", None
+                yield " mundo", None
+
+                from src.application.services.chat_tutor_service import TutorResponse
+                from src.domain.ports.embodiment import AffectState
+                from src.domain.services.response_envelope import ResponseEnvelope
+
+                yield "Hola mundo", ResponseEnvelope(
+                    type="answer",
+                    emotion=AffectState.ENCOURAGING,
+                    payload={"content": "Hola mundo", "intent": "general"},
+                )
+
+        from src.interfaces.api import dependencies
+
+        app.dependency_overrides[dependencies.get_chat_tutor_service] = lambda: FakeTutor()
+
+        with client.stream(
+            "POST",
+            "/api/v1/chats/" + chat_id + "/stream",
+            headers=headers,
+            json={"role": "user", "content": "Hola"},
+        ) as r:
+            assert r.status_code == 200
+            body = "".join(r.iter_text())
+            assert "event: thinking" in body
+            assert "event: token" in body
+            assert "event: envelope" in body
+            assert "event: done" in body
+
+        # El chat debe haber persistido el mensaje user + assistant
+        r = client.get("/api/v1/chats/" + chat_id, headers=headers)
+        msgs = r.json()["messages"]
+        assert len(msgs) == 2
+        assert msgs[0]["role"] == "user"
+        assert msgs[1]["role"] == "assistant"
+        assert msgs[1]["content"] == "Hola mundo"
+
+    def test_stream_rejects_non_user_role(self, client):
+        token = _register_and_token(client, "chat")
+        headers = {"Authorization": "Bearer " + token}
+        created = client.post("/api/v1/chats/", headers=headers, json={}).json()
+
+        r = client.post(
+            "/api/v1/chats/" + created["id"] + "/stream",
+            headers=headers,
+            json={"role": "assistant", "content": "x"},
+        )
+        assert r.status_code == 422

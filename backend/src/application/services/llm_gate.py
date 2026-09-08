@@ -148,6 +148,53 @@ class LlmGate:
         self._emit("laria_llm_calls", task="ask", model=choice.model, outcome="ok")
         return answer
 
+    async def answer_question_stream(
+        self,
+        context: str,
+        question: str,
+        decision: PedagogicalDecision | None = None,
+        *,
+        struggle_signals: int = 0,
+    ):
+        """Streaming de la respuesta del tutor (yield de trozos de texto).
+
+        Si hay respuesta en caché, hace yield del texto completo en un solo
+        chunk. Si el proveedor no soporta streaming, delega a
+        `answer_question` y emite una sola pieza.
+        """
+        choice = self._router.select(
+            LlmTask.ASK, decision, struggle_signals=struggle_signals
+        )
+        policy = TutorPolicy()
+        prompt = policy.answer_question(context, question, decision)
+        cache_key = f"prompt_resp:{self._hash(prompt.system, prompt.user, choice.model)}"
+
+        if self._cache is not None:
+            hit = await self._cache.get(cache_key)
+            if hit:
+                self._emit("laria_cache_hit", task="ask")
+                yield hit
+                return
+
+        started = time.perf_counter()
+        stream_fn = getattr(self._ia, "answer_question_stream", None)
+        full = []
+        if callable(stream_fn):
+            async for token in stream_fn(
+                context, question, decision, model=choice.model
+            ):
+                full.append(token)
+                yield token
+        else:
+            text = await self._call_answer(context, question, decision, choice.model)
+            full.append(text)
+            yield text
+
+        self._observe_ms("laria_llm_latency_ms", started, task="ask", model=choice.model)
+        if self._cache is not None:
+            await self._cache.set(cache_key, "".join(full), ttl_seconds=3600)
+        self._emit("laria_llm_calls", task="ask", model=choice.model, outcome="ok")
+
     async def generate_quiz(
         self,
         document: DocumentAggregate,

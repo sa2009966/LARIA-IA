@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 from src.domain.aggregates.document_aggregate import DocumentAggregate
 from src.domain.services.pedagogical_engine import PedagogicalDecision
@@ -36,4 +36,21 @@ class IAAnalyst(ABC):
         decision: Optional[PedagogicalDecision] = None,
         context: Optional[str] = None,
     ) -> Quiz:
+        ...
+
+
+class StreamingIAAnalyst(ABC):
+    """Interfaz opcional para proveedores que soportan streaming de tokens.
+
+    Los analistas que no la implementen pueden usar `answer_question` y
+    emitir el texto completo en un único chunk.
+    """
+
+    async def answer_question_stream(
+        self,
+        context: str,
+        question: str,
+        decision: Optional[PedagogicalDecision] = None,
+        model: Optional[str] = None,
+    ) -> "AsyncIterator[str]":
         ...

@@ -96,3 +96,38 @@ class ChatTutorService:
             extra={"intent": intention.intent.value},
         )
         return TutorResponse(content=content, envelope=envelope)
+
+    async def answer_stream(
+        self,
+        document_id: Optional[UUID],
+        question: str,
+        student_id: UUID,
+    ):
+        """Streaming de la respuesta del tutor (yield de trozos).
+
+        Modo libre → streaming directo del LlmGate.
+        Con documento → streaming del LlmGate (sin orquestación pedagógica
+        completa en v1; la decisión completa se mantiene en el path no-stream).
+        """
+        if self._llm_gate is None:
+            raise ValueError("LLM gate no configurado para streaming")
+        intention = self._intent.detect(question)
+        decision = None
+        content = ""
+        async for token in self._llm_gate.answer_question_stream(
+            context="",
+            question=question,
+            decision=decision,
+        ):
+            content += token
+            yield token, None
+
+        # Envelope final (tras el streaming) para que el cliente cierre.
+        envelope = ResponseEnvelope.from_decision(
+            decision,
+            "answer",
+            AffectState.ENCOURAGING,
+            content=content,
+            extra={"intent": intention.intent.value},
+        )
+        yield content, envelope

@@ -147,6 +147,68 @@ class BaseChatAnalyst(IAAnalyst):
         prompt = self._policy.answer_question(context, question, decision)
         return await self._chat(prompt.system, prompt.user, model=model)
 
+    async def answer_question_stream(
+        self,
+        context: str,
+        question: str,
+        decision=None,
+        model: str | None = None,
+    ):
+        """Genera la respuesta del tutor en streaming (yield de tokens).
+
+        Usa SSE de OpenAI (payload con `stream: True`) y hace yield de cada
+        trozo de contenido a medida que llega. Si el proveedor no está
+        configurado para streaming (no stream), se degrada a `answer_question`.
+        """
+        prompt = self._policy.answer_question(context, question, decision)
+        use_model = model or self.model
+        payload = {
+            "model": use_model,
+            "messages": [
+                {"role": "system", "content": prompt.system},
+                {"role": "user", "content": prompt.user},
+            ],
+            "temperature": 0.3,
+            "stream": True,
+        }
+        try:
+            client = await self._get_client()
+            started = time.monotonic()
+            token_count = 0
+            async with client.stream(
+                "POST", self.api_url, headers=self._headers, json=payload
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data = line[len("data:"):].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    content = delta.get("content")
+                    if content:
+                        token_count += 1
+                        yield content
+            if self._metrics:
+                elapsed_ms = (time.monotonic() - started) * 1000.0
+                self._metrics.observe("laria_llm_latency_ms", elapsed_ms, model=use_model)
+                if token_count:
+                    self._metrics.observe("laria_llm_tokens", float(token_count), model=use_model)
+        except IAAnalysisError:
+            raise
+        except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
+            if self._metrics:
+                self._metrics.incr("laria_llm_calls", task="ask", model=use_model, outcome="error")
+            raise IAAnalysisError(_MSG_PROVEEDOR) from exc
+
     async def generate_quiz(
         self, document: DocumentAggregate, num_questions: int = 5, decision=None, context: str | None = None
     ) -> Quiz:
