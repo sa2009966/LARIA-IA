@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
-
 interface QuizAttempt {
   fecha: string
   tema: string
@@ -29,6 +25,8 @@ export async function POST(request: NextRequest) {
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({ error: "API key not configured" }, { status: 500 })
     }
+
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
     const prompt = `Based on this student profile data, generate:
 1. A list of 2-3 struggle signals (patterns indicating recent difficulty)

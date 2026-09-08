@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
-
 interface ChatMessage {
   role: "user" | "assistant" | "system"
   content: string
@@ -21,6 +17,8 @@ export async function POST(request: NextRequest) {
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({ error: "API key not configured" }, { status: 500 })
     }
+
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
     const fullMessages: ChatMessage[] = [
       {
