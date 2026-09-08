@@ -4,6 +4,9 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from src.application.services.chat_tutor_service import TutorResponse
+from src.domain.ports.embodiment import AffectState
+from src.domain.services.response_envelope import ResponseEnvelope
 from src.main import app
 from tests.conftest import clear_dependency_caches
 
@@ -127,7 +130,14 @@ class TestChatsAPI:
 
         class FakeTutor:
             async def answer(self, document_id, question, student_id):
-                return "Respuesta del tutor: " + question
+                return TutorResponse(
+                    content="Respuesta del tutor: " + question,
+                    envelope=ResponseEnvelope(
+                        type="answer",
+                        emotion=AffectState.ENCOURAGING,
+                        payload={"content": "Respuesta del tutor: " + question, "intent": "general"},
+                    ),
+                )
 
         from src.interfaces.api import dependencies
 
@@ -145,6 +155,8 @@ class TestChatsAPI:
         assert messages[0]["role"] == "user"
         assert messages[1]["content"] == "Respuesta del tutor: Hola tutor"
         assert messages[1]["role"] == "assistant"
+        assert messages[1]["metadata"]["type"] == "answer"
+        assert messages[1]["metadata"]["emotion"] == "encouraging"
 
     def test_add_message_with_metadata(self, client):
         token = _register_and_token(client, "chat")
@@ -261,7 +273,8 @@ class TestChatsAPI:
         assert len(messages) == 2
         assert messages[0]["role"] == "user"
         assert messages[1]["role"] == "system"
-        assert messages[1]["metadata"] == {"source": "error"}
+        assert messages[1]["metadata"]["source"] == "error"
+        assert messages[1]["metadata"]["type"] == "error"
 
     def test_add_message_user_with_document_passes_doc_id(self, client):
         token = _register_and_token(client, "chat")
@@ -278,7 +291,14 @@ class TestChatsAPI:
                 captured["document_id"] = document_id
                 captured["question"] = question
                 captured["student_id"] = student_id
-                return "ok"
+                return TutorResponse(
+                    content="ok",
+                    envelope=ResponseEnvelope(
+                        type="answer",
+                        emotion=AffectState.CALM,
+                        payload={"content": "ok", "intent": "learn"},
+                    ),
+                )
 
         from src.interfaces.api import dependencies
 

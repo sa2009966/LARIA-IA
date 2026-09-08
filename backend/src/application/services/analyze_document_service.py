@@ -121,6 +121,16 @@ class AnalyzeDocumentService:
     async def answer_question(
         self, document_id: UUID, question: str, requesting_user_id: UUID
     ) -> str:
+        """Devuelve solo el texto de la respuesta del tutor (API pública)."""
+        content, _ = await self.answer_question_with_pedagogy(
+            document_id, question, requesting_user_id
+        )
+        return content
+
+    async def answer_question_with_pedagogy(
+        self, document_id: UUID, question: str, requesting_user_id: UUID
+    ) -> tuple[str, "PedagogicalDecision | None"]:
+        """Como answer_question, pero también devuelve la decisión pedagógica."""
         document = await self._get_document_if_owner(document_id, requesting_user_id)
         if self._ia_analyst is None and self._llm_gate is None:
             raise ValueError("IA Analyst not configured")
@@ -233,7 +243,7 @@ class AnalyzeDocumentService:
                         "event_publish_failed",
                         event="TutorQuestionAskedEvent",
                     )
-        return answer
+        return answer, decision
 
     async def _hydrate_content(self, document: DocumentAggregate) -> DocumentAggregate:
         if document.content:

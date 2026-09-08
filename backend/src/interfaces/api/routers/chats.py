@@ -135,21 +135,21 @@ async def add_message(
 
     if body.role == "user":
         try:
-            answer = await tutor.answer(
+            response = await tutor.answer(
                 document_id=chat.document_id,
                 question=body.content,
                 student_id=UUID(current_user_id),
             )
             chat.add_message(
                 role="assistant",
-                content=answer,
-                metadata={"source": "tutor"},
+                content=response.content,
+                metadata=response.envelope.to_dict(),
             )
         except Exception:
             chat.add_message(
                 role="system",
                 content="Lo siento, no pude generar una respuesta en este momento. Intenta de nuevo.",
-                metadata={"source": "error"},
+                metadata={"source": "error", "type": "error"},
             )
 
     await repo.save(chat)

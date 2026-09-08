@@ -151,6 +151,7 @@ def get_chat_tutor_service() -> "ChatTutorService":
         analyze_service=get_analyze_service(),
         llm_gate=get_llm_gate(),
         document_repository=get_document_repo(),
+        profile_repository=get_profile_repo(),
     )
 
 
