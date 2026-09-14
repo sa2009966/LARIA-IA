@@ -1,18 +1,17 @@
-# Blueprint Render — Backend LARIA con persistencia en MongoDB Atlas.
+# Blueprint Render — Backend LARIA con MongoDB Atlas + Redis (Upstash).
 # Persistencia: DB_PROVIDER=mongodb (MongoDB Atlas M0 free tier).
-# Redis: memory (rate-limit + cache, no es crítico para persistencia).
+# Redis: Upstash (free tier) para rate-limit + cache.
 # Dashboard: New → Blueprint → este repo → render.yaml
 # Docs: backend/docs/deploy-render.md
 
 services:
   - type: web
-    # Backend LARIA con MongoDB Atlas (persistente) + Redis memory (rate-limit/cache).
+    # Backend LARIA con MongoDB Atlas (persistente) + Redis Upstash (rate-limit/cache).
     name: laria-backend
     runtime: docker
     plan: free
     region: oregon
     branch: feature/backend
-    rootDir: backend
     dockerfilePath: ./Dockerfile
     dockerCommand: "sh -c 'uvicorn src.main:app --host 0.0.0.0 --port $PORT'"
     healthCheckPath: /health
@@ -25,15 +24,17 @@ services:
       - key: DB_PROVIDER
         value: mongodb
       - key: MONGODB_URL
-        value: mongodb+srv://USER:PASS@cluster0.psrrt96.mongodb.net/laria_db?appName=Cluster0
+        sync: false
       - key: MONGODB_DB_NAME
         value: laria_db
       - key: RATE_LIMIT_BACKEND
-        value: memory
+        value: redis
       - key: EVENT_BUS_BACKEND
         value: memory
       - key: CACHE_BACKEND
-        value: memory
+        value: redis
+      - key: REDIS_URL
+        sync: false
       - key: IA_PROVIDER
         value: openai
       - key: OPENAI_MODEL

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Instalar (una vez, por clon):
+#   ln -sfn ../../.githooks/pre-push .git/hooks/pre-push
+#
+# Bloquea non-fast-forward a feature/backend, develop y main.
+# Exige pytest en verde antes de cualquier push (Render auto-despliega feature/backend).
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+PROTECTED='refs/heads/feature/backend refs/heads/develop refs/heads/main'
+
+zero='0000000000000000000000000000000000000000'
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [[ -z "${local_ref:-}" ]] && continue
+  if [[ "$local_sha" == "$zero" ]]; then
+    continue
+  fi
+  for ref in $PROTECTED; do
+    if [[ "$remote_ref" == "$ref" && "$remote_sha" != "$zero" ]]; then
+      if ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; then
+        echo "pre-push: non-fast-forward a $remote_ref bloqueado (protege Render/demo)." >&2
+        echo "No uses git push --force a feature/backend, develop ni main." >&2
+        exit 1
+      fi
+    fi
+  done
+done
+
+exec "$ROOT/.githooks/run-backend-tests.sh"
