@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/protect-production-push.sh",
+        "failClosed": true,
+        "timeout": 20
+      }
+    ]
+  }
+}

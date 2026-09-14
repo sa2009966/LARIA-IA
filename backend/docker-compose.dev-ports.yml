@@ -1,0 +1,14 @@
+# Solo desarrollo local: publica Mongo/Redis al host para Compass / extensión Cursor.
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.dev-ports.yml up -d
+#
+# No uses este override en despliegue público.
+
+services:
+  mongodb:
+    ports:
+      - "27017:27017"
+
+  redis:
+    ports:
+      - "6379:6379"

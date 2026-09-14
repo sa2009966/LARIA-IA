@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LARIA — Diagrama MongoDB (laria_db)</title>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "neutral",
+      securityLevel: "loose",
+      er: { layoutDirection: "TB" },
+    });
+  </script>
+  <style>
+    :root {
+      --bg: #f6f4ef;
+      --ink: #1c1917;
+      --muted: #57534e;
+      --card: #fffdf8;
+      --line: #d6d3d1;
+      --accent: #0f766e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.45;
+    }
+    header {
+      padding: 2rem 1.5rem 1rem;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    h1 { margin: 0 0 0.35rem; font-size: 1.75rem; letter-spacing: -0.02em; }
+    p { margin: 0; color: var(--muted); max-width: 62ch; }
+    main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem 3rem; display: grid; gap: 1.25rem; }
+    section {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 1rem 1.1rem 1.25rem;
+      overflow-x: auto;
+    }
+    h2 { margin: 0 0 0.75rem; font-size: 1.05rem; color: var(--accent); }
+    .mermaid { display: flex; justify-content: center; }
+    .leyenda { margin: 0.75rem 0 0; font-size: 0.9rem; color: var(--muted); }
+    .leyenda code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.85em; }
+    ul { margin: 0.4rem 0 0; padding-left: 1.2rem; color: var(--muted); }
+    code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>LARIA MongoDB — base laria_db</h1>
+    <p>
+      Diagrama de colecciones y relaciones del backend
+      (<code>feature/backend</code>). Etiquetas en español.
+      Las claves foráneas son UUID en texto (sin joins nativos).
+    </p>
+  </header>
+  <main>
+    <section>
+      <h2>Relaciones entre colecciones</h2>
+      <pre class="mermaid">
+erDiagram
+  USUARIOS ||--o{ DOCUMENTOS : posee
+  USUARIOS ||--o| PERFILES : tiene_perfil
+  USUARIOS ||--o{ CUESTIONARIOS : crea
+  USUARIOS ||--o{ INTENTOS : realiza
+  USUARIOS ||--o{ INTERACCIONES : pregunta
+  USUARIOS ||--o{ SESIONES : mantiene
+  DOCUMENTOS ||--o{ CUESTIONARIOS : genera
+  DOCUMENTOS ||--o{ INTENTOS : evalua_en
+  DOCUMENTOS ||--o{ INTERACCIONES : contexto_de
+  DOCUMENTOS ||--o{ SESIONES : sesion_sobre
+  CUESTIONARIOS ||--o{ INTENTOS : califica
+
+  USUARIOS {
+    string id PK
+    string nombre_usuario UK
+    string correo UK
+    string rol
+    string activo
+    string creado_en
+  }
+
+  DOCUMENTOS {
+    string id PK
+    string dueno_id FK
+    string nombre_archivo
+    string estado
+    string resultado_analisis
+    string subido_en
+  }
+
+  CUESTIONARIOS {
+    string id PK
+    string documento_id FK
+    string dueno_id FK
+    string preguntas
+    string creado_en
+  }
+
+  INTENTOS {
+    string id PK
+    string cuestionario_id FK
+    string documento_id FK
+    string estudiante_id FK
+    string puntaje
+    string completado_en
+  }
+
+  INTERACCIONES {
+    string id PK
+    string estudiante_id FK
+    string documento_id FK
+    string pregunta
+    string respuesta
+    string preguntado_en
+  }
+
+  SESIONES {
+    string id PK
+    string estudiante_id FK
+    string documento_id FK
+    string paso
+    string objetivo
+    string version
+  }
+
+  PERFILES {
+    string id PK
+    string estudiante_id
+    string dominio_por_concepto
+    string memoria_pedagogica
+    string version
+  }
+
+  BANDEJA_EVENTOS {
+    string id PK
+    string tipo_evento
+    string carga_util
+    string procesado_en
+  }
+      </pre>
+      <p class="leyenda">
+        Nombres reales en Mongo:
+        <code>users</code>,
+        <code>documents</code>,
+        <code>quizzes</code>,
+        <code>quiz_attempts</code>,
+        <code>tutor_interactions</code>,
+        <code>tutor_sessions</code>,
+        <code>student_profiles</code>,
+        <code>event_outbox</code>.
+        El análisis vive embebido en <code>documents.analysis_result</code>.
+      </p>
+    </section>
+    <section>
+      <h2>Flujo pedagógico</h2>
+      <pre class="mermaid">
+flowchart LR
+  U[Usuarios] --> D[Documentos]
+  D -->|analisis embebido| AEMB[Resultado de analisis]
+  D --> Q[Cuestionarios]
+  Q --> A[Intentos]
+  D --> I[Interacciones tutor]
+  D --> S[Sesiones tutor]
+  A --> O[Bandeja de eventos]
+  A --> P[Perfil del estudiante]
+  I --> P
+      </pre>
+      <ul>
+        <li>El resultado de análisis vive dentro de <code>documents</code> (no hay colección aparte).</li>
+        <li>El perfil del estudiante se actualiza con evidencia de cuestionarios y preguntas al tutor.</li>
+        <li>La bandeja de eventos solo se usa si <code>EVENT_BUS_BACKEND=outbox</code>.</li>
+      </ul>
+    </section>
+    <section>
+      <h2>Cómo ver datos reales</h2>
+      <ul>
+        <li>Guía: <code>docs/mongodb-viewer.md</code></li>
+        <li>Extensión en Cursor: MongoDB for VS Code (<code>mongodb.mongodb-vscode</code>)</li>
+        <li>Puertos de desarrollo: <code>docker compose -f docker-compose.yml -f docker-compose.dev-ports.yml up -d mongodb</code></li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
