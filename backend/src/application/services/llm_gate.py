@@ -14,6 +14,7 @@ from src.domain.ports.cache_port import CachePort
 from src.domain.ports.ia_analyst import IAAnalyst
 from src.domain.ports.metrics_port import MetricsPort
 from src.domain.ports.repositories import QuizRepository
+from src.domain.services.adaptive_policy import PromptShapingParameters
 from src.domain.services.model_router import LlmTask, ModelRouter
 from src.domain.services.pedagogical_engine import PedagogicalDecision
 from src.domain.services.tutor_policy import TutorPolicy
@@ -124,12 +125,13 @@ class LlmGate:
         decision: PedagogicalDecision | None = None,
         *,
         struggle_signals: int = 0,
+        adaptation: PromptShapingParameters | None = None,
     ) -> str:
         choice = self._router.select(
             LlmTask.ASK, decision, struggle_signals=struggle_signals
         )
         policy = TutorPolicy()
-        prompt = policy.answer_question(context, question, decision)
+        prompt = policy.answer_question(context, question, decision, adaptation)
         cache_key = f"prompt_resp:{self._hash(prompt.system, prompt.user, choice.model)}"
 
         if self._cache is not None:
@@ -141,7 +143,9 @@ class LlmGate:
 
         logger.info("ask cache=miss model=%s reason=%s", choice.model, choice.reason)
         started = time.perf_counter()
-        answer = await self._call_answer(context, question, decision, choice.model)
+        answer = await self._call_answer(
+            context, question, decision, choice.model, adaptation
+        )
         self._observe_ms("laria_llm_latency_ms", started, task="ask", model=choice.model)
         if self._cache is not None:
             await self._cache.set(cache_key, answer, ttl_seconds=3600)
@@ -155,6 +159,7 @@ class LlmGate:
         decision: PedagogicalDecision | None = None,
         *,
         struggle_signals: int = 0,
+        adaptation: PromptShapingParameters | None = None,
     ):
         """Streaming de la respuesta del tutor (yield de trozos de texto).
 
@@ -166,7 +171,7 @@ class LlmGate:
             LlmTask.ASK, decision, struggle_signals=struggle_signals
         )
         policy = TutorPolicy()
-        prompt = policy.answer_question(context, question, decision)
+        prompt = policy.answer_question(context, question, decision, adaptation)
         cache_key = f"prompt_resp:{self._hash(prompt.system, prompt.user, choice.model)}"
 
         if self._cache is not None:
@@ -181,12 +186,14 @@ class LlmGate:
         full = []
         if callable(stream_fn):
             async for token in stream_fn(
-                context, question, decision, model=choice.model
+                context, question, decision, model=choice.model, adaptation=adaptation
             ):
                 full.append(token)
                 yield token
         else:
-            text = await self._call_answer(context, question, decision, choice.model)
+            text = await self._call_answer(
+                context, question, decision, choice.model, adaptation
+            )
             full.append(text)
             yield text
 
@@ -276,12 +283,17 @@ class LlmGate:
         return await self._ia.analyze(document)
 
     async def _call_answer(
-        self, context: str, question: str, decision: PedagogicalDecision | None, model: str
+        self,
+        context: str,
+        question: str,
+        decision: PedagogicalDecision | None,
+        model: str,
+        adaptation: PromptShapingParameters | None = None,
     ) -> str:
         fn = getattr(self._ia, "answer_question_with_model", None)
         if callable(fn):
-            return await fn(context, question, decision, model=model)
-        return await self._ia.answer_question(context, question, decision)
+            return await fn(context, question, decision, model=model, adaptation=adaptation)
+        return await self._ia.answer_question(context, question, decision, adaptation)
 
     async def _call_quiz(
         self,

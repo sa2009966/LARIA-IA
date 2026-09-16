@@ -301,3 +301,54 @@ async def test_outbox_reprocess_same_row_does_not_double_evidence():
     assert profile is not None
     assert profile.total_struggle_signals == 1
     assert row["last_error"] is None
+
+
+def test_outbox_preserva_los_campos_del_lazo_de_evidencia():
+    """Producción exige EVENT_BUS_BACKEND=outbox.
+
+    Si el serializador omite estos tres campos, el projector nunca ve la
+    autocorrección ni el gap: la adaptación del ADR-004 y la evidencia positiva
+    del ADR-006 quedan muertas solo en producción, porque los tests del
+    projector usan InMemoryEventBus, que pasa el objeto por referencia.
+    """
+    event = TutorQuestionAskedEvent(
+        aggregate_id=uuid4(),
+        student_id=uuid4(),
+        document_id=uuid4(),
+        question="ah claro, ya entendí",
+        answer="Bien visto.",
+        signal_observations=(("self_correction", 1.0), ("response_latency", 0.25)),
+        answer_length=1200,
+        focus_concepts=("derivadas", "funciones"),
+    )
+
+    payload = _serialize(event)
+    restored = _deserialize({"event_type": payload["event_type"], "payload": payload})
+
+    assert restored.signal_observations == (
+        ("self_correction", 1.0),
+        ("response_latency", 0.25),
+    )
+    assert restored.answer_length == 1200
+    assert restored.focus_concepts == ("derivadas", "funciones")
+
+
+def test_outbox_tolera_payloads_anteriores_a_estos_campos():
+    """Un evento escrito antes del ADR-006 sigue deserializando."""
+    restored = _deserialize(
+        {
+            "event_type": "TutorQuestionAskedEvent",
+            "payload": {
+                "event_id": str(uuid4()),
+                "aggregate_id": str(uuid4()),
+                "student_id": str(uuid4()),
+                "document_id": str(uuid4()),
+                "question": "q",
+                "answer": "a",
+            },
+        }
+    )
+
+    assert restored.signal_observations == ()
+    assert restored.answer_length == 0
+    assert restored.focus_concepts == ()

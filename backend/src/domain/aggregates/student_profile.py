@@ -7,6 +7,7 @@ from math import exp, log
 from uuid import UUID
 
 from src.domain.concept_identity import canonicalize_concept
+from src.domain.adaptive_signals import DEFAULT_CUTOFFS, Signal, SignalKind
 
 
 DEFAULT_HALF_LIFE_DAYS = 14.0
@@ -43,6 +44,10 @@ class EvidenceSample:
     document_id: UUID | None = None
     subject: str | None = None
     at: datetime | None = None
+    # Evidencia débil (p. ej. autocorregirse en el chat): nunca fija el mastery
+    # por sí sola ni borra una racha de error de golpe. Sin esto, un solo
+    # mensaje llevaba un concepto de 0.00 a 0.76 y desarmaba `SEQUENCE`.
+    is_weak: bool = False
 
 
 @dataclass
@@ -52,7 +57,10 @@ class PedagogicalMemory:
     frequent_misconceptions: list[str] = field(default_factory=list)
     successful_examples: list[str] = field(default_factory=list)
     successful_analogies: list[str] = field(default_factory=list)
-    preferred_explanation_style: str = "simple"
+    # Vacío = sin preferencia observada. Un default "simple" cortocircuitaba
+    # las heurísticas de CognitiveStyleSelector y congelaba el estilo de todo
+    # estudiante en SIMPLE de por vida (ADR-006, fase 2).
+    preferred_explanation_style: str = ""
     last_effective_strategies: list[str] = field(default_factory=list)
 
     def remember_misconception(self, label: str) -> None:
@@ -83,7 +91,8 @@ class PedagogicalMemory:
         self.successful_analogies = self.successful_analogies[:10]
 
     def set_preferred_style(self, style: str) -> None:
-        self.preferred_explanation_style = (style or "simple").strip().lower()
+        """Solo se llama ante evidencia de que el estilo funcionó."""
+        self.preferred_explanation_style = (style or "").strip().lower()
 
     def remember_strategy(self, strategy: str) -> None:
         key = (strategy or "").strip().lower()
@@ -136,9 +145,14 @@ class ConceptMastery:
             self.help_requests += 1
             ratio = min(ratio, 0.45)
             effective_alpha = max(effective_alpha, 0.35)
+            # La dificultad repetida en el chat también es dificultad repetida.
+            # Sin esto, `error_streak` solo crecía con quizzes y `SEQUENCE` era
+            # inalcanzable para quien aprende conversando (ADR-006).
+            self.error_streak += 1
         elif sample.kind == EvidenceKind.ASK_STRUGGLE:
             ratio = min(ratio, 0.35)
             effective_alpha = max(effective_alpha, 0.4)
+            self.error_streak += 1
         elif sample.kind == EvidenceKind.HIGH_LATENCY:
             # Latencia alta reduce confianza y tira ligeramente el mastery
             ratio = min(ratio, max(0.0, ratio - 0.15))
@@ -150,6 +164,10 @@ class ConceptMastery:
         elif sample.kind in (EvidenceKind.QUIZ_ITEM, EvidenceKind.SUCCESS):
             if ratio < 0.5:
                 self.error_streak += 1
+            elif sample.is_weak:
+                # Un acierto débil descuenta la racha, no la borra: si no,
+                # una frase de cortesía anula varios fallos calificados.
+                self.error_streak = max(0, self.error_streak - 1)
             else:
                 self.error_streak = 0
 
@@ -161,9 +179,12 @@ class ConceptMastery:
         self.attempts += 1
         self.evidence_count += 1
         self.last_score_ratio = ratio
-        if self.attempts == 1:
+        if self.attempts == 1 and not sample.is_weak:
             self.mastery = ratio
         else:
+            # La evidencia débil siempre pasa por la EWMA, incluso siendo la
+            # primera: certificar un concepto con un solo mensaje sería
+            # corromper el mastery, no medirlo.
             self.mastery = (effective_alpha * ratio) + ((1.0 - effective_alpha) * self.mastery)
 
         # Confianza crece con evidencia consistente; baja con errores/ayuda
@@ -261,6 +282,12 @@ class StudentProfile:
     pedagogical_memory: PedagogicalMemory = field(default_factory=PedagogicalMemory)
     learning_velocity: float = 0.0  # EMA de deltas de mastery
     applied_event_ids: list[str] = field(default_factory=list)
+    # Estado de interacción: fuente de verdad única para interaction_gap_ms.
+    # El gap se calcula en el borde (servicio que recibe la pregunta) con
+    # wall-clock real, nunca en el projector. Ver ADR-004, Decisión 2.
+    last_interaction_at: datetime | None = None
+    last_answer_length: int = 0
+    adaptive_signals: dict[str, Signal] = field(default_factory=dict)
     updated_at: datetime = field(default_factory=_utc_now)
     version: int = 0
 
@@ -278,6 +305,55 @@ class StudentProfile:
     @staticmethod
     def create(student_id: UUID) -> "StudentProfile":
         return StudentProfile(student_id=student_id)
+
+    def interaction_gap_ms(self, now: datetime | None = None) -> float | None:
+        """Milisegundos desde la última interacción, o None si es la primera.
+
+        Fuente de verdad única del gap. Los servicios lo piden aquí; no lo
+        reconstruyen por su cuenta ni lo derivan del projector.
+        """
+        if self.last_interaction_at is None:
+            return None
+        moment = now or _utc_now()
+        previous = self.last_interaction_at
+        if previous.tzinfo is None:
+            previous = previous.replace(tzinfo=timezone.utc)
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        return max(0.0, (moment - previous).total_seconds() * 1000.0)
+
+    def record_interaction(self, answer_length: int, at: datetime | None = None) -> None:
+        """Cierra el turno: fija el reloj y el largo de la respuesta entregada."""
+        self.last_interaction_at = at or _utc_now()
+        self.last_answer_length = max(0, int(answer_length))
+        self.updated_at = _utc_now()
+
+    def observe_signal(
+        self, kind: SignalKind, observation: float, alpha: float | None = None
+    ) -> Signal:
+        """Acumula una observación en la señal (EWMA) y devuelve el nuevo estado."""
+        current = self.adaptive_signals.get(kind.value) or Signal(kind=kind)
+        updated = current.observe(
+            observation, alpha if alpha is not None else DEFAULT_CUTOFFS.ewma_alpha
+        )
+        self.adaptive_signals[kind.value] = updated
+        self.updated_at = _utc_now()
+        return updated
+
+    def signals_for_policy(self) -> dict[SignalKind, Signal]:
+        """Señales tipadas para `AdaptivePolicy.decide()`.
+
+        Devuelve todas las señales acumuladas; la política es la que descarta
+        las observacionales. Así el dashboard y la política leen lo mismo.
+        """
+        out: dict[SignalKind, Signal] = {}
+        for raw, signal in self.adaptive_signals.items():
+            try:
+                kind = SignalKind(raw)
+            except ValueError:
+                continue
+            out[kind] = signal
+        return out
 
     def mastery_for(self, document_id: UUID) -> float:
         entry = self.mastery_by_document.get(document_id)
@@ -400,6 +476,38 @@ class StudentProfile:
         self._push_errors(concepts)
         if entry.mastery < 0.4:
             self.pace = "slow"
+        self.updated_at = _utc_now()
+
+    def record_conversational_success(
+        self,
+        document_id: UUID,
+        concepts: tuple[str, ...] = (),
+        strength: float = 0.6,
+    ) -> None:
+        """Evidencia POSITIVA desde la conversación (ADR-006, fase 2).
+
+        Antes el chat solo podía empeorar el perfil: `record_ask_struggle` y
+        `record_high_latency` eran sus únicas salidas. Quien aprende preguntando
+        acumulaba solo evidencia negativa y quedaba atrapado en remediación.
+
+        Pesa menos que un ítem de quiz a propósito: autocorregirse es evidencia
+        real pero más débil que acertar un ítem calificado.
+        """
+        s = max(0.0, min(1.0, float(strength)))
+        for concept in concepts:
+            key = _norm_concept(concept)
+            if not key:
+                continue
+            self.record_concept_evidence(
+                key,
+                EvidenceSample(
+                    kind=EvidenceKind.SUCCESS,
+                    score_ratio=0.5 + 0.25 * s,
+                    weight=0.5 + 0.3 * s,
+                    document_id=document_id,
+                    is_weak=True,
+                ),
+            )
         self.updated_at = _utc_now()
 
     def record_high_latency(

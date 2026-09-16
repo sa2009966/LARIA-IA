@@ -3,6 +3,7 @@ from typing import Optional
 from uuid import UUID
 
 from src.domain.aggregates.user_aggregate import UserAggregate
+from src.domain.aggregates.concept_graph import ConceptGraph
 from src.domain.aggregates.document_aggregate import DocumentAggregate
 from src.domain.aggregates.quiz_aggregate import QuizAggregate
 from src.domain.aggregates.quiz_attempt_aggregate import QuizAttemptAggregate
@@ -10,6 +11,7 @@ from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.aggregates.tutor_interaction import TutorInteractionAggregate
 from src.domain.aggregates.tutor_session import TutorSession
 from src.domain.aggregates.chat import ChatAggregate
+from src.domain.aggregates.learning_path import LearningPathAggregate
 from src.domain.value_objects.email import Email
 
 
@@ -139,6 +141,18 @@ class StudentProfileRepository(ABC):
         ...
 
 
+class ConceptGraphRepository(ABC):
+    """Persistencia del grafo de prerrequisitos (ADR-005)."""
+
+    @abstractmethod
+    async def find_by_id(self, graph_id: str) -> Optional[ConceptGraph]:
+        ...
+
+    @abstractmethod
+    async def save(self, graph: ConceptGraph) -> None:
+        ...
+
+
 class TutorSessionRepository(ABC):
     @abstractmethod
     async def find_by_student_document(
@@ -171,4 +185,22 @@ class ChatRepository(ABC):
 
     @abstractmethod
     async def delete(self, chat_id: UUID) -> None:
+        ...
+
+
+class LearningPathRepository(ABC):
+    @abstractmethod
+    async def find_by_id(self, path_id: UUID) -> Optional[LearningPathAggregate]:
+        ...
+
+    @abstractmethod
+    async def find_by_owner(self, owner_id: UUID) -> list[LearningPathAggregate]:
+        ...
+
+    @abstractmethod
+    async def save(self, path: LearningPathAggregate) -> None:
+        ...
+
+    @abstractmethod
+    async def delete(self, path_id: UUID) -> None:
         ...

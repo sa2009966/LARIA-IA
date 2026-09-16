@@ -2,8 +2,48 @@ from uuid import uuid4
 
 import pytest
 
+from src.application.services.analyze_document_service import PedagogyPlan
 from src.application.services.chat_tutor_service import ChatTutorService
+from src.domain.adaptive_signals import Signal, SignalKind
 from src.domain.ports.embodiment import AffectState
+from src.domain.services.adaptive_policy import AdaptationParameters, AdaptivePolicy
+from src.domain.services.pedagogical_engine import PedagogicalDecision, PedagogicalMode
+from src.domain.value_objects.question import Difficulty
+
+
+def make_decision() -> PedagogicalDecision:
+    return PedagogicalDecision(
+        mode=PedagogicalMode.EXPLAIN,
+        target_difficulty=Difficulty.MEDIUM,
+        focus_concepts=("variable",),
+        anti_spoiler=True,
+        objective="objetivo",
+        evidence_summary="evidencia",
+    )
+
+
+def make_plan(document_id, student_id, question, adaptation=None) -> PedagogyPlan:
+    return PedagogyPlan(
+        document_id=document_id,
+        student_id=student_id,
+        question=question,
+        context="ctx",
+        decision=make_decision(),
+        adaptation=adaptation or AdaptationParameters(),
+    )
+
+
+class FakeAnalyzeBase:
+    """Doble del servicio con la colaboración nueva (plan → generar → cerrar)."""
+
+    def __init__(self):
+        self.finalized = []
+
+    def prompt_shaping_for(self, plan):
+        return plan.prompt_shaping
+
+    async def finalize_interaction(self, plan, answer):
+        self.finalized.append((plan, answer))
 
 
 class TestChatTutorService:
@@ -28,15 +68,18 @@ class TestChatTutorService:
         assert captured["decision"] is None
 
     @pytest.mark.asyncio
-    async def test_modo_documento_usa_analyze_service_with_pedagogy(self):
+    async def test_modo_documento_usa_plan_pedagogico(self):
         captured = {}
 
-        class FakeAnalyze:
-            async def answer_question_with_pedagogy(self, document_id, question, student_id):
+        class FakeAnalyze(FakeAnalyzeBase):
+            async def prepare_pedagogy(self, document_id, question, student_id):
                 captured["document_id"] = document_id
                 captured["question"] = question
                 captured["student_id"] = student_id
-                return "respuesta con doc", None
+                return make_plan(document_id, student_id, question)
+
+            async def answer_from_plan(self, plan):
+                return "respuesta con doc"
 
         svc = ChatTutorService(analyze_service=FakeAnalyze())
         doc_id = uuid4()

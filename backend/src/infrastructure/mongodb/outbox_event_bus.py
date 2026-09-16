@@ -70,6 +70,12 @@ def _serialize(event: DomainEvent) -> dict[str, Any]:
             "help_level": event.help_level,
             "cognitive_style": event.cognitive_style,
             "pedagogical_mode": event.pedagogical_mode,
+            # Sin estos tres campos el projector no puede escribir ni señales
+            # ni evidencia positiva: producción usa outbox obligatoriamente,
+            # así que omitirlos deja muertas las fases de ADR-004 y ADR-006.
+            "signal_observations": [list(pair) for pair in event.signal_observations],
+            "answer_length": event.answer_length,
+            "focus_concepts": list(event.focus_concepts),
         }
     return {
         "event_type": getattr(event, "event_type", type(event).__name__),
@@ -117,6 +123,12 @@ def _deserialize(doc: dict[str, Any]) -> DomainEvent | None:
             help_level=float(payload.get("help_level", 0.0)),
             cognitive_style=payload.get("cognitive_style"),
             pedagogical_mode=payload.get("pedagogical_mode"),
+            signal_observations=tuple(
+                (str(kind), float(value))
+                for kind, value in (payload.get("signal_observations") or ())
+            ),
+            answer_length=int(payload.get("answer_length", 0)),
+            focus_concepts=tuple(payload.get("focus_concepts") or ()),
         )
     return None
 

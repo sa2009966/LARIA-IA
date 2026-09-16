@@ -1,6 +1,7 @@
 """Integración Mongo repos con mongomock-motor (find/find_one y filtros reales)."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from io import BytesIO
 from unittest.mock import patch
 from uuid import uuid4
@@ -9,6 +10,7 @@ import pytest
 from bson import ObjectId
 from mongomock_motor import AsyncMongoMockClient
 
+from src.domain.aggregates.concept_graph import ConceptGraph, EdgeSource
 from src.domain.aggregates.document_aggregate import DocumentAggregate
 from src.domain.aggregates.quiz_aggregate import QuizAggregate
 from src.domain.aggregates.quiz_attempt_aggregate import QuizAttemptAggregate
@@ -17,6 +19,11 @@ from src.domain.aggregates.tutor_session import TutorSession
 from src.domain.aggregates.user_aggregate import UserAggregate
 from src.domain.value_objects.email import Email
 from src.domain.value_objects.question import QuizQuestion
+from src.domain.catalog.prerequisite_seeds import build_seeded_graph
+from src.domain.exceptions import ConcurrencyError
+from src.infrastructure.mongodb.concept_graph_repository import (
+    MongoDBConceptGraphRepository,
+)
 from src.infrastructure.mongodb.document_repository import MongoDBDocumentRepository
 from src.infrastructure.mongodb.gridfs_document_blob_store import GridFSDocumentBlobStore
 from src.infrastructure.mongodb.quiz_attempt_repository import MongoDBQuizAttemptRepository
@@ -241,3 +248,58 @@ class TestGridFSMongomock:
         buf = BytesIO()
         await bucket.download_to_stream(file_id, buf)
         assert buf.getvalue() == b"hello-mock"
+
+
+class TestConceptGraphRepositoryMongomock:
+    @pytest.mark.asyncio
+    async def test_roundtrip_conserva_procedencia_y_alias(self, mock_db):
+        repo = MongoDBConceptGraphRepository(database=mock_db)
+        graph = build_seeded_graph()
+        graph.suggest("indice de gini", "pobreza", confidence=0.3)
+        await repo.save(graph)
+        assert graph.version == 1
+
+        found = await repo.find_by_id("default")
+        assert found is not None
+        assert "funciones" in found.prerequisites_of("derivadas")
+        assert found.canonicalize("función") == found.canonicalize("funciones")
+        pendientes = found.suggestions()
+        assert len(pendientes) == 1
+        assert pendientes[0].source == EdgeSource.INFERRED
+        assert pendientes[0].confidence == 0.3
+
+    @pytest.mark.asyncio
+    async def test_procedencia_desconocida_se_degrada_a_sugerencia(self, mock_db):
+        """Un dato corrupto no puede terminar bloqueando a un estudiante."""
+        await mock_db.concept_graphs.insert_one(
+            {
+                "_id": "default",
+                "graph_id": "default",
+                "edges": [
+                    {"concept": "gini", "prerequisite": "pobreza", "source": "???"}
+                ],
+                "aliases": {},
+                "updated_at": datetime.now(timezone.utc),
+                "version": 1,
+            }
+        )
+        repo = MongoDBConceptGraphRepository(database=mock_db)
+
+        found = await repo.find_by_id("default")
+
+        assert found.prerequisites_of("gini") == ()
+        assert found.suggestions()[0].source == EdgeSource.INFERRED
+
+    @pytest.mark.asyncio
+    async def test_escritura_con_version_obsoleta_falla(self, mock_db):
+        repo = MongoDBConceptGraphRepository(database=mock_db)
+        await repo.save(ConceptGraph())
+
+        obsoleto = ConceptGraph(version=0)
+        with pytest.raises(ConcurrencyError):
+            await repo.save(obsoleto)
+
+    @pytest.mark.asyncio
+    async def test_grafo_inexistente_devuelve_none(self, mock_db):
+        repo = MongoDBConceptGraphRepository(database=mock_db)
+        assert await repo.find_by_id("default") is None

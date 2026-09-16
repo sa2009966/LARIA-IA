@@ -87,3 +87,11 @@ class TutorQuestionAskedEvent(DomainEventBase):
     help_level: float = 0.0
     cognitive_style: str | None = None
     pedagogical_mode: str | None = None
+    # Observaciones de señal medidas en el borde con wall-clock real. El
+    # projector las aplica pero no las calcula: no podría reconstruir el gap
+    # vivido por el estudiante (ADR-004, Decisión 2).
+    signal_observations: tuple[tuple[str, float], ...] = ()
+    answer_length: int = 0
+    # Conceptos sobre los que versó el turno: son los que reciben evidencia
+    # positiva si el estudiante se autocorrige (ADR-006, fase 2).
+    focus_concepts: tuple[str, ...] = ()

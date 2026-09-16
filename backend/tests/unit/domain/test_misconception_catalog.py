@@ -8,7 +8,7 @@ from src.domain.services.misconception_resolver import (
     MisconceptionResolver,
     resolve_misconception,
 )
-from src.domain.services.prerequisite_graph import PrerequisiteGraph
+from src.domain.catalog.prerequisite_seeds import build_seeded_graph
 
 
 def test_algebra_catalog_has_required_fields_and_size():
@@ -23,7 +23,7 @@ def test_algebra_catalog_has_required_fields_and_size():
 
 
 def test_catalog_anchors_exist_on_prerequisite_graph():
-    graph = PrerequisiteGraph()
+    graph = build_seeded_graph()
     for entry in MisconceptionCatalog():
         key = graph.canonicalize(entry.anchor_concept)
         assert graph.prerequisites_of(key) or graph.successors_of(key), entry.id

@@ -137,14 +137,16 @@ class BaseChatAnalyst(IAAnalyst):
         )
 
     async def answer_question(
-        self, context: str, question: str, decision=None
+        self, context: str, question: str, decision=None, adaptation=None
     ) -> str:
-        return await self.answer_question_with_model(context, question, decision, model=self.model)
+        return await self.answer_question_with_model(
+            context, question, decision, model=self.model, adaptation=adaptation
+        )
 
     async def answer_question_with_model(
-        self, context: str, question: str, decision=None, *, model: str
+        self, context: str, question: str, decision=None, *, model: str, adaptation=None
     ) -> str:
-        prompt = self._policy.answer_question(context, question, decision)
+        prompt = self._policy.answer_question(context, question, decision, adaptation)
         return await self._chat(prompt.system, prompt.user, model=model)
 
     async def answer_question_stream(
@@ -153,6 +155,7 @@ class BaseChatAnalyst(IAAnalyst):
         question: str,
         decision=None,
         model: str | None = None,
+        adaptation=None,
     ):
         """Genera la respuesta del tutor en streaming (yield de tokens).
 
@@ -160,7 +163,7 @@ class BaseChatAnalyst(IAAnalyst):
         trozo de contenido a medida que llega. Si el proveedor no está
         configurado para streaming (no stream), se degrada a `answer_question`.
         """
-        prompt = self._policy.answer_question(context, question, decision)
+        prompt = self._policy.answer_question(context, question, decision, adaptation)
         use_model = model or self.model
         payload = {
             "model": use_model,

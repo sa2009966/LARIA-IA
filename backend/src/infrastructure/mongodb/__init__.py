@@ -8,6 +8,8 @@ from src.infrastructure.mongodb.tutor_interaction_repository import MongoDBTutor
 from src.infrastructure.mongodb.student_profile_repository import MongoDBStudentProfileRepository
 from src.infrastructure.mongodb.tutor_session_repository import MongoDBTutorSessionRepository
 from src.infrastructure.mongodb.chat_repository import MongoDBChatRepository
+from src.infrastructure.mongodb.learning_path_repository import MongoDBLearningPathRepository
+from src.infrastructure.mongodb.concept_graph_repository import MongoDBConceptGraphRepository
 
 __all__ = [
     "get_database",
@@ -21,4 +23,6 @@ __all__ = [
     "MongoDBStudentProfileRepository",
     "MongoDBTutorSessionRepository",
     "MongoDBChatRepository",
+    "MongoDBLearningPathRepository",
+    "MongoDBConceptGraphRepository",
 ]

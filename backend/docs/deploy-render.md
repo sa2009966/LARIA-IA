@@ -25,8 +25,9 @@
 2. En [Render Dashboard](https://dashboard.render.com/) → **New** → **Blueprint**.
 3. Elige el repo `sa2009966/LARIA-IA`, rama `feature/backend`, path `render.yaml`.
 4. En variables pendientes, pega tu **`OPENAI_API_KEY`**.
-5. (Recomendado) edita **`CORS_ORIGINS`** con tu front de Vercel, p. ej.  
-   `["https://tu-app.vercel.app","http://localhost:4321"]`
+5. Configura **`CORS_ORIGINS`** con los orígenes exactos del frontend, sin
+   barra final. Para el frontend publicado de LARIA:
+   `["https://laria-frontend.vercel.app","http://localhost:4321"]`
 6. **Apply** / Deploy. Espera el build (~3–8 min en free).
 7. URL pública actual: `https://laria-ia.onrender.com` (el blueprint nombra el servicio `laria-backend`; el subdominio real lo muestra Render).
 8. Prueba: `GET https://laria-ia.onrender.com/health` y `GET https://laria-ia.onrender.com/ready`

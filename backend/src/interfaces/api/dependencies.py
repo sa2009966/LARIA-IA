@@ -28,7 +28,9 @@ from src.domain.ports.metrics_port import MetricsPort
 from src.domain.ports.document_blob_store import DocumentBlobStore
 from src.domain.ports.repositories import (
     ChatRepository,
+    ConceptGraphRepository,
     DocumentRepository,
+    LearningPathRepository,
     QuizAttemptRepository,
     QuizRepository,
     StudentProfileRepository,
@@ -36,6 +38,7 @@ from src.domain.ports.repositories import (
     TutorSessionRepository,
     UserRepository,
 )
+from src.domain.services.adaptive_policy import AdaptationCutoffs
 from src.domain.services.affect_policy import AffectPolicy
 from src.domain.services.model_router import ModelRouter
 from src.domain.services.pedagogical_engine import PedagogicalEngine
@@ -51,8 +54,10 @@ from src.infrastructure.embodiment.stubs import (
 from src.infrastructure.openai.openai_ia_analyst import OpenAIAnalyst
 from src.infrastructure.persistence import (
     InMemoryChatRepository,
+    InMemoryConceptGraphRepository,
     InMemoryDocumentRepository,
     InMemoryEventBus,
+    InMemoryLearningPathRepository,
     InMemoryQuizAttemptRepository,
     InMemoryQuizRepository,
     InMemoryStudentProfileRepository,
@@ -129,6 +134,14 @@ def get_profile_repo() -> StudentProfileRepository:
 
 
 @lru_cache(maxsize=1)
+def get_concept_graph_repo() -> ConceptGraphRepository:
+    if settings.DB_PROVIDER == "mongodb":
+        from src.infrastructure.mongodb import MongoDBConceptGraphRepository
+        return MongoDBConceptGraphRepository()
+    return InMemoryConceptGraphRepository()
+
+
+@lru_cache(maxsize=1)
 def get_session_repo() -> TutorSessionRepository:
     if settings.DB_PROVIDER == "mongodb":
         from src.infrastructure.mongodb import MongoDBTutorSessionRepository
@@ -142,6 +155,14 @@ def get_chat_repo() -> ChatRepository:
         from src.infrastructure.mongodb import MongoDBChatRepository
         return MongoDBChatRepository()
     return InMemoryChatRepository()
+
+
+@lru_cache(maxsize=1)
+def get_learning_path_repo() -> LearningPathRepository:
+    if settings.DB_PROVIDER == "mongodb":
+        from src.infrastructure.mongodb import MongoDBLearningPathRepository
+        return MongoDBLearningPathRepository()
+    return InMemoryLearningPathRepository()
 
 
 def get_chat_tutor_service() -> "ChatTutorService":
@@ -267,6 +288,22 @@ def get_document_service() -> DocumentService:
     )
 
 
+@lru_cache(maxsize=1)
+def get_adaptation_cutoffs() -> AdaptationCutoffs:
+    """Los umbrales de la política viven en config, no en ramas del dominio."""
+    return AdaptationCutoffs(
+        band_low=settings.ADAPT_BAND_LOW,
+        band_high=settings.ADAPT_BAND_HIGH,
+        abandonment=settings.ADAPT_CUT_ABANDONMENT,
+        attention_span=settings.ADAPT_CUT_ATTENTION_SPAN,
+        preference=settings.ADAPT_CUT_PREFERENCE,
+        ewma_alpha=settings.ADAPT_EWMA_ALPHA,
+        long_explanation_chars=settings.ADAPT_LONG_EXPLANATION_CHARS,
+        session_gap_minutes=settings.ADAPT_SESSION_GAP_MINUTES,
+        min_samples_for_adaptation=settings.ADAPT_MIN_SAMPLES,
+    )
+
+
 def get_analyze_service() -> AnalyzeDocumentService:
     return AnalyzeDocumentService(
         document_repository=get_document_repo(),
@@ -278,6 +315,9 @@ def get_analyze_service() -> AnalyzeDocumentService:
         session_repository=get_session_repo(),
         llm_gate=get_llm_gate(),
         metrics=get_metrics() if settings.METRICS_ENABLED else None,
+        cutoffs=get_adaptation_cutoffs(),
+        adaptation_enabled=not settings.ADAPT_SHADOW_MODE,
+        concept_graph_repository=get_concept_graph_repo(),
     )
 
 
@@ -293,6 +333,7 @@ def get_quiz_service() -> QuizService:
         pedagogical_engine=get_pedagogical_engine(),
         session_repository=get_session_repo(),
         llm_gate=get_llm_gate(),
+        concept_graph_repository=get_concept_graph_repo(),
     )
 
 

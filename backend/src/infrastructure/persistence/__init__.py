@@ -9,6 +9,10 @@ from src.infrastructure.persistence.in_memory_tutor_interaction_repo import InMe
 from src.infrastructure.persistence.in_memory_student_profile_repo import InMemoryStudentProfileRepository
 from src.infrastructure.persistence.in_memory_tutor_session_repo import InMemoryTutorSessionRepository
 from src.infrastructure.persistence.in_memory_chat_repo import InMemoryChatRepository
+from src.infrastructure.persistence.in_memory_learning_path_repo import InMemoryLearningPathRepository
+from src.infrastructure.persistence.in_memory_concept_graph_repo import (
+    InMemoryConceptGraphRepository,
+)
 from src.infrastructure.persistence.in_memory_event_bus import InMemoryEventBus
 
 __all__ = [
@@ -21,5 +25,7 @@ __all__ = [
     "InMemoryStudentProfileRepository",
     "InMemoryTutorSessionRepository",
     "InMemoryChatRepository",
+    "InMemoryLearningPathRepository",
+    "InMemoryConceptGraphRepository",
     "InMemoryEventBus",
 ]

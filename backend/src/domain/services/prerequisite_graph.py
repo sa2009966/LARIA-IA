@@ -1,146 +1,66 @@
-"""Grafo de prerrequisitos curriculares (determinista, sin LLM)."""
+"""Gate de prerrequisitos: la intervención escala con la evidencia (ADR-006).
+
+El grafo no vive aquí. Este servicio es sin estado: recibe el agregado
+`ConceptGraph` cargado y el perfil, y responde **con qué fuerza** intervenir.
+
+Invariante: nunca se desvía el foco en silencio. Solo `SEQUENCE` lidera con la
+base, y cuando lo hace el prompt explica por qué. Solo las aristas curadas
+pueden llegar a `SEQUENCE` (ADR-005).
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 
+from src.domain.aggregates.concept_graph import ConceptGraph
 from src.domain.aggregates.student_profile import StudentProfile
-from src.domain.concept_identity import canonicalize_concept
+from src.domain.catalog.prerequisite_seeds import build_seeded_graph
 
 
-def _norm(label: str) -> str:
-    return canonicalize_concept(label)
-
-
-# concepto → lista de prerrequisitos directos
-_DEFAULT_EDGES: dict[str, tuple[str, ...]] = {
-    # Álgebra
-    "variable": (),
-    "expresión algebraica": ("variable",),
-    "propiedad distributiva": ("expresión algebraica", "variable"),
-    "ecuación": ("variable", "expresión algebraica"),
-    "ecuaciones lineales": ("ecuación", "variable"),
-    "sistemas": ("ecuaciones lineales", "ecuación"),
-    "sistemas de ecuaciones": ("ecuaciones lineales",),
-    "matrices": ("sistemas", "ecuaciones lineales"),
-    "desigualdad": ("ecuación", "variable"),
-    "resolver ecuación": ("ecuación", "variable"),
-    "términos semejantes": ("variable", "expresión algebraica"),
-    "factorización": ("propiedad distributiva", "expresión algebraica"),
-    "ecuación cuadrática": ("ecuación", "factorización"),
-    # Cálculo
-    "funciones": ("variable", "expresión algebraica"),
-    "derivadas": ("funciones",),
-    "integrales": ("derivadas", "funciones"),
-    # Física
-    "mru": ("funciones",),
-    "cinemática": ("mru",),
-    "dinámica": ("cinemática",),
-}
-
-# Alias → clave canónica del grafo (se pliegan al resolver)
-_ALIASES: dict[str, str] = {
-    "ecuaciones": "ecuaciones lineales",
-    "sistema": "sistemas",
-    "matriz": "matrices",
-    "derivada": "derivadas",
-    "integral": "integrales",
-    "función": "funciones",
-    "funcion": "funciones",
-    "distributiva": "propiedad distributiva",
-    "álgebra": "variable",
-    "algebra": "variable",
-    "despejar": "resolver ecuación",
-    "cuadrática": "ecuación cuadrática",
-    "cuadratica": "ecuación cuadrática",
-    "factorizar": "factorización",
-    "términos": "términos semejantes",
-    "terminos": "términos semejantes",
-}
+class GateAction(str, Enum):
+    PROCEED = "proceed"  # bases dominadas (o sin bases): responder y avanzar
+    INTEGRATE = "integrate"  # hueco NO medido: responder apoyándose en la base
+    OFFER = "offer"  # hueco medido: responder y ofrecer repasar la base
+    SEQUENCE = "sequence"  # hueco medido y repetido: liderar con la base
 
 
 @dataclass(frozen=True)
 class GateResult:
-    blocked: bool
+    action: GateAction
     target: str
     missing_prereqs: tuple[str, ...]
     remediation_focus: tuple[str, ...]
+    measured_gaps: tuple[str, ...] = ()
 
-
-class PrerequisiteGraph:
-    """Semillas curriculares + resolución de cadenas de prerrequisitos."""
-
-    def __init__(self, edges: dict[str, tuple[str, ...]] | None = None) -> None:
-        self._edges = { _norm(k): tuple(_norm(p) for p in v) for k, v in (edges or _DEFAULT_EDGES).items() }
-
-    def canonicalize(self, concept: str) -> str:
-        key = _norm(concept)
-        alias = _ALIASES.get(key)
-        if alias is None:
-            return key
-        return _norm(alias)
-
-    def prerequisites_of(self, concept: str) -> tuple[str, ...]:
-        key = self.canonicalize(concept)
-        return self._edges.get(key, ())
-
-    def successors_of(self, concept: str) -> tuple[str, ...]:
-        """Conceptos que listan a `concept` como prerrequisito directo (inverso de `prerequisites_of`)."""
-        key = self.canonicalize(concept)
-        found: list[str] = []
-        for candidate, prereqs in self._edges.items():
-            if key in prereqs:
-                found.append(candidate)
-        return tuple(found)
-
-    def all_prerequisites(self, concept: str) -> tuple[str, ...]:
-        """DFS transitivo, orden topológico inverso (bases primero)."""
-        key = self.canonicalize(concept)
-        seen: list[str] = []
-        stack = [key]
-        visiting: set[str] = set()
-
-        def walk(node: str) -> None:
-            node = self.canonicalize(node)
-            if node in visiting:
-                return
-            visiting.add(node)
-            for pre in self._edges.get(node, ()):
-                walk(pre)
-                if pre not in seen:
-                    seen.append(pre)
-            visiting.discard(node)
-
-        walk(key)
-        return tuple(seen)
-
-    def extend_with_document_concepts(self, concepts: tuple[str, ...]) -> None:
-        """Heurística ligera: orden del documento sugiere cadena lineal débil."""
-        norms = [self.canonicalize(c) for c in concepts if c and c.strip()]
-        for i in range(1, len(norms)):
-            later = norms[i]
-            earlier = norms[i - 1]
-            if later == earlier:
-                continue
-            existing = list(self._edges.get(later, ()))
-            if earlier not in existing:
-                existing.append(earlier)
-                self._edges[later] = tuple(existing)
-            self._edges.setdefault(earlier, self._edges.get(earlier, ()))
+    @property
+    def blocked(self) -> bool:
+        """El turno lidera con la base. NO significa "hay huecos"."""
+        return self.action == GateAction.SEQUENCE
 
 
 class PrerequisiteGate:
-    """Bloquea temas avanzados si faltan bases (umbral de mastery efectivo)."""
+    """Decide la fuerza de la intervención según la evidencia disponible."""
 
     def __init__(
         self,
-        graph: PrerequisiteGraph | None = None,
+        graph: ConceptGraph | None = None,
         min_mastery: float = 0.45,
+        max_remediation: int = 4,
+        min_evidence_for_gap: int = 2,
+        error_streak_for_sequence: int = 2,
     ) -> None:
-        self._graph = graph or PrerequisiteGraph()
+        # El grafo por defecto es la semilla curricular; en producción la capa
+        # de aplicación pasa el agregado persistido en cada evaluación.
+        self._graph = graph or build_seeded_graph()
         self._min_mastery = min_mastery
+        self._max_remediation = max_remediation
+        # Hipótesis nombradas, como los cutoffs del ADR-004: cuánta evidencia
+        # exige llamar "hueco" a un prerrequisito, y cuánta insistir en él.
+        self._min_evidence_for_gap = min_evidence_for_gap
+        self._error_streak_for_sequence = error_streak_for_sequence
 
     @property
-    def graph(self) -> PrerequisiteGraph:
+    def graph(self) -> ConceptGraph:
         return self._graph
 
     def evaluate(
@@ -149,26 +69,49 @@ class PrerequisiteGate:
         profile: StudentProfile | None,
         *,
         min_mastery: float | None = None,
+        graph: ConceptGraph | None = None,
     ) -> GateResult:
+        active = graph or self._graph
         threshold = self._min_mastery if min_mastery is None else min_mastery
-        canon = self._graph.canonicalize(target)
-        prereqs = self._graph.all_prerequisites(canon)
+        canon = active.canonicalize(target)
+        prereqs = active.all_prerequisites(canon)
         if not prereqs:
-            return GateResult(False, canon, (), ())
+            return GateResult(GateAction.PROCEED, canon, (), ())
 
-        missing: list[str] = []
+        # Distinguir "no medido" de "medido bajo" es toda la decisión del
+        # ADR-006: la ausencia de dato no es evidencia de ignorancia.
+        unmeasured: list[str] = []
+        measured: list[str] = []
+        insistent: list[str] = []
         for pre in prereqs:
-            if profile is None:
-                missing.append(pre)
+            entry = None if profile is None else profile.mastery_by_concept.get(pre)
+            # El mastery suficiente se respeta primero: el umbral de evidencia
+            # decide si algo ES un hueco, no invalida un nivel que ya pasa.
+            if entry is not None and profile.effective_concept_mastery(pre) >= threshold:
                 continue
-            mastery = profile.effective_concept_mastery(pre)
-            known = pre in profile.mastery_by_concept
-            if not known or mastery < threshold:
-                missing.append(pre)
+            if entry is None or entry.evidence_count < self._min_evidence_for_gap:
+                unmeasured.append(pre)
+                continue
+            measured.append(pre)
+            if entry.error_streak >= self._error_streak_for_sequence:
+                insistent.append(pre)
 
-        if not missing:
-            return GateResult(False, canon, (), ())
+        if not unmeasured and not measured:
+            return GateResult(GateAction.PROCEED, canon, (), ())
 
-        # Remediation: los prerrequisitos más básicos primero (ya en orden)
-        remediation = tuple(missing[:4])
-        return GateResult(True, canon, tuple(missing), remediation)
+        if insistent:
+            action = GateAction.SEQUENCE
+            focus_pool = tuple(insistent)
+        elif measured:
+            action = GateAction.OFFER
+            focus_pool = tuple(measured)
+        else:
+            action = GateAction.INTEGRATE
+            focus_pool = tuple(unmeasured)
+
+        missing = tuple(p for p in prereqs if p in set(unmeasured) | set(measured))
+        # Remediar la causa raíz, no el primer hueco del recorrido: si faltan
+        # `variable` y `ecuaciones lineales`, atender lo segundo sin lo primero
+        # solo trata el síntoma.
+        remediation = active.root_causes(focus_pool)[: self._max_remediation]
+        return GateResult(action, canon, missing, remediation, tuple(measured))
