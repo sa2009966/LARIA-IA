@@ -33,9 +33,23 @@ def test_resolve_alias_and_accent_to_catalog_id():
     assert resolve_misconception("Confundir el signo al despejar") == (
         "algebra.moving-terms-wrong-sign"
     )
-    assert resolve_misconception("ECUACIÓN") == "algebra.equals-as-operation"
-    folded = canonicalize_concept("propiedad distributiva")
+    folded = canonicalize_concept("Distributiva Incompleta")
     assert resolve_misconception(folded) == "algebra.distributive-partial"
+
+
+def test_el_nombre_de_un_concepto_no_es_un_diagnostico():
+    """El ancla no resuelve (ADR-007).
+
+    `ecuación` es dónde vive un malentendido, no el malentendido. Resolver por
+    ancla convertía cualquier concepto con evidencia negativa en un diagnóstico
+    específico, y el motor lo afirmaba en el prompt sin haberlo observado.
+    """
+    assert resolve_misconception("ECUACIÓN") is None
+    assert resolve_misconception("variable") is None
+    # El malentendido que vive en ese concepto sigue resolviendo por su alias.
+    assert resolve_misconception("el igual es hacer la operacion") == (
+        "algebra.equals-as-operation"
+    )
 
 
 def test_resolve_unmapped_returns_none():

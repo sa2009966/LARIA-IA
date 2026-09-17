@@ -57,6 +57,7 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
                     "error_streak": c.error_streak,
                     "subject": c.subject,
                     "evidence_count": c.evidence_count,
+                    "weak_evidence_count": c.weak_evidence_count,
                     "half_life_days": c.half_life_days,
                 }
                 for key, c in profile.mastery_by_concept.items()
@@ -113,6 +114,10 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
                 error_streak=int(raw.get("error_streak", 0)),
                 subject=raw.get("subject"),
                 evidence_count=int(raw.get("evidence_count", raw.get("attempts", 0))),
+                # Perfiles escritos antes del ADR-007 no distinguen: su
+                # evidencia de auto-reporte quedó contada como calificada.
+                # Se asume 0 y se corrige con el uso; ver deuda conocida.
+                weak_evidence_count=int(raw.get("weak_evidence_count", 0)),
                 half_life_days=float(raw.get("half_life_days", 14.0)),
             )
         raw_mem = doc.get("pedagogical_memory") or {}

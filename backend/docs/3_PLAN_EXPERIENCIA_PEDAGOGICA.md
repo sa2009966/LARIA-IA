@@ -4,7 +4,8 @@
 > agente, no que lo evalúa un examinador. Al escribirse este plan esta capa estaba en ~30%: la más
 > deficiente del sistema y la única que decide si el producto enseña.
 >
-> **Estado:** fases 1 y 2 hechas ([ADR-006](adr/ADR-006-oferta-vs-bloqueo.md)); fases 3 y 4 pendientes.
+> **Estado:** fases 1 y 2 hechas ([ADR-006](adr/ADR-006-oferta-vs-bloqueo.md)) y reforzadas en
+> [ADR-007](adr/ADR-007-evidencia-ponderada-por-calidad.md); fases 3 y 4 pendientes.
 >
 > Depende de: [ADR-004](adr/ADR-004-adaptacion-por-senales.md) (core adaptativo, shadow mode) y
 > [ADR-005](adr/ADR-005-grafo-prerrequisitos-curado.md) (grafo curado). Precede al P0 de control-flow.
@@ -120,6 +121,13 @@ presentación opcional, es lo que hace legible todo lo demás. Es barata: las se
 pregunta, con dificultad media, y ningún texto que presuponga que no domina nada. Test que lo blinda:
 perfil vacío + tema avanzado ⇒ `blocked=False` y `focus_concepts[0]` es el tema preguntado.
 
+> **Corrección posterior ([ADR-007](adr/ADR-007-evidencia-ponderada-por-calidad.md)).** Ese test usa
+> una pregunta neutra, y la garantía no se sostenía en cuanto el alumno *decía* que no sabía: la
+> señal de auto-reporte se aplicaba al perfil en memoria antes de decidir, creaba evidencia que
+> contaba como medida y devolvía el turno a `scaffold`/`easy`. Ahora la evidencia se pesa por su
+> calidad (un auto-reporte = medio ítem calificado) y hace falta más de una señal débil para mover
+> el nivel. La fase 1 se cumple también para quien avisa que es principiante.
+
 ### Fase 2 — Cerrar el lazo positivo — ✅ hecha
 
 1. `EvidenceKind.SUCCESS` emitido desde el turno de tutoría: `SELF_CORRECTION` detectado ⇒ evidencia
@@ -193,7 +201,14 @@ Tres cosas medidas y no resueltas, por orden de coste:
    sin conteo ni EWMA: un único match de regex fija el estilo del estudiante y a partir de ahí
    cortocircuita las heurísticas. El arreglo honesto exige estado persistido nuevo (éxitos por estilo)
    y toca los repositorios.
-3. **El foco se decide por las debilidades, no por la pregunta** — ver Fase 3.
+3. **El foco se decide por las debilidades, no por la pregunta** — ver Fase 3. El ADR-007 quitó de
+   esa precedencia el diagnóstico inventado (una misconception que nadie observó ya no lidera el
+   foco), pero no cambió el orden: `frequent_errors` → `weakest_concepts` → conceptos del documento.
+   Un concepto que el alumno solo mencionó puede seguir quedando por delante del tema que preguntó.
+4. **Los perfiles Mongo escritos antes del ADR-007 no distinguen evidencia débil de medida.** Su
+   `weak_evidence_count` se asume `0`, así que su auto-reporte histórico sigue pesando como un ítem
+   calificado hasta que el concepto reciba evidencia nueva. No hay `updateMany` que lo arregle: la
+   historia necesaria no se guardó.
 
 ## Decisiones que no son técnicas
 

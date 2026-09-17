@@ -14,6 +14,10 @@
 | [adr/ADR-001-openai-hexagonal-tutor.md](adr/ADR-001-openai-hexagonal-tutor.md) | ADR-1: decisiones fundacionales |
 | [adr/ADR-002-embodiment-adapter.md](adr/ADR-002-embodiment-adapter.md) | ADR-2: embodiment opcional |
 | [adr/ADR-003-mastery-forgetting-prereqs.md](adr/ADR-003-mastery-forgetting-prereqs.md) | ADR-3: mastery multi-señal, olvido y prerrequisitos |
+| [adr/ADR-004-adaptacion-por-senales.md](adr/ADR-004-adaptacion-por-senales.md) | ADR-4: señales, precedencia y familias de parámetros |
+| [adr/ADR-005-grafo-prerrequisitos-curado.md](adr/ADR-005-grafo-prerrequisitos-curado.md) | ADR-5: grafo de prerrequisitos curado y persistido |
+| [adr/ADR-006-oferta-vs-bloqueo.md](adr/ADR-006-oferta-vs-bloqueo.md) | ADR-6: oferta en vez de bloqueo |
+| [adr/ADR-007-evidencia-ponderada-por-calidad.md](adr/ADR-007-evidencia-ponderada-por-calidad.md) | ADR-7: la evidencia se pesa por su calidad |
 
 Swagger interactivo (solo con `ENABLE_DOCS=true`): `/docs`.
 

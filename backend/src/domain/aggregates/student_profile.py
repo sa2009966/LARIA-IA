@@ -13,6 +13,14 @@ from src.domain.adaptive_signals import DEFAULT_CUTOFFS, Signal, SignalKind
 DEFAULT_HALF_LIFE_DAYS = 14.0
 HIGH_LATENCY_THRESHOLD_MS = 8000.0
 _MAX_APPLIED_EVENT_IDS = 256
+#: Cuánto pesa una evidencia débil (auto-reporte, comportamiento, chat) frente a
+#: un ítem calificado. Hipótesis nombrada, como los cutoffs del ADR-004: decir
+#: "no entiendo" es información, pero no es una medición (ADR-007).
+WEAK_EVIDENCE_WEIGHT = 0.5
+#: Evidencia —en unidades de ítem calificado— que un concepto necesita para
+#: informar la decisión en caliente (modo, dificultad, foco). Un solo
+#: auto-reporte queda por debajo: preguntar no es fallar.
+MIN_EVIDENCE_FOR_DECISION = 1.0
 
 
 def _utc_now() -> datetime:
@@ -32,6 +40,17 @@ class EvidenceKind(str, Enum):
     SUCCESS = "success"
 
 
+#: Señales que el estudiante reporta o que se infieren de su comportamiento.
+#: No son ítems calificados: describen cómo pide ayuda, no qué sabe (ADR-007).
+_WEAK_EVIDENCE_KINDS = frozenset(
+    {
+        EvidenceKind.ASK_STRUGGLE,
+        EvidenceKind.HELP_REQUEST,
+        EvidenceKind.HIGH_LATENCY,
+    }
+)
+
+
 @dataclass(frozen=True)
 class EvidenceSample:
     """Señal de aprendizaje multi-fuente para actualizar mastery."""
@@ -48,6 +67,15 @@ class EvidenceSample:
     # por sí sola ni borra una racha de error de golpe. Sin esto, un solo
     # mensaje llevaba un concepto de 0.00 a 0.76 y desarmaba `SEQUENCE`.
     is_weak: bool = False
+
+    @property
+    def is_weak_evidence(self) -> bool:
+        """Débil = no calificada: auto-reporte, comportamiento o conversación.
+
+        La clase de la señal manda sobre el flag: un `ASK_STRUGGLE` es débil
+        aunque quien construya la muestra olvide marcarlo.
+        """
+        return self.is_weak or self.kind in _WEAK_EVIDENCE_KINDS
 
 
 @dataclass
@@ -120,7 +148,32 @@ class ConceptMastery:
     error_streak: int = 0
     subject: str | None = None
     evidence_count: int = 0
+    # Subconjunto de `evidence_count` que no vino de un ítem calificado. Se
+    # cuenta aparte para poder pesar la evidencia por su calidad sin perder el
+    # total (ADR-007).
+    weak_evidence_count: int = 0
     half_life_days: float = DEFAULT_HALF_LIFE_DAYS
+
+    @property
+    def measured_evidence_count(self) -> int:
+        """Evidencia calificada: quizzes e ítems corregidos en servidor."""
+        return max(0, self.evidence_count - self.weak_evidence_count)
+
+    @property
+    def weighted_evidence(self) -> float:
+        """Evidencia en unidades de ítem calificado.
+
+        Un auto-reporte cuenta `WEAK_EVIDENCE_WEIGHT`: informa, pero hacen
+        falta dos para pesar lo que pesa un ítem que se falló de verdad.
+        """
+        return self.measured_evidence_count + (
+            WEAK_EVIDENCE_WEIGHT * self.weak_evidence_count
+        )
+
+    @property
+    def informs_decision(self) -> bool:
+        """Si este concepto puede mover modo/dificultad/foco en este turno."""
+        return self.weighted_evidence >= MIN_EVIDENCE_FOR_DECISION
 
     def apply_result(
         self, score_ratio: float, document_id: UUID | None = None, alpha: float = 0.45
@@ -178,8 +231,10 @@ class ConceptMastery:
 
         self.attempts += 1
         self.evidence_count += 1
+        if sample.is_weak_evidence:
+            self.weak_evidence_count += 1
         self.last_score_ratio = ratio
-        if self.attempts == 1 and not sample.is_weak:
+        if self.attempts == 1 and not sample.is_weak_evidence:
             self.mastery = ratio
         else:
             # La evidencia débil siempre pasa por la EWMA, incluso siendo la
@@ -364,6 +419,16 @@ class StudentProfile:
         entry = self.mastery_by_concept.get(key)
         return entry.mastery if entry else 0.0
 
+    def has_decision_evidence(self, concept: str) -> bool:
+        """Si el concepto tiene evidencia suficiente para decidir en caliente.
+
+        Fuente de verdad única para motor y dificultad: "no medido" y "medido
+        en cero" son estados distintos (ADR-006), y un solo auto-reporte no
+        convierte lo primero en lo segundo (ADR-007).
+        """
+        entry = self.mastery_by_concept.get(_norm_concept(concept))
+        return entry is not None and entry.informs_decision
+
     def effective_concept_mastery(self, concept: str, now: datetime | None = None) -> float:
         key = _norm_concept(concept)
         entry = self.mastery_by_concept.get(key)
@@ -434,7 +499,11 @@ class StudentProfile:
         before = entry.mastery
         entry.apply_evidence(sample)
         self._track_velocity(entry.mastery - before)
-        if sample.score_ratio < 0.5:
+        # Solo la evidencia calificada escribe el expediente de errores: decir
+        # "no entiendo X" es pedir ayuda con X, no fallar X ni malentenderlo de
+        # una forma concreta. Antes, preguntar marcaba el concepto como
+        # misconception y el motor lo ascendía a diagnóstico (ADR-007).
+        if not sample.is_weak_evidence and sample.score_ratio < 0.5:
             self._push_errors((key,))
             self.pedagogical_memory.remember_misconception(key)
         self.updated_at = _utc_now()
@@ -473,7 +542,9 @@ class StudentProfile:
             )
         if latency_ms is not None and latency_ms >= HIGH_LATENCY_THRESHOLD_MS:
             self.record_high_latency(document_id, concepts, latency_ms)
-        self._push_errors(concepts)
+        # Los conceptos de la pregunta NO entran en `frequent_errors`: la
+        # evidencia débil ya quedó registrada en cada `ConceptMastery`, y el
+        # foco del motor lee esta lista como "aquí falló" (ADR-007).
         if entry.mastery < 0.4:
             self.pace = "slow"
         self.updated_at = _utc_now()

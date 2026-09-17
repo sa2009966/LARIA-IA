@@ -6,6 +6,10 @@ El grafo no vive aquí. Este servicio es sin estado: recibe el agregado
 Invariante: nunca se desvía el foco en silencio. Solo `SEQUENCE` lidera con la
 base, y cuando lo hace el prompt explica por qué. Solo las aristas curadas
 pueden llegar a `SEQUENCE` (ADR-005).
+
+La evidencia se pesa por su calidad (ADR-007): un auto-reporte cuenta la mitad
+que un ítem calificado, así que una sola pregunta no convierte un prerrequisito
+en hueco, y la lucha conversacional repetida sí (ADR-006, fase 2).
 """
 from __future__ import annotations
 
@@ -56,6 +60,7 @@ class PrerequisiteGate:
         self._max_remediation = max_remediation
         # Hipótesis nombradas, como los cutoffs del ADR-004: cuánta evidencia
         # exige llamar "hueco" a un prerrequisito, y cuánta insistir en él.
+        # Se mide en unidades de ítem calificado (`weighted_evidence`).
         self._min_evidence_for_gap = min_evidence_for_gap
         self._error_streak_for_sequence = error_streak_for_sequence
 
@@ -89,7 +94,10 @@ class PrerequisiteGate:
             # decide si algo ES un hueco, no invalida un nivel que ya pasa.
             if entry is not None and profile.effective_concept_mastery(pre) >= threshold:
                 continue
-            if entry is None or entry.evidence_count < self._min_evidence_for_gap:
+            # Pesado por calidad, no por cantidad: dos auto-reportes equivalen
+            # a un ítem fallado. Con `evidence_count` crudo, dos preguntas
+            # bastaban para declarar el hueco y llegar a SEQUENCE (ADR-007).
+            if entry is None or entry.weighted_evidence < self._min_evidence_for_gap:
                 unmeasured.append(pre)
                 continue
             measured.append(pre)

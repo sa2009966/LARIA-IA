@@ -31,7 +31,9 @@ class DifficultyCalculator:
             # Solo los conceptos con evidencia deciden la dificultad. Un
             # concepto sin medir no aporta un 0.0 que empuje a EASY: eso
             # dejaría al estudiante por debajo de su nivel real (ADR-006).
-            measured = [c for c in focus_concepts if c in profile.mastery_by_concept]
+            # Un único auto-reporte tampoco basta: existir en el perfil no es
+            # lo mismo que haber sido medido (ADR-007).
+            measured = [c for c in focus_concepts if profile.has_decision_evidence(c)]
             if not measured:
                 return Difficulty.MEDIUM
             masteries = [profile.effective_concept_mastery(c) for c in measured]

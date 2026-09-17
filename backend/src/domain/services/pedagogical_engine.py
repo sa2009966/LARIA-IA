@@ -70,11 +70,13 @@ class PedagogicalEngine:
         """Mastery de los conceptos con evidencia, y cuáles son.
 
         Un concepto sin evidencia no aporta un 0.0 que arrastre la dificultad:
-        "no medido" y "medido en cero" son estados distintos (ADR-006).
+        "no medido" y "medido en cero" son estados distintos (ADR-006). Estar
+        en el perfil no basta: un auto-reporte crea la entrada sin medir nada,
+        así que se exige evidencia que pese (ADR-007).
         """
         if profile is None or not focus:
             return doc_mastery, ()
-        measured = tuple(c for c in focus if c in profile.mastery_by_concept)
+        measured = tuple(c for c in focus if profile.has_decision_evidence(c))
         if not measured:
             return doc_mastery, ()
         return min(profile.effective_concept_mastery(c) for c in measured), measured
@@ -112,6 +114,9 @@ class PedagogicalEngine:
             weak = tuple(profile.weakest_concepts(limit=5, document_id=document_id, use_effective=True))
         errors = tuple((profile.frequent_errors[:5] if profile else []))
         mapped_focus: list[str] = []
+        # Ids del catálogo que entran al foco: son etiquetas de diagnóstico, no
+        # nodos del grafo curricular, y el gate no puede evaluarlas (ADR-007).
+        mapped_ids: set[str] = set()
         unmapped_memory: list[str] = []
         mapped_entries: list[MisconceptionEntry] = []
         if profile is not None:
@@ -125,6 +130,7 @@ class PedagogicalEngine:
                 mapped_entries.append(entry)
                 if entry.id not in mapped_focus:
                     mapped_focus.append(entry.id)
+                    mapped_ids.add(entry.id)
                 anchor = canonicalize_concept(entry.anchor_concept)
                 if anchor and anchor not in mapped_focus:
                     mapped_focus.append(anchor)
@@ -152,8 +158,13 @@ class PedagogicalEngine:
         gate_action = GateAction.PROCEED
         remediation: tuple[str, ...] = ()
         asked_focus = focus
-        if focus:
-            gate = self._gate.evaluate(focus[0], profile, graph=active_graph)
+        # El objetivo del gate es un concepto del currículo. Si el foco lo
+        # lidera un id de misconception, evaluarlo devolvía PROCEED siempre
+        # (no tiene prerrequisitos): cualquier malentendido en memoria apagaba
+        # el gate justo para quien más evidencia de hueco tenía (ADR-007).
+        gate_target = next((c for c in focus if c not in mapped_ids), "")
+        if gate_target:
+            gate = self._gate.evaluate(gate_target, profile, graph=active_graph)
             gate_action = gate.action
             remediation = gate.remediation_focus
             if gate.action == GateAction.SEQUENCE:
@@ -167,10 +178,10 @@ class PedagogicalEngine:
         # "Sin medir" es no tener evidencia que informe ESTA decisión: ni en los
         # conceptos del foco ni en el documento. La evidencia de documento
         # cuenta: un estudiante con intentos previos no es un recién llegado.
+        # Las señales de struggle NO cuentan aquí: son auto-reporte, y bastaba
+        # una para que el alumno nuevo cayera en la rama de déficit (ADR-007).
         doc_entry = profile.mastery_by_document.get(document_id) if profile else None
-        doc_measured = doc_entry is not None and (
-            doc_entry.attempts > 0 or doc_entry.struggle_signals > 0
-        )
+        doc_measured = doc_entry is not None and doc_entry.attempts > 0
         unmeasured = not measured_focus and not doc_measured
 
         step = session.step if session else SessionStep.INTRODUCE

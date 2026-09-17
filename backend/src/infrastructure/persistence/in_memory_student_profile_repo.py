@@ -37,6 +37,7 @@ def _copy_concepts(src: dict[str, ConceptMastery]) -> dict[str, ConceptMastery]:
             error_streak=v.error_streak,
             subject=v.subject,
             evidence_count=v.evidence_count,
+            weak_evidence_count=v.weak_evidence_count,
             half_life_days=v.half_life_days,
         )
         for k, v in src.items()

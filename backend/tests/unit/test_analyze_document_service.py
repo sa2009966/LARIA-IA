@@ -247,7 +247,13 @@ class TestAnalyzeDocumentService:
         event_bus_mock: AsyncMock,
         profile_repo_mock: AsyncMock,
     ):
-        """La lucha se aplica en memoria para la decisión; la persistencia va por evento."""
+        """La lucha se aplica en memoria para la decisión; la persistencia va por evento.
+
+        Y el auto-reporte ajusta el REGISTRO, no el nivel: responde lo que
+        preguntó, en dificultad media, con estilo paso a paso (ADR-007). Antes
+        esta misma pregunta bajaba a `scaffold`/`easy` en el primer turno, con
+        cero evidencia medida en contra del estudiante.
+        """
         owner_id = uuid4()
         doc = DocumentAggregate.upload(owner_id, "alg.txt", "Variable x.", "Matemática")
         doc_repo_mock.find_by_id.return_value = doc
@@ -260,7 +266,9 @@ class TestAnalyzeDocumentService:
         # Persistencia unificada vía LearningEvidenceProjector (no save síncrono aquí)
         profile_repo_mock.save.assert_not_awaited()
         decision = ia_mock.answer_question.await_args.kwargs["decision"]
-        assert decision.mode.value == "scaffold"
+        assert decision.mode.value == "explain"
+        assert decision.target_difficulty.value == "medium"
+        assert decision.blocked_by_prereq is False
         event_bus_mock.publish.assert_awaited()
         event = event_bus_mock.publish.await_args.args[0]
         assert event.signal_kind == "novice"
