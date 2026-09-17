@@ -11,6 +11,7 @@ from src.domain.aggregates.student_profile import (
     StudentProfile,
 )
 from src.domain.exceptions import ConcurrencyError
+from src.domain.services.adaptive_policy import Signal, SignalKind
 from src.domain.ports.repositories import StudentProfileRepository
 from src.infrastructure.mongodb.database import get_database
 
@@ -56,6 +57,7 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
                     "error_streak": c.error_streak,
                     "subject": c.subject,
                     "evidence_count": c.evidence_count,
+                    "weak_evidence_count": c.weak_evidence_count,
                     "half_life_days": c.half_life_days,
                 }
                 for key, c in profile.mastery_by_concept.items()
@@ -72,6 +74,12 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
                 "successful_analogies": list(mem.successful_analogies),
                 "preferred_explanation_style": mem.preferred_explanation_style,
                 "last_effective_strategies": list(mem.last_effective_strategies),
+            },
+            "last_interaction_at": profile.last_interaction_at,
+            "last_answer_length": profile.last_answer_length,
+            "adaptive_signals": {
+                key: {"value": s.value, "samples": s.samples}
+                for key, s in profile.adaptive_signals.items()
             },
             "updated_at": profile.updated_at,
             "version": version,
@@ -106,6 +114,10 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
                 error_streak=int(raw.get("error_streak", 0)),
                 subject=raw.get("subject"),
                 evidence_count=int(raw.get("evidence_count", raw.get("attempts", 0))),
+                # Perfiles escritos antes del ADR-007 no distinguen: su
+                # evidencia de auto-reporte quedó contada como calificada.
+                # Se asume 0 y se corrige con el uso; ver deuda conocida.
+                weak_evidence_count=int(raw.get("weak_evidence_count", 0)),
                 half_life_days=float(raw.get("half_life_days", 14.0)),
             )
         raw_mem = doc.get("pedagogical_memory") or {}
@@ -113,9 +125,20 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             frequent_misconceptions=list(raw_mem.get("frequent_misconceptions") or []),
             successful_examples=list(raw_mem.get("successful_examples") or []),
             successful_analogies=list(raw_mem.get("successful_analogies") or []),
-            preferred_explanation_style=raw_mem.get("preferred_explanation_style", "simple"),
+            preferred_explanation_style=raw_mem.get("preferred_explanation_style", ""),
             last_effective_strategies=list(raw_mem.get("last_effective_strategies") or []),
         )
+        signals: dict[str, Signal] = {}
+        for key, raw in (doc.get("adaptive_signals") or {}).items():
+            try:
+                kind = SignalKind(key)
+            except ValueError:
+                continue
+            signals[key] = Signal(
+                kind=kind,
+                value=float(raw.get("value", 0.0)),
+                samples=int(raw.get("samples", 0)),
+            )
         return StudentProfile(
             student_id=UUID(doc["student_id"]),
             mastery_by_document=mastery,
@@ -127,6 +150,9 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             pedagogical_memory=memory,
             learning_velocity=float(doc.get("learning_velocity", 0.0)),
             applied_event_ids=list(doc.get("applied_event_ids") or []),
+            last_interaction_at=doc.get("last_interaction_at"),
+            last_answer_length=int(doc.get("last_answer_length", 0)),
+            adaptive_signals=signals,
             updated_at=doc["updated_at"],
             version=int(doc.get("version", 0)),
         )

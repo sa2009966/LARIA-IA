@@ -10,11 +10,61 @@ from src.domain.ports.repositories import (
     StudentProfileRepository,
     TutorInteractionRepository,
 )
+from src.domain.adaptive_signals import SignalKind
 from src.domain.services.concept_tagger import ConceptTagger
 from src.domain.services.learning_signal_detector import LearningSignalKind
 import logging
 
 logger = logging.getLogger("laria.learning")
+
+
+def _observed(event: TutorQuestionAskedEvent, kind: SignalKind) -> float:
+    for raw_kind, value in event.signal_observations or ():
+        if raw_kind == kind.value:
+            return value
+    return 0.0
+
+
+def _apply_conversational_evidence(
+    profile: StudentProfile, event: TutorQuestionAskedEvent
+) -> bool:
+    """Evidencia POSITIVA desde el chat (ADR-006, fase 2).
+
+    La autocorrección ("ah claro, ya entendí") es evidencia directa de
+    aprendizaje. Se detectaba desde el ADR-004 y solo se usaba para subir la
+    tasa de preguntas socráticas: el mastery nunca podía subir conversando.
+
+    Devuelve si hubo evidencia positiva, porque de eso depende que la memoria
+    pedagógica registre la estrategia y el estilo como efectivos.
+    """
+    if _observed(event, SignalKind.SELF_CORRECTION) <= 0.0:
+        return False
+    concepts = tuple(event.focus_concepts or event.concepts or ())
+    if not concepts:
+        return False
+    profile.record_conversational_success(
+        document_id=event.document_id,
+        concepts=concepts,
+    )
+    return True
+
+
+def _apply_interaction_state(
+    profile: StudentProfile, event: TutorQuestionAskedEvent
+) -> None:
+    """Aplica al perfil las observaciones medidas en el borde.
+
+    El projector **no** calcula el gap: lo recibe ya medido con wall-clock real
+    (ADR-004, Decisión 2). Escribe aquí para que el perfil conserve un único
+    escritor y la idempotencia por `event_id` siga cubriendo todo el turno.
+    """
+    for raw_kind, value in event.signal_observations or ():
+        try:
+            kind = SignalKind(raw_kind)
+        except ValueError:
+            continue
+        profile.observe_signal(kind, value)
+    profile.record_interaction(answer_length=event.answer_length)
 
 
 class LearningEvidenceProjector:
@@ -59,6 +109,8 @@ class LearningEvidenceProjector:
                     p = StudentProfile.create(event.student_id)
                 if p.was_event_applied(event.event_id):
                     return p
+                _apply_conversational_evidence(p, event)
+                _apply_interaction_state(p, event)
                 p.mark_event_applied(event.event_id)
                 await self._profile_repo.save(p)
                 return p
@@ -86,10 +138,16 @@ class LearningEvidenceProjector:
                     event.concepts or (),
                     event.latency_ms or 0.0,
                 )
-            if event.cognitive_style:
-                profile.pedagogical_memory.set_preferred_style(event.cognitive_style)
-            if event.pedagogical_mode:
-                profile.pedagogical_memory.remember_strategy(event.pedagogical_mode)
+            # La memoria de "lo que funcionó" solo se escribe cuando funcionó.
+            # Antes se escribía en todos los turnos, así que
+            # `last_effective_strategies` guardaba estrategias inefectivas y
+            # `preferred_explanation_style` congelaba el estilo del estudiante.
+            if _apply_conversational_evidence(profile, event):
+                if event.cognitive_style:
+                    profile.pedagogical_memory.set_preferred_style(event.cognitive_style)
+                if event.pedagogical_mode:
+                    profile.pedagogical_memory.remember_strategy(event.pedagogical_mode)
+            _apply_interaction_state(profile, event)
             profile.mark_event_applied(event.event_id)
             await self._profile_repo.save(profile)
             if self._metrics:
@@ -155,6 +213,11 @@ class LearningEvidenceProjector:
             profile = await self._profile_repo.find_by_student(event.student_id)
             if profile is None:
                 profile = StudentProfile.create(event.student_id)
+            # La comprobación de idempotencia va DENTRO del closure: con el
+            # reintento por conflicto, el perfil releído puede tener el evento
+            # ya aplicado y se contaría el intento dos veces.
+            if profile.was_event_applied(event.event_id):
+                return profile
             profile.record_quiz_result(
                 document_id=event.document_id,
                 score_ratio=ratio,

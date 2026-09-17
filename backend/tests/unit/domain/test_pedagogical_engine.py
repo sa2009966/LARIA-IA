@@ -111,7 +111,16 @@ class TestTutorPolicyWithDecision:
         decision = PedagogicalEngine().select(profile, doc, TutorIntent.ASK)
         prompt = TutorPolicy().answer_question("ctx", "¿qué?", decision)
         assert "scaffold" in prompt.system
-        assert "anti" in prompt.system.lower() or "Nunca reveles" in prompt.system
+        # ADR-006: el anti-spoiler protege evaluaciones, no explicaciones.
+        assert "Nunca reveles" not in prompt.system
+        assert "no de sus carencias" in prompt.system
+
+    def test_anti_spoiler_sigue_activo_en_quiz(self):
+        doc = uuid4()
+        profile = StudentProfile.create(uuid4())
+        profile.record_quiz_result(doc, 0.2)
+        decision = PedagogicalEngine().select(profile, doc, TutorIntent.QUIZ)
+        assert decision.anti_spoiler is True
 
     def test_quiz_prompt_targets_difficulty(self):
         doc = uuid4()

@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import AsyncIterator, Optional
 
 from src.domain.aggregates.document_aggregate import DocumentAggregate
+from src.domain.services.adaptive_policy import PromptShapingParameters
 from src.domain.services.pedagogical_engine import PedagogicalDecision
 from src.domain.value_objects.analysis_result import AnalysisResult
 from src.domain.value_objects.question import Quiz
@@ -25,6 +26,7 @@ class IAAnalyst(ABC):
         context: str,
         question: str,
         decision: Optional[PedagogicalDecision] = None,
+        adaptation: Optional[PromptShapingParameters] = None,
     ) -> str:
         ...
 
@@ -52,5 +54,6 @@ class StreamingIAAnalyst(ABC):
         question: str,
         decision: Optional[PedagogicalDecision] = None,
         model: Optional[str] = None,
+        adaptation: Optional[PromptShapingParameters] = None,
     ) -> "AsyncIterator[str]":
         ...

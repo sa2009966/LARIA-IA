@@ -4,8 +4,10 @@ El modelo de IA solo genera lenguaje; LARIA decide modo, dificultad y restriccio
 """
 from dataclasses import dataclass
 
+from src.domain.services.adaptive_policy import PromptShapingParameters
 from src.domain.services.cognitive_style import CognitiveStyle
 from src.domain.services.pedagogical_engine import PedagogicalDecision, PedagogicalMode
+from src.domain.services.prerequisite_graph import GateAction
 from src.domain.value_objects.question import Difficulty
 
 
@@ -43,10 +45,37 @@ _STYLE_INSTRUCTIONS: dict[CognitiveStyle, str] = {
 }
 
 
+def _prerequisite_instruction(decision: PedagogicalDecision) -> str:
+    """Instrucción de prerrequisitos según la fuerza de la evidencia (ADR-006).
+
+    Ninguna variante menciona lo que el estudiante "no domina": el mismo
+    andamiaje se puede pedir hablando de la tarea en vez de sus carencias.
+    """
+    bases = ", ".join(decision.remediation_concepts)
+    if not bases:
+        return ""
+    if decision.gate_action == GateAction.INTEGRATE:
+        return (
+            f"Apóyate en {bases} al explicar, con un recordatorio de una línea "
+            "si hace falta; el tema de la respuesta sigue siendo el que preguntó. "
+        )
+    if decision.gate_action == GateAction.OFFER:
+        return (
+            f"Responde su pregunta y al final ofrécele repasar {bases} como "
+            "opción concreta, en una sola frase y sin insistir. "
+        )
+    if decision.gate_action == GateAction.SEQUENCE:
+        return (
+            f"Empieza por {bases}, di en una frase por qué conviene ese orden y "
+            "anuncia que volveréis a lo que preguntó justo después. "
+        )
+    return ""
+
+
 class TutorPolicy:
     """Selecciona prompts y objetivos de aprendizaje para cada caso de uso."""
 
-    POLICY_VERSION = "v2"
+    POLICY_VERSION = "v3"
 
     def analyze_document(self, content: str) -> ChatPrompt:
         return ChatPrompt(
@@ -63,7 +92,13 @@ class TutorPolicy:
         context: str,
         question: str,
         decision: PedagogicalDecision | None = None,
+        adaptation: PromptShapingParameters | None = None,
     ) -> ChatPrompt:
+        """Único punto de inyección de la familia prompt-shaping.
+
+        Lo consumen por igual el path de streaming y el de no-streaming, así que
+        la adaptación no puede divergir entre ambos (ADR-004, Decisión 3).
+        """
         if decision is None:
             system = (
                 "Eres un tutor educativo. Responde la pregunta del estudiante basándote "
@@ -81,27 +116,23 @@ class TutorPolicy:
             style = _STYLE_INSTRUCTIONS.get(
                 decision.cognitive_style, _STYLE_INSTRUCTIONS[CognitiveStyle.SIMPLE]
             )
-            remediation = ""
-            if decision.blocked_by_prereq and decision.remediation_concepts:
-                remediation = (
-                    "IMPORTANTE: el estudiante aún no domina prerrequisitos. "
-                    "No expliques el tema avanzado completo; refuerza primero: "
-                    + ", ".join(decision.remediation_concepts)
-                    + ". "
-                )
             system = (
                 f"Eres un tutor adaptativo de LARIA. Modo: {decision.mode.value}. "
                 f"Estilo cognitivo: {decision.cognitive_style.value}. {style} "
                 f"Objetivo: {decision.objective} "
                 f"Dificultad objetivo: {decision.target_difficulty.value}. "
                 f"Foco conceptual: {focus}. "
-                f"Evidencia del estudiante: {decision.evidence_summary}. "
                 f"{_MODE_INSTRUCTIONS[decision.mode]} "
-                f"{remediation}"
+                f"{_prerequisite_instruction(decision)}"
                 f"{anti}"
                 "Basa la respuesta únicamente en el contexto proporcionado. "
-                "No asumas que una respuesta correcta previa implica comprensión profunda."
+                "Nunca digas ni insinúes que al estudiante le falta nivel, base o "
+                "requisitos: habla del tema, no de sus carencias. "
+                "Verifica comprensión con una pregunta breve antes de dar por "
+                "consolidado un concepto."
             )
+        if adaptation is not None:
+            system = f"{system} {adaptation.to_prompt_fragment()}"
         return ChatPrompt(
             system=system,
             user=f"Contexto:\n{context}\n\nPregunta: {question}",
@@ -128,8 +159,7 @@ class TutorPolicy:
             mode_note = (
                 f" Estrategia LARIA: {decision.mode.value}; "
                 f"estilo: {decision.cognitive_style.value}; "
-                f"objetivo: {decision.objective} "
-                f"Evidencia: {decision.evidence_summary}."
+                f"objetivo: {decision.objective}"
             )
             if decision.blocked_by_prereq:
                 mode_note += " Evalúa solo prerrequisitos, no el tema avanzado."

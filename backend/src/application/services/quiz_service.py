@@ -14,6 +14,7 @@ from src.domain.aggregates.tutor_session import TutorSession
 from src.domain.ports.event_bus import EventBus
 from src.domain.ports.ia_analyst import IAAnalyst
 from src.domain.ports.repositories import (
+    ConceptGraphRepository,
     DocumentRepository,
     QuizAttemptRepository,
     QuizRepository,
@@ -47,6 +48,8 @@ class QuizService:
         pedagogical_engine: Optional[PedagogicalEngine] = None,
         session_repository: Optional[TutorSessionRepository] = None,
         llm_gate: Optional[LlmGate] = None,
+        concept_graph_repository: Optional[ConceptGraphRepository] = None,
+        graph_id: str = "default",
     ) -> None:
         self._doc_repo = document_repository
         self._quiz_repo = quiz_repository
@@ -57,6 +60,8 @@ class QuizService:
         self._profile_repo = profile_repository
         self._engine = pedagogical_engine or PedagogicalEngine()
         self._session_repo = session_repository
+        self._graph_repo = concept_graph_repository
+        self._graph_id = graph_id
         self._tagger = ConceptTagger()
         self._context = ContextSelector()
         self._llm_gate = llm_gate
@@ -89,8 +94,11 @@ class QuizService:
         concepts = ()
         if document.has_analysis() and document.analysis_result is not None:
             concepts = tuple(document.analysis_result.key_concepts or ())
+        graph = None
+        if self._graph_repo is not None:
+            graph = await self._graph_repo.find_by_id(self._graph_id)
         decision = self._engine.select(
-            profile, document_id, TutorIntent.QUIZ, concepts, session=session
+            profile, document_id, TutorIntent.QUIZ, concepts, session=session, graph=graph
         )
         ctx = self._context.select(document, decision.focus_concepts)
         if self._llm_gate is not None:

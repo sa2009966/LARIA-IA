@@ -26,7 +26,7 @@ class _GateAnalyst:
     async def analyze_with_model(self, document, model: str):
         return AnalysisResult(summary="via gate", key_concepts=[], suggested_questions=[], confidence_score=0.7)
 
-    async def answer_question_with_model(self, context, question, decision=None, *, model: str):
+    async def answer_question_with_model(self, context, question, decision=None, *, model: str, adaptation=None):
         return "gate-answer"
 
 

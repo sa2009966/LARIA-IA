@@ -1,9 +1,9 @@
-"""API pública del grafo de prerrequisitos (sin leer _edges desde fuera)."""
-from src.domain.services.prerequisite_graph import PrerequisiteGraph
+"""API pública del grafo de prerrequisitos sembrado (sin leer edges desde fuera)."""
+from src.domain.catalog.prerequisite_seeds import build_seeded_graph
 
 
 def test_successors_of_is_inverse_of_prerequisites_of():
-    graph = PrerequisiteGraph()
+    graph = build_seeded_graph()
     assert "derivadas" in graph.successors_of("funciones")
     samples = (
         "variable",
@@ -21,7 +21,7 @@ def test_successors_of_is_inverse_of_prerequisites_of():
 
 
 def test_successors_of_respects_aliases():
-    graph = PrerequisiteGraph()
+    graph = build_seeded_graph()
     via_alias = graph.successors_of("función")
     via_canon = graph.successors_of("funciones")
     assert via_alias == via_canon

@@ -44,6 +44,8 @@ _CACHE_NAMES = (
     "get_interaction_repo",
     "get_profile_repo",
     "get_session_repo",
+    "get_chat_repo",
+    "get_learning_path_repo",
     "get_ia_analyst",
     "get_event_bus",
     "get_metrics",

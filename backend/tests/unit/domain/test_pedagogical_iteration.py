@@ -16,7 +16,8 @@ from src.domain.services.pedagogical_engine import (
     PedagogicalMode,
     TutorIntent,
 )
-from src.domain.services.prerequisite_graph import PrerequisiteGate, PrerequisiteGraph
+from src.domain.catalog.prerequisite_seeds import build_seeded_graph
+from src.domain.services.prerequisite_graph import GateAction, PrerequisiteGate
 from src.domain.services.recommendation_engine import RecommendationEngine
 from src.domain.value_objects.question import Difficulty
 
@@ -63,13 +64,26 @@ class TestForgettingCurve:
 
 
 class TestPrerequisites:
-    def test_integrals_blocked_without_derivatives(self):
+    def test_integrals_sin_medir_las_bases_no_bloquea(self):
+        """ADR-006: sin evidencia sobre las bases, el maximo es INTEGRATE."""
         gate = PrerequisiteGate()
         profile = StudentProfile.create(uuid4())
         profile.record_concept_result("integrales", 0.2)
         result = gate.evaluate("integrales", profile)
-        assert result.blocked
+        assert result.action == GateAction.INTEGRATE
+        assert result.blocked is False
         assert "derivadas" in result.missing_prereqs or "funciones" in result.missing_prereqs
+
+    def test_integrals_con_base_medida_y_repetida_secuencia(self):
+        """Con fallo medido y repetido en la base, el turno si lidera con ella."""
+        gate = PrerequisiteGate()
+        profile = StudentProfile.create(uuid4())
+        for _ in range(2):
+            profile.record_concept_result("funciones", 0.1)
+        result = gate.evaluate("integrales", profile)
+        assert result.action == GateAction.SEQUENCE
+        assert result.blocked is True
+        assert "funciones" in result.measured_gaps
 
     def test_engine_redirects_to_remediation(self):
         profile = StudentProfile.create(uuid4())
@@ -89,6 +103,12 @@ class TestPrerequisites:
     def test_advanced_topic_weak_prereq_blocks_and_focuses_base(self):
         profile = StudentProfile.create(uuid4())
         doc = uuid4()
+        # La base tiene que estar MEDIDA y fallada repetidamente para que el
+        # turno lidere con ella (ADR-006); antes bastaba con no tener dato.
+        for _ in range(2):
+            profile.record_concept_result("funciones", 0.1, document_id=doc)
+        # El tema avanzado se registra al final para que quede primero en el
+        # foco: el gate se evalua sobre focus[0].
         profile.record_concept_result("integrales", 0.2, document_id=doc)
         decision = PedagogicalEngine().select(
             profile,
@@ -144,7 +164,7 @@ class TestRecommendations:
         recs = RecommendationEngine().build(profile)
         next_topics = [r for r in recs if r.kind == "next_topic"]
         assert next_topics
-        graph = PrerequisiteGraph()
+        graph = build_seeded_graph()
         canon = graph.canonicalize("variable")
         assert next_topics[0].concept in graph.successors_of(canon)
 

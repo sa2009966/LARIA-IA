@@ -3,6 +3,7 @@ from enum import Enum
 from uuid import UUID
 import logging
 
+from src.domain.aggregates.concept_graph import ConceptGraph
 from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.aggregates.tutor_session import SessionStep, TutorSession
 from src.domain.catalog.misconception_catalog import MisconceptionEntry
@@ -10,7 +11,7 @@ from src.domain.concept_identity import canonicalize_concept
 from src.domain.services.cognitive_style import CognitiveStyle, CognitiveStyleSelector
 from src.domain.services.difficulty_calculator import DifficultyCalculator
 from src.domain.services.misconception_resolver import MisconceptionResolver
-from src.domain.services.prerequisite_graph import PrerequisiteGate, PrerequisiteGraph
+from src.domain.services.prerequisite_graph import GateAction, PrerequisiteGate
 from src.domain.value_objects.question import Difficulty
 
 logger = logging.getLogger("laria.pedagogy")
@@ -42,6 +43,7 @@ class PedagogicalDecision:
     cognitive_style: CognitiveStyle = CognitiveStyle.SIMPLE
     blocked_by_prereq: bool = False
     remediation_concepts: tuple[str, ...] = ()
+    gate_action: GateAction = GateAction.PROCEED
 
 
 class PedagogicalEngine:
@@ -54,10 +56,43 @@ class PedagogicalEngine:
         style_selector: CognitiveStyleSelector | None = None,
         misconception_resolver: MisconceptionResolver | None = None,
     ) -> None:
-        self._gate = gate or PrerequisiteGate(PrerequisiteGraph())
+        self._gate = gate or PrerequisiteGate()
         self._difficulty = difficulty_calculator or DifficultyCalculator()
         self._styles = style_selector or CognitiveStyleSelector()
         self._misconceptions = misconception_resolver or MisconceptionResolver()
+
+    @staticmethod
+    def _measured_mastery(
+        profile: StudentProfile | None,
+        focus: tuple[str, ...],
+        doc_mastery: float,
+    ) -> tuple[float, tuple[str, ...]]:
+        """Mastery de los conceptos con evidencia, y cuáles son.
+
+        Un concepto sin evidencia no aporta un 0.0 que arrastre la dificultad:
+        "no medido" y "medido en cero" son estados distintos (ADR-006). Estar
+        en el perfil no basta: un auto-reporte crea la entrada sin medir nada,
+        así que se exige evidencia que pese (ADR-007).
+        """
+        if profile is None or not focus:
+            return doc_mastery, ()
+        measured = tuple(c for c in focus if profile.has_decision_evidence(c))
+        if not measured:
+            return doc_mastery, ()
+        return min(profile.effective_concept_mastery(c) for c in measured), measured
+
+    @staticmethod
+    def _return_promise(
+        asked_focus: tuple[str, ...], remediation: tuple[str, ...]
+    ) -> str:
+        """Anuncia a qué se vuelve tras la base, sin prometer volver a la base."""
+        pending = [c for c in asked_focus if c not in remediation][:2]
+        if not pending:
+            return "."
+        return (
+            f". Decir explícitamente que se volverá a {', '.join(pending)} "
+            "en cuanto esas bases estén firmes."
+        )
 
     def select(
         self,
@@ -67,9 +102,11 @@ class PedagogicalEngine:
         document_concepts: tuple[str, ...] = (),
         session: TutorSession | None = None,
         question: str = "",
+        graph: ConceptGraph | None = None,
     ) -> PedagogicalDecision:
-        if document_concepts:
-            self._gate.graph.extend_with_document_concepts(document_concepts)
+        # El motor lee el grafo; no lo muta (ADR-005, Decisión 5). Las
+        # sugerencias derivadas del documento las escribe la capa de aplicación.
+        active_graph = graph or self._gate.graph
 
         doc_mastery = profile.mastery_for(document_id) if profile else 0.0
         weak = ()
@@ -77,6 +114,9 @@ class PedagogicalEngine:
             weak = tuple(profile.weakest_concepts(limit=5, document_id=document_id, use_effective=True))
         errors = tuple((profile.frequent_errors[:5] if profile else []))
         mapped_focus: list[str] = []
+        # Ids del catálogo que entran al foco: son etiquetas de diagnóstico, no
+        # nodos del grafo curricular, y el gate no puede evaluarlas (ADR-007).
+        mapped_ids: set[str] = set()
         unmapped_memory: list[str] = []
         mapped_entries: list[MisconceptionEntry] = []
         if profile is not None:
@@ -90,6 +130,7 @@ class PedagogicalEngine:
                 mapped_entries.append(entry)
                 if entry.id not in mapped_focus:
                     mapped_focus.append(entry.id)
+                    mapped_ids.add(entry.id)
                 anchor = canonicalize_concept(entry.anchor_concept)
                 if anchor and anchor not in mapped_focus:
                     mapped_focus.append(anchor)
@@ -111,25 +152,37 @@ class PedagogicalEngine:
                     merged.append(c)
             focus = tuple(merged[:5])
 
-        # Gate de prerrequisitos sobre el foco principal
-        blocked = False
+        # Gate de prerrequisitos sobre el foco principal (ADR-006): la fuerza
+        # de la intervención escala con la evidencia. El foco solo se lidera
+        # con la base en SEQUENCE; nunca se desvía en silencio.
+        gate_action = GateAction.PROCEED
         remediation: tuple[str, ...] = ()
-        if focus:
-            gate = self._gate.evaluate(focus[0], profile)
-            if gate.blocked:
-                blocked = True
-                remediation = gate.remediation_focus
+        asked_focus = focus
+        # El objetivo del gate es un concepto del currículo. Si el foco lo
+        # lidera un id de misconception, evaluarlo devolvía PROCEED siempre
+        # (no tiene prerrequisitos): cualquier malentendido en memoria apagaba
+        # el gate justo para quien más evidencia de hueco tenía (ADR-007).
+        gate_target = next((c for c in focus if c not in mapped_ids), "")
+        if gate_target:
+            gate = self._gate.evaluate(gate_target, profile, graph=active_graph)
+            gate_action = gate.action
+            remediation = gate.remediation_focus
+            if gate.action == GateAction.SEQUENCE:
                 focus = remediation + tuple(c for c in focus if c not in remediation)
                 focus = focus[:5]
+        blocked = gate_action == GateAction.SEQUENCE
 
-        concept_m = doc_mastery
-        if profile is not None and focus:
-            concept_m = min(profile.effective_concept_mastery(c) for c in focus)
-            if all(
-                profile.effective_concept_mastery(c) == 0.0 and c not in profile.mastery_by_concept
-                for c in focus
-            ):
-                concept_m = doc_mastery
+        # Solo cuenta como mastery bajo lo que se midió: un concepto sin
+        # evidencia no arrastra la dificultad hacia abajo (ADR-006).
+        concept_m, measured_focus = self._measured_mastery(profile, focus, doc_mastery)
+        # "Sin medir" es no tener evidencia que informe ESTA decisión: ni en los
+        # conceptos del foco ni en el documento. La evidencia de documento
+        # cuenta: un estudiante con intentos previos no es un recién llegado.
+        # Las señales de struggle NO cuentan aquí: son auto-reporte, y bastaba
+        # una para que el alumno nuevo cayera en la rama de déficit (ADR-007).
+        doc_entry = profile.mastery_by_document.get(document_id) if profile else None
+        doc_measured = doc_entry is not None and doc_entry.attempts > 0
+        unmeasured = not measured_focus and not doc_measured
 
         step = session.step if session else SessionStep.INTRODUCE
         struggle = profile.total_struggle_signals if profile else 0
@@ -168,10 +221,25 @@ class PedagogicalEngine:
             mode = PedagogicalMode.SCAFFOLD if intent == TutorIntent.ASK else PedagogicalMode.PRACTICE
             difficulty = Difficulty.EASY
             objective = (
-                "No avanzar al tema complejo aún. Reforzar primero las bases: "
+                "Empezar por las bases que están costando: "
                 + ", ".join(remediation or focus)
-                + "."
+                + self._return_promise(asked_focus, remediation)
             )
+        elif unmeasured and not in_hint:
+            # Sin evidencia medida no se andamia: se explica y se apunta al
+            # borde de la zona de desarrollo próximo. La respuesta del alumno
+            # es la que revelará el nivel real (ADR-006).
+            mode = PedagogicalMode.EXPLAIN if intent == TutorIntent.ASK else PedagogicalMode.PRACTICE
+            objective = (
+                "Responder lo que el estudiante preguntó, asumiendo capacidad. "
+                "Cerrar con una pregunta breve de verificación para calibrar."
+            )
+            if gate_action == GateAction.INTEGRATE and remediation:
+                objective += (
+                    " Apoyar la explicación en "
+                    + ", ".join(remediation)
+                    + " sin convertirlo en el tema."
+                )
         elif concept_m < 0.4 or in_hint:
             mode = PedagogicalMode.SCAFFOLD if intent == TutorIntent.ASK else PedagogicalMode.PRACTICE
             difficulty = Difficulty.EASY
@@ -191,6 +259,15 @@ class PedagogicalEngine:
             mode = PedagogicalMode.SOCRATIC if intent == TutorIntent.ASK else PedagogicalMode.PRACTICE
             objective = "Profundizar con razonamiento socrático y retos."
 
+        # Oferta, no desvío: el alumno recibe lo que pidió y decide si repasa.
+        if gate_action == GateAction.OFFER and remediation:
+            objective += (
+                " Responder primero la pregunta del estudiante y después ofrecerle, "
+                "como opción y sin imponerla, repasar "
+                + ", ".join(remediation)
+                + "."
+            )
+
         # Memoria: si hay analogías exitosas y estilo analogy, reforzar objetivo
         if profile and style == CognitiveStyle.ANALOGY and profile.pedagogical_memory.successful_analogies:
             objective += " Reutiliza analogías que ya funcionaron con este estudiante."
@@ -205,13 +282,16 @@ class PedagogicalEngine:
             mode=mode,
             target_difficulty=difficulty,
             focus_concepts=focus,
-            anti_spoiler=True,
+            # El anti-spoiler protege evaluaciones, no explicaciones: un tutor
+            # que se niega a explicar cuando le preguntan no está tutorizando.
+            anti_spoiler=intent == TutorIntent.QUIZ,
             objective=objective,
             evidence_summary=evidence,
             session_step=step.value,
             cognitive_style=style,
             blocked_by_prereq=blocked,
             remediation_concepts=remediation,
+            gate_action=gate_action,
         )
         logger.info(
             "decision intent=%s mode=%s difficulty=%s style=%s blocked=%s focus=%s",

@@ -26,11 +26,11 @@ class FakeAnalyst:
     async def analyze_with_model(self, document, model: str):
         return await self.analyze(document)
 
-    async def answer_question(self, context, question, decision=None):
+    async def answer_question(self, context, question, decision=None, adaptation=None):
         self.ask_calls += 1
         return "respuesta tutor"
 
-    async def answer_question_with_model(self, context, question, decision=None, *, model: str):
+    async def answer_question_with_model(self, context, question, decision=None, *, model: str, adaptation=None):
         return await self.answer_question(context, question, decision)
 
     async def generate_quiz(self, document, num_questions=5, decision=None, context=None):
@@ -108,7 +108,7 @@ class PlainAnalyst:
         self.calls += 1
         return AnalysisResult(summary="plain", key_concepts=[], suggested_questions=[], confidence_score=0.5)
 
-    async def answer_question(self, context, question, decision=None):
+    async def answer_question(self, context, question, decision=None, adaptation=None):
         self.calls += 1
         return "plain-answer"
 
