@@ -95,3 +95,7 @@ class TutorQuestionAskedEvent(DomainEventBase):
     # Conceptos sobre los que versó el turno: son los que reciben evidencia
     # positiva si el estudiante se autocorrige (ADR-006, fase 2).
     focus_concepts: tuple[str, ...] = ()
+    # Hito reconocido al estudiante en este turno. Viaja en el evento porque el
+    # perfil tiene un único escritor —el projector— y la marca debe quedar
+    # dentro de la misma idempotencia por `event_id` (ADR-009).
+    celebrated_concept: str | None = None

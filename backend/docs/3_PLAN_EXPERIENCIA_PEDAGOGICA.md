@@ -151,7 +151,7 @@ concepto. Test: N turnos con autocorrección ⇒ `effective_concept_mastery` may
 > cual `SEQUENCE` era inalcanzable conversando; y los campos del evento deben viajar en el outbox, sin
 > lo cual toda la fase estaba muerta solo en producción.
 
-### Fase 3 — Hacer visible el progreso y el por qué — pendiente
+### Fase 3 — Hacer visible el progreso y el por qué — parcial
 
 **Hallazgo que redefine esta fase.** La precedencia del foco en `PedagogicalEngine.select()` es
 `misconceptions → errores → débiles → conceptos del documento`: **la pregunta del estudiante no entra**
@@ -162,15 +162,21 @@ evidencia mientras el hueco medido no se menciona. El invariante "nunca se desv�
 se cumple en el gate pero **no** de punta a punta. Decidir si el tema preguntado debe liderar el foco
 es producto, no implementación, y es el primer punto de esta fase.
 
-1. `celebration` alcanzable: `envelope_type_for_mode` o el servicio lo emiten ante hito real
-   (concepto que cruza a dominado, racha de aciertos, desbloqueo de prerrequisito).
-2. `CELEBRATORY` alcanzable: pasar `last_score_ratio` a `AffectPolicy` en el turno de chat.
-3. Anclar en lo que ya domina: `mastered_concepts` entra en la decisión y en el prompt.
+1. ✅ `celebration` alcanzable: lo emite el servicio ante hito real
+   ([ADR-009](adr/ADR-009-contabilidad-y-canal-positivo.md)). Hito = concepto que cruza a dominado,
+   reconocido **una sola vez** y nunca mientras se remedia.
+2. ✅ `CELEBRATORY` alcanzable: `last_score_ratio` llega a `AffectPolicy` en el turno de chat, solo
+   si el documento tiene intentos calificados.
+3. Anclar en lo que ya domina: `mastered_concepts` entra en la decisión y en el prompt. Hoy entra en
+   el envelope, todavía no en el prompt.
 4. Explicabilidad (#4): derivar de `AdaptationParameters` + señales que lo dispararon una frase en
    lenguaje natural, y exponerla en el envelope para que la UI la muestre.
 
 **Cerrado cuando:** el alumno puede ver, en el envelope, qué logró y por qué el tutor le está hablando
 así. Test: hito ⇒ envelope `celebration`; adaptación activa ⇒ payload con su explicación.
+
+> **Estado.** La mitad de "qué logró" está hecha (puntos 1 y 2, `tests/unit/application/test_canal_positivo.py`).
+> Falta el "por qué": los puntos 3 y 4, que son lo que hace legible la adaptación.
 
 ### Fase 4 — Recién aquí, control-flow y apagado de shadow — pendiente
 
@@ -182,9 +188,16 @@ mensaje que parte de un diagnóstico injusto. Con las fases 1-3 hechas, control-
 
 ## No ahora
 
-- **Learning Path**: tiene `LearningModule.mastery`, `record_mastery()` y su propio
+- **Learning Path**: tenía `LearningModule.mastery`, `record_mastery()` y su propio
   `_unlock_dependents()` con puertas de prerrequisito. Sería una segunda verdad de mastery **y** una
   segunda verdad de prerrequisitos, justo lo que ADR-005 acaba de consolidar.
+
+  > **Estado tras [ADR-008](adr/ADR-008-progreso-derivado-no-declarado.md).** La advertencia llegó
+  > tarde: la ruta ya estaba expuesta por HTTP **con escritura de mastery**
+  > (`PUT /paths/{id}/modules/{id}/mastery`), así que el alumno podía declararse competente y
+  > desbloquear módulos sin evidencia. Ese endpoint se eliminó y el mastery de cada módulo se
+  > proyecta desde `StudentProfile` en cada lectura, sin persistirse. Deja de ser una segunda verdad
+  > del mastery; sigue siendo una segunda lista de prerrequisitos, y sigue en "No ahora".
 - **Repetición espaciada, misconceptions, dashboard docente**: ninguna cambia cómo se siente el alumno
   en el turno. Después de la fase 3.
 - **STT, RAG, scraping**: sin relación con este objetivo.
@@ -197,18 +210,25 @@ Tres cosas medidas y no resueltas, por orden de coste:
    el default del dataclass no migra documentos ya escritos, así que la base instalada sigue con el
    estilo congelado que la fase 2 arregla para los perfiles nuevos. Es un `updateMany` que vacíe ese
    campo; es acción sobre datos de producción y se ejecuta a mano, deliberadamente.
-2. **El estilo efectivo se fija con una sola muestra.** `set_preferred_style` es una asignación dura,
+2. **`pace` sin histéresis.** Con un único escritor
+   ([ADR-008](adr/ADR-008-progreso-derivado-no-declarado.md)) el ritmo ya se recalcula en cada
+   evidencia, pero salta de `slow` a `fast` sin zona intermedia en cuanto la velocidad y los
+   documentos fuertes lo permiten.
+3. **El estilo efectivo se fija con una sola muestra.** `set_preferred_style` es una asignación dura,
    sin conteo ni EWMA: un único match de regex fija el estilo del estudiante y a partir de ahí
    cortocircuita las heurísticas. El arreglo honesto exige estado persistido nuevo (éxitos por estilo)
    y toca los repositorios.
-3. **El foco se decide por las debilidades, no por la pregunta** — ver Fase 3. El ADR-007 quitó de
+4. **El foco se decide por las debilidades, no por la pregunta** — ver Fase 3. El ADR-007 quitó de
    esa precedencia el diagnóstico inventado (una misconception que nadie observó ya no lidera el
    foco), pero no cambió el orden: `frequent_errors` → `weakest_concepts` → conceptos del documento.
    Un concepto que el alumno solo mencionó puede seguir quedando por delante del tema que preguntó.
-4. **Los perfiles Mongo escritos antes del ADR-007 no distinguen evidencia débil de medida.** Su
+5. **Los perfiles Mongo escritos antes del ADR-007 no distinguen evidencia débil de medida.** Su
    `weak_evidence_count` se asume `0`, así que su auto-reporte histórico sigue pesando como un ítem
    calificado hasta que el concepto reciba evidencia nueva. No hay `updateMany` que lo arregle: la
    historia necesaria no se guardó.
+6. **Los perfiles anteriores al ADR-009 arrastran doble conteo de turnos lentos** (`attempts` y
+   `evidence_count` inflados) y una `learning_velocity` calculada con una EWMA por concepto. Se
+   diluye con el uso; recomputarlo exigiría un historial de evidencia que no se persiste.
 
 ## Decisiones que no son técnicas
 
@@ -217,5 +237,8 @@ Tres puntos que definen producto, no implementación:
 1. **¿Oferta o bloqueo?** La fase 2 propone que el alumno pueda elegir avanzar sin la base. Gana
    autonomía y evidencia; pierde la garantía de secuencia curricular.
 2. **¿Qué cuenta como hito celebrable?** Celebrar de más quema el canal y se vuelve ruido.
+   **Respondido en [ADR-009](adr/ADR-009-contabilidad-y-canal-positivo.md):** un concepto que cruza a
+   `mastered_concepts()` (mastery efectivo ≥ 0.8 y confianza ≥ 0.55), una sola vez por concepto, y
+   nunca en un turno de remediación. Reutiliza umbrales ya calibrados: no añade hipótesis.
 3. **¿Cuánta evidencia exige un hueco?** Es el equivalente pedagógico de
    `min_samples_for_adaptation`, y fija cuán rápido el sistema se atreve a intervenir.

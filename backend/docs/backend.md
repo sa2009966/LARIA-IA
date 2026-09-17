@@ -62,7 +62,7 @@ feature/backend ──PR/merge──► develop ──testeo──► main
 
 ## Qué falta (roadmap)
 
-Fase 4 (dominio, esta iteración): catálogo de misconceptions de álgebra (`MisconceptionCatalog` + `MisconceptionResolver` vía `canonicalize_concept`), prioridad de misconceptions mapeadas en `PedagogicalEngine.select`, y `PrerequisiteGraph.successors_of` para `next_topic`. La escritura sigue en `remember_misconception` / projector; no hay API HTTP de plan de estudio.
+Fase 4 (dominio, esta iteración): catálogo de misconceptions de álgebra (`MisconceptionCatalog` + `MisconceptionResolver` vía `canonicalize_concept`), prioridad de misconceptions mapeadas en `PedagogicalEngine.select`, y `PrerequisiteGraph.successors_of` para `next_topic`. La escritura sigue en `remember_misconception` / projector. El plan de estudio sí tiene API HTTP, pero de **solo lectura**: el progreso de cada módulo se proyecta del perfil ([ADR-008](adr/ADR-008-progreso-derivado-no-declarado.md)).
 
 Pendiente:
 

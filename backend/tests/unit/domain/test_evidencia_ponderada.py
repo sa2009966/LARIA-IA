@@ -212,3 +212,40 @@ def test_una_misconception_en_memoria_no_apaga_el_gate():
     assert decision.gate_action == GateAction.SEQUENCE
     assert decision.remediation_concepts == ("variable",)
     assert "variable" in decision.focus_concepts
+
+
+# --- E5: el ritmo se recalcula; no se queda pegado en "slow" ----------------------
+
+
+def test_una_pregunta_no_deja_al_alumno_lento_para_siempre():
+    """`pace` alimenta dificultad (−0.1) y estilo: pegarlo era caro (ADR-008)."""
+    profile = perfil_que_pregunta(1, "variable")
+
+    assert profile.pace == "steady"
+
+
+def test_el_ritmo_lo_siguen_decidiendo_los_intentos_calificados():
+    doc = uuid4()
+    lento = StudentProfile.create(uuid4())
+    for _ in range(3):
+        lento.record_quiz_result(doc, 0.2)
+    assert lento.pace == "slow"
+
+    rapido = StudentProfile.create(uuid4())
+    for _ in range(3):
+        rapido.record_quiz_result(doc, 1.0)
+    assert rapido.pace == "fast"
+
+
+def test_el_ritmo_se_recalcula_tras_preguntar():
+    """Antes, con el `pace` fijado a mano, nada lo devolvía a su sitio."""
+    doc = uuid4()
+    profile = StudentProfile.create(uuid4())
+    for _ in range(3):
+        profile.record_quiz_result(doc, 1.0)
+    assert profile.pace == "fast"
+
+    profile.record_ask_struggle(doc, strength=0.9, concepts=("variable",))
+
+    assert profile.pace in ("fast", "steady", "slow")  # recalculado, no congelado
+    assert profile.mastery_by_document[doc].attempts == 3  # sin inventar intentos

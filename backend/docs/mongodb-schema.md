@@ -220,14 +220,24 @@ Cada `POST /documents/{id}/ask` genera evidencia vía eventos y se proyecta aqu�
 | `pace` | string | default `steady` |
 | `total_attempts` | int | |
 | `total_struggle_signals` | int | |
-| `learning_velocity` | float | |
+| `learning_velocity` | float | una observación por evento (ADR-009) |
 | `pedagogical_memory` | object | ver abajo |
+| `applied_event_ids` | string[] | dedup de eventos (máx. 256) |
+| `celebrated_concepts` | string[] | hitos ya reconocidos al estudiante (ADR-009) |
+| `last_interaction_at` | datetime \| null | fuente única de `interaction_gap_ms` (ADR-004) |
+| `last_answer_length` | int | largo de la última respuesta entregada |
+| `adaptive_signals` | map | clave = `SignalKind`; `{value, samples}` (ADR-004) |
 | `updated_at` | datetime | |
 | `version` | int | concurrency optimista |
 
 **`mastery_by_document[docId]`:** `document_id`, `attempts`, `mastery`, `last_score_ratio`, `incorrect_streak`, `struggle_signals`.
 
-**`mastery_by_concept[key]`:** `concept_key`, `attempts`, `mastery`, `last_score_ratio`, `document_ids[]`, `confidence`, `last_practiced_at`, `help_requests`, `latency_ms_ema`, `error_streak`, `subject`, `evidence_count`, `half_life_days`.
+**`mastery_by_concept[key]`:** `concept_key`, `attempts`, `mastery`, `last_score_ratio`, `document_ids[]`, `confidence`, `last_practiced_at`, `help_requests`, `latency_ms_ema`, `error_streak`, `subject`, `evidence_count`, `weak_evidence_count`, `half_life_days`.
+
+`weak_evidence_count` es el subconjunto de `evidence_count` que **no** vino de un ítem calificado
+(auto-reporte, latencia, chat). La evidencia se pesa con
+`measured + 0.5 × weak` ([ADR-007](adr/ADR-007-evidencia-ponderada-por-calidad.md)); los documentos
+escritos antes de ese ADR lo tienen implícitamente en `0`.
 
 **`pedagogical_memory`:** `frequent_misconceptions[]`, `successful_examples[]`, `successful_analogies[]`, `preferred_explanation_style`, `last_effective_strategies[]`.
 

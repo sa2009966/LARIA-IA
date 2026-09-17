@@ -42,8 +42,8 @@ class FakeAnalyzeBase:
     def prompt_shaping_for(self, plan):
         return plan.prompt_shaping
 
-    async def finalize_interaction(self, plan, answer):
-        self.finalized.append((plan, answer))
+    async def finalize_interaction(self, plan, answer, celebrated_concept=None):
+        self.finalized.append((plan, answer, celebrated_concept))
 
 
 class TestChatTutorService:
