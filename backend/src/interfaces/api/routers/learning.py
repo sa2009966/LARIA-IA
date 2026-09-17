@@ -5,11 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.application.services.learning_query_service import LearningQueryService
 from src.domain.aggregates.learning_path import LearningPathAggregate
-from src.domain.ports.repositories import LearningPathRepository
+from src.domain.ports.repositories import (
+    LearningPathRepository,
+    StudentProfileRepository,
+)
 from src.interfaces.api.dependencies import (
     get_current_user_id,
     get_learning_path_repo,
     get_learning_query_service,
+    get_profile_repo,
 )
 from src.interfaces.api.openapi_responses import RESP_401_UNAUTHORIZED
 from src.interfaces.schemas.learning_path_schemas import (
@@ -17,7 +21,6 @@ from src.interfaces.schemas.learning_path_schemas import (
     LearningPathCreateRequest,
     LearningPathListResponse,
     LearningPathResponse,
-    ModuleMasteryRequest,
 )
 from src.interfaces.schemas.quiz_schemas import (
     ConceptMasteryItem,
@@ -167,6 +170,23 @@ def _map_module(m) -> LearningModuleResponse:
     )
 
 
+async def _projected(
+    path: LearningPathAggregate,
+    profile_repo: StudentProfileRepository,
+    student_id: UUID,
+) -> LearningPathAggregate:
+    """Proyecta el mastery del perfil sobre la ruta antes de devolverla.
+
+    El progreso se deriva de la evidencia en cada lectura y no se persiste:
+    guardar la proyección volvería a crear dos verdades que hay que mantener
+    sincronizadas (ADR-008). La decisión de qué es el mastery sigue estando en
+    el dominio; aquí solo se le pasan los números del perfil.
+    """
+    profile = await profile_repo.find_by_student(student_id)
+    path.project_mastery(profile.effective_mastery_by_concept() if profile else {})
+    return path
+
+
 def _map_path(p: LearningPathAggregate) -> LearningPathResponse:
     return LearningPathResponse(
         id=str(p.id),
@@ -188,9 +208,13 @@ def _map_path(p: LearningPathAggregate) -> LearningPathResponse:
 async def list_learning_paths(
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     repo: Annotated[LearningPathRepository, Depends(get_learning_path_repo)],
+    profile_repo: Annotated[StudentProfileRepository, Depends(get_profile_repo)],
 ):
-    paths = await repo.find_by_owner(UUID(current_user_id))
-    return LearningPathListResponse(paths=[_map_path(p) for p in paths])
+    owner = UUID(current_user_id)
+    paths = await repo.find_by_owner(owner)
+    return LearningPathListResponse(
+        paths=[_map_path(await _projected(p, profile_repo, owner)) for p in paths]
+    )
 
 
 @router.post(
@@ -204,6 +228,7 @@ async def create_learning_path(
     body: LearningPathCreateRequest,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     repo: Annotated[LearningPathRepository, Depends(get_learning_path_repo)],
+    profile_repo: Annotated[StudentProfileRepository, Depends(get_profile_repo)],
 ):
     path = LearningPathAggregate.create(
         owner_id=UUID(current_user_id),
@@ -220,7 +245,7 @@ async def create_learning_path(
         ],
     )
     await repo.save(path)
-    return _map_path(path)
+    return _map_path(await _projected(path, profile_repo, UUID(current_user_id)))
 
 
 @router.get(
@@ -233,35 +258,18 @@ async def get_learning_path(
     path_id: UUID,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     repo: Annotated[LearningPathRepository, Depends(get_learning_path_repo)],
+    profile_repo: Annotated[StudentProfileRepository, Depends(get_profile_repo)],
 ):
+    owner = UUID(current_user_id)
     path = await repo.find_by_id(path_id)
-    if path is None or not path.is_owned_by(UUID(current_user_id)):
+    if path is None or not path.is_owned_by(owner):
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
-    return _map_path(path)
+    return _map_path(await _projected(path, profile_repo, owner))
 
 
-@router.put(
-    "/paths/{path_id}/modules/{module_id}/mastery",
-    response_model=LearningPathResponse,
-    summary="Registrar mastery de un módulo y re-evaluar la ruta",
-    responses={**RESP_401_UNAUTHORIZED},
-)
-async def update_module_mastery(
-    path_id: UUID,
-    module_id: UUID,
-    body: ModuleMasteryRequest,
-    current_user_id: Annotated[str, Depends(get_current_user_id)],
-    repo: Annotated[LearningPathRepository, Depends(get_learning_path_repo)],
-):
-    path = await repo.find_by_id(path_id)
-    if path is None or not path.is_owned_by(UUID(current_user_id)):
-        raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
-    target = next((m for m in path.modules if m.id == module_id), None)
-    if target is None:
-        raise HTTPException(status_code=404, detail="Módulo no encontrado en la ruta")
-    path.record_mastery(target.concept, body.mastery)
-    await repo.save(path)
-    return _map_path(path)
+# No hay endpoint para escribir el mastery de un módulo, a propósito: el
+# progreso se gana con evidencia (quizzes, tutoría), no se declara por HTTP
+# (ADR-008).
 
 
 @router.delete(

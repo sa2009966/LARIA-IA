@@ -134,6 +134,19 @@ sequenceDiagram
 
 `PedagogicalEngine` decide modo, dificultad dinámica, estilo cognitivo y gate de prerrequisitos **antes** de llamar al LLM (`TutorPolicy` solo compone prompts).
 
+Reglas de contabilidad de esa evidencia (ADR-007 a ADR-009):
+
+- **Se pesa por calidad:** un auto-reporte ("no entiendo") vale la mitad de un ítem calificado.
+  `weighted_evidence` decide si un concepto informa la decisión (≥ 1.0) o es un hueco (≥ 2.0).
+- **Un turno es una observación:** la latencia alta penaliza la muestra del turno en vez de añadir
+  otra, y la velocidad se actualiza una vez por evento, no por concepto etiquetado.
+- **El progreso no se declara:** `pace` tiene un único escritor (`_update_pace`) y el mastery de una
+  ruta de aprendizaje se proyecta del perfil en cada lectura.
+- **El canal positivo está cableado:** un concepto que cruza a dominado se reconoce una vez
+  (`celebrated_concepts`, envelope `celebration`, afecto `CELEBRATORY`).
+- **En modo sombra:** las señales del ADR-004 se computan y persisten, pero `ADAPT_SHADOW_MODE=true`
+  impide que el fragmento prompt-shaping llegue al modelo.
+
 APIs:
 
 - `GET /api/v1/learning/me` — historial + recomendaciones (`RecommendationEngine`)

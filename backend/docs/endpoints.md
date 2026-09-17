@@ -40,7 +40,7 @@ Todos requieren JWT. Solo el **propietario** opera sobre el recurso. Ajeno/inexi
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | `POST` | `/api/v1/documents/` | Subir material (JSON: `filename`, `content`, `subject`; cuerpo → blob/GridFS) |
-| `POST` | `/api/v1/documents/upload` | Subir archivo multipart (`file`, `subject`, `filename` opcional; hasta 200 MiB; `.txt`/`.md`) |
+| `POST` | `/api/v1/documents/upload` | Subir archivo multipart (`file`, `subject`, `filename` opcional; hasta 200 MiB). Formatos: texto (`.txt`, `.md`, `.csv`, `.json`, `.log`), código, PDF, `.docx`, `.xlsx`, `.pptx`. Formato no soportado → **422** |
 | `GET` | `/api/v1/documents/` | Listar mis documentos |
 | `GET` | `/api/v1/documents/{document_id}` | Obtener uno propio |
 | `DELETE` | `/api/v1/documents/{document_id}` | Eliminar (`204`) |
@@ -54,8 +54,36 @@ Todos requieren JWT. Solo el **propietario** opera sobre el recurso. Ajeno/inexi
 - El cuerpo del material **no** viaja en listados ni se embebe en BSON si hay `content_blob_id` (GridFS `fs.files` / `fs.chunks`).
 - JSON (`POST /documents/`) sigue válido para textos ≤ 100 000 caracteres; archivos grandes deben usar `POST /documents/upload`.
 - Respuesta de upload/list/get: solo metadatos (sin `content`). Analyze/ask/quiz hidratan desde el blob en servidor.
-- Front (Vercel): para PDFs u otros binarios aún no hay extractor; fase 1 = `.txt`/`.md` UTF-8. Límite configurable: `DOCUMENT_MAX_UPLOAD_BYTES` (200 MiB). Sobre límite → `413`.
+- La extracción de texto vive en `application/file_parser.py` (PDF, DOCX, XLSX, PPTX, texto y código); el dominio solo ve el texto resultante. Límite configurable: `DOCUMENT_MAX_UPLOAD_BYTES` (200 MiB). Sobre límite → `413`.
 - Domínio limpio: routers solo validan HTTP; tamaño y blob viven en application/infrastructure.
+
+---
+
+## Chats — `/chats`
+
+Todos requieren JWT y son del **propietario**; ajeno/inexistente → `404`. Un chat puede vincularse a
+un documento (`document_id`): con documento entra el motor pedagógico completo; sin documento el
+turno es conversación libre y no sustituye al tutor grounded.
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `GET` | `/api/v1/chats/` | Listar mis chats |
+| `POST` | `/api/v1/chats/` | Crear chat (`title`, `document_id` opcional) |
+| `GET` | `/api/v1/chats/{chat_id}` | Chat con sus mensajes |
+| `PUT` | `/api/v1/chats/{chat_id}` | Renombrar o vincular documento |
+| `POST` | `/api/v1/chats/{chat_id}/messages` | Añadir mensaje. Si `role="user"`, **el tutor responde en la misma llamada** y su mensaje queda persistido con el envelope en `metadata` |
+| `POST` | `/api/v1/chats/{chat_id}/stream` | Igual, en SSE: `thinking` → `token`(s) → `envelope` → `done` |
+| `DELETE` | `/api/v1/chats/{chat_id}` | Eliminar (`204`) |
+
+**Envelope del tutor** (`metadata` del mensaje `assistant`, y evento `envelope` en SSE):
+
+| Campo | Valores |
+|-------|---------|
+| `type` | `answer`, `explanation`, `hint`, `quiz`, `celebration`, `error` |
+| `emotion` | `calm`, `encouraging`, `patient`, `celebratory` |
+| `payload` | `content`, `mode`, `difficulty`, `cognitive_style`, `focus_concepts`, `session_step`, `intent`, `practice_before_advance`, `chunk_explanation`, y `celebrated_concept` cuando hay hito ([ADR-009](adr/ADR-009-contabilidad-y-canal-positivo.md)) |
+
+El envelope es determinista: lo decide el dominio, no el modelo.
 
 ---
 
@@ -74,6 +102,13 @@ Todos requieren JWT. Solo el **propietario** opera sobre el recurso. Ajeno/inexi
 |--------|------|-------------|
 | `GET` | `/api/v1/learning/me` | Historial del estudiante: intentos de quiz + interacciones tutor + recomendaciones |
 | `GET` | `/api/v1/learning/me/profile` | Perfil cognitivo: mastery efectivo, memoria pedagógica, ritmo, señales de struggle |
+| `GET` | `/api/v1/learning/paths` | Rutas de aprendizaje del estudiante. El mastery y el estado de cada módulo se **proyectan** desde el perfil en cada lectura ([ADR-008](adr/ADR-008-progreso-derivado-no-declarado.md)) |
+| `POST` | `/api/v1/learning/paths` | Crear una ruta (plan de módulos y prerrequisitos) |
+| `GET` | `/api/v1/learning/paths/{path_id}` | Ruta por id, con el progreso proyectado |
+| `DELETE` | `/api/v1/learning/paths/{path_id}` | Borrar una ruta |
+
+> No existe endpoint para escribir el mastery de un módulo: el progreso se gana con evidencia
+> (quizzes, tutoría), no se declara.
 
 El perfil se actualiza vía projector a partir de `TutorQuestionAskedEvent` y `QuizAttemptCompletedEvent` (bus `memory` o `outbox`).
 

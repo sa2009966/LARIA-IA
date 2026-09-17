@@ -196,7 +196,7 @@ class PedagogicalEngine:
             conf = sum(confs) / len(confs) if confs else 0.0
 
         style = self._styles.select(profile, question=question)
-        difficulty = self._difficulty.from_profile(profile, focus)
+        difficulty = self._difficulty.from_profile(profile, focus, document_id=document_id)
 
         evidence = (
             f"doc_mastery={doc_mastery:.2f}; concept_mastery={concept_m:.2f}; "

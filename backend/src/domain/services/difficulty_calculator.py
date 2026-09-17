@@ -2,9 +2,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import UUID
 
 from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.value_objects.question import Difficulty
+
+#: Peso de la velocidad de aprendizaje en el score. Estaba escrito como
+#: `0.1 * clamp(v) * 2`, que es 0.2 y no el 0.1 que documentaba la auditoría.
+_VELOCITY_WEIGHT = 0.2
 
 
 @dataclass(frozen=True)
@@ -23,6 +28,7 @@ class DifficultyCalculator:
         self,
         profile: StudentProfile | None,
         focus_concepts: tuple[str, ...] = (),
+        document_id: UUID | None = None,
     ) -> Difficulty:
         if profile is None:
             return Difficulty.MEDIUM
@@ -48,10 +54,21 @@ class DifficultyCalculator:
             conf = sum(confidences) / len(confidences)
             err_rate = errors / len(measured)
         else:
-            docs = list(profile.mastery_by_document.values())
-            eff = min((d.mastery for d in docs), default=0.0)
+            # Sin foco conceptual, el material del turno es la única evidencia
+            # pertinente. Antes se tomaba `min()` sobre TODOS los documentos:
+            # el documento peor dominado fijaba la dificultad de un tema que no
+            # tenía nada que ver, y sin documentos daba 0.0 ⇒ EASY, castigando
+            # de nuevo la falta de datos (ADR-006).
+            entry = (
+                profile.mastery_by_document.get(document_id)
+                if document_id is not None
+                else None
+            )
+            if entry is None or entry.attempts == 0:
+                return Difficulty.MEDIUM
+            eff = entry.mastery
             conf = 0.3
-            err_rate = 0.0
+            err_rate = 1.0 if entry.incorrect_streak > 0 else 0.0
 
         return self.calculate(
             DifficultySignals(
@@ -69,7 +86,7 @@ class DifficultyCalculator:
         score -= 0.15 * (1.0 - max(0.0, min(1.0, signals.confidence)))
         score -= 0.2 * max(0.0, min(1.0, signals.recent_error_rate))
         # Velocidad positiva permite subir un poco
-        score += 0.1 * max(-0.5, min(0.5, signals.learning_velocity)) * 2
+        score += _VELOCITY_WEIGHT * max(-0.5, min(0.5, signals.learning_velocity))
         if signals.pace == "slow":
             score -= 0.1
         elif signals.pace == "fast":

@@ -9,11 +9,17 @@ from src.domain.ports.repositories import (
     DocumentRepository,
     StudentProfileRepository,
 )
+from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.services.adaptive_policy import AdaptationParameters
 from src.domain.services.affect_policy import AffectPolicy
 from src.domain.services.intent_detector import IntentDetector, TutorIntent
-from src.domain.services.pedagogical_engine import PedagogicalDecision
+from src.domain.services.pedagogical_engine import (
+    PedagogicalDecision,
+    PedagogicalMode,
+)
+from src.domain.services.prerequisite_graph import GateAction
 from src.domain.services.response_envelope import (
+    EnvelopeType,
     ResponseEnvelope,
     envelope_type_for_mode,
 )
@@ -29,6 +35,56 @@ def _control_flow_payload(adaptation: AdaptationParameters) -> dict:
         "practice_before_advance": adaptation.control_flow.practice_before_advance,
         "chunk_explanation": adaptation.control_flow.chunk_explanation,
     }
+
+
+def _is_remediation(decision: Optional[PedagogicalDecision]) -> bool:
+    """Si el turno está remediando, no es momento de celebrar nada."""
+    if decision is None:
+        return False
+    return (
+        decision.mode == PedagogicalMode.SCAFFOLD
+        or decision.gate_action == GateAction.SEQUENCE
+    )
+
+
+def _milestone(
+    profile: Optional[StudentProfile], decision: Optional[PedagogicalDecision]
+) -> Optional[str]:
+    """Concepto dominado y aún no reconocido, si el turno admite celebrarlo.
+
+    El canal positivo existía y estaba muerto: ningún modo mapeaba a
+    `celebration` y nadie pasaba `last_score_ratio`, así que `CELEBRATORY` era
+    inalcanzable. Hacer visible lo logrado es el P4 del plan (ADR-009).
+    """
+    if profile is None or _is_remediation(decision):
+        return None
+    return profile.pending_celebration()
+
+
+def _last_graded_ratio(
+    profile: Optional[StudentProfile],
+    document_id: Optional[UUID],
+    decision: Optional[PedagogicalDecision],
+) -> Optional[float]:
+    """Último acierto **calificado** del documento, si el turno admite tono alto.
+
+    Exige `attempts > 0`: un documento sin quizzes tiene `last_score_ratio`
+    en 0.0 por defecto y leerlo sería inventar un mal resultado (ADR-007).
+    """
+    if profile is None or document_id is None or _is_remediation(decision):
+        return None
+    entry = profile.mastery_by_document.get(document_id)
+    if entry is None or entry.attempts == 0:
+        return None
+    return entry.last_score_ratio
+
+
+def _envelope_type(
+    decision: Optional[PedagogicalDecision], milestone: Optional[str]
+) -> EnvelopeType:
+    if milestone:
+        return "celebration"
+    return envelope_type_for_mode(decision.mode if decision else None)
 
 
 @dataclass(frozen=True)
@@ -80,19 +136,28 @@ class ChatTutorService:
                 document_id, question, student_id
             )
             content = await self._analyze_service.answer_from_plan(plan)
-            await self._analyze_service.finalize_interaction(plan, content)
             decision = plan.decision
-            affect = self._affect.select(profile, decision)
-            envelope_type = envelope_type_for_mode(decision.mode if decision else None)
+            milestone = _milestone(profile, decision)
+            await self._analyze_service.finalize_interaction(
+                plan, content, celebrated_concept=milestone
+            )
+            affect = self._affect.select(
+                profile,
+                decision,
+                last_score_ratio=_last_graded_ratio(profile, document_id, decision),
+            )
+            extra = {
+                "intent": intention.intent.value,
+                **_control_flow_payload(plan.adaptation),
+            }
+            if milestone:
+                extra["celebrated_concept"] = milestone
             envelope = ResponseEnvelope.from_decision(
                 decision,
-                envelope_type,
+                _envelope_type(decision, milestone),
                 affect,
                 content=content,
-                extra={
-                    "intent": intention.intent.value,
-                    **_control_flow_payload(plan.adaptation),
-                },
+                extra=extra,
             )
             return TutorResponse(content=content, envelope=envelope)
 
@@ -143,13 +208,24 @@ class ChatTutorService:
             async for token in self._analyze_service.stream_from_plan(plan):
                 content += token
                 yield token, None
-            await self._analyze_service.finalize_interaction(plan, content)
+            milestone = _milestone(profile, plan.decision)
+            await self._analyze_service.finalize_interaction(
+                plan, content, celebrated_concept=milestone
+            )
 
             extra.update(_control_flow_payload(plan.adaptation))
+            if milestone:
+                extra["celebrated_concept"] = milestone
             envelope = ResponseEnvelope.from_decision(
                 plan.decision,
-                envelope_type_for_mode(plan.decision.mode),
-                self._affect.select(profile, plan.decision),
+                _envelope_type(plan.decision, milestone),
+                self._affect.select(
+                    profile,
+                    plan.decision,
+                    last_score_ratio=_last_graded_ratio(
+                        profile, document_id, plan.decision
+                    ),
+                ),
                 content=content,
                 extra=extra,
             )

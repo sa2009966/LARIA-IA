@@ -224,6 +224,17 @@ class ConceptMastery:
             else:
                 self.error_streak = 0
 
+        # Una observación por turno: la latencia alta penaliza la muestra que
+        # ya describe ese turno. Antes se añadía una muestra HIGH_LATENCY
+        # aparte sobre el mismo concepto, así que un turno lento contaba dos
+        # veces en `attempts` y corría dos veces la EWMA.
+        if (
+            sample.kind != EvidenceKind.HIGH_LATENCY
+            and sample.latency_ms is not None
+            and sample.latency_ms >= HIGH_LATENCY_THRESHOLD_MS
+        ):
+            ratio = max(0.0, ratio - 0.15)
+
         if sample.help_level > 0:
             self.help_requests += 1 if sample.help_level >= 0.4 else 0
             # Más ayuda → menos crédito al acierto aparente
@@ -337,6 +348,9 @@ class StudentProfile:
     pedagogical_memory: PedagogicalMemory = field(default_factory=PedagogicalMemory)
     learning_velocity: float = 0.0  # EMA de deltas de mastery
     applied_event_ids: list[str] = field(default_factory=list)
+    # Conceptos cuyo dominio ya se le reconoció al estudiante. Celebrar de más
+    # quema el canal, así que el hito es irrepetible por concepto (ADR-009).
+    celebrated_concepts: list[str] = field(default_factory=list)
     # Estado de interacción: fuente de verdad única para interaction_gap_ms.
     # El gap se calcula en el borde (servicio que recibe la pregunta) con
     # wall-clock real, nunca en el projector. Ver ADR-004, Decisión 2.
@@ -450,14 +464,14 @@ class StudentProfile:
         before = entry.mastery
         entry.apply_result(score_ratio)
         self.total_attempts += 1
-        self._track_velocity(entry.mastery - before)
+        deltas: list[float] = []
         for concept, ratio in concept_results:
             kind = EvidenceKind.QUIZ_ITEM
             if ratio < 0.5:
                 cm = self.mastery_by_concept.get(_norm_concept(concept))
                 if cm and cm.error_streak >= 1:
                     kind = EvidenceKind.REPEATED_ERROR
-            self.record_concept_evidence(
+            delta = self._apply_concept_evidence(
                 concept,
                 EvidenceSample(
                     kind=kind,
@@ -467,6 +481,10 @@ class StudentProfile:
                     help_level=help_level,
                 ),
             )
+            if delta is not None:
+                deltas.append(delta)
+        # Sin conceptos etiquetados, el intento habla por el documento.
+        self._track_batch_velocity(deltas, fallback=entry.mastery - before)
         self._push_errors(missed_concepts)
         for m in missed_concepts:
             self.pedagogical_memory.remember_misconception(m)
@@ -489,16 +507,30 @@ class StudentProfile:
         )
 
     def record_concept_evidence(self, concept: str, sample: EvidenceSample) -> None:
+        """Evidencia de un concepto suelto: una muestra, una observación."""
+        delta = self._apply_concept_evidence(concept, sample)
+        if delta is not None:
+            self._track_velocity(delta)
+        self.updated_at = _utc_now()
+
+    def _apply_concept_evidence(
+        self, concept: str, sample: EvidenceSample
+    ) -> float | None:
+        """Aplica la muestra y devuelve el delta de mastery (None si no aplica).
+
+        Devuelve el delta en vez de acumularlo en `learning_velocity` para que
+        el llamador decida la granularidad: la velocidad es una observación
+        **por evento**, no por concepto etiquetado.
+        """
         key = _norm_concept(concept)
         if not key:
-            return
+            return None
         entry = self.mastery_by_concept.get(key)
         if entry is None:
             entry = ConceptMastery(concept_key=key)
             self.mastery_by_concept[key] = entry
         before = entry.mastery
         entry.apply_evidence(sample)
-        self._track_velocity(entry.mastery - before)
         # Solo la evidencia calificada escribe el expediente de errores: decir
         # "no entiendo X" es pedir ayuda con X, no fallar X ni malentenderlo de
         # una forma concreta. Antes, preguntar marcaba el concepto como
@@ -506,7 +538,21 @@ class StudentProfile:
         if not sample.is_weak_evidence and sample.score_ratio < 0.5:
             self._push_errors((key,))
             self.pedagogical_memory.remember_misconception(key)
-        self.updated_at = _utc_now()
+        return entry.mastery - before
+
+    def _track_batch_velocity(
+        self, deltas: list[float], fallback: float | None = None
+    ) -> None:
+        """Una observación de velocidad por evento (media de los conceptos).
+
+        Antes la EWMA corría una vez por concepto etiquetado: un quiz de diez
+        ítems la dominaba y la velocidad dependía del largo del quiz, no del
+        aprendizaje.
+        """
+        if deltas:
+            self._track_velocity(sum(deltas) / len(deltas))
+        elif fallback is not None:
+            self._track_velocity(fallback)
 
     def record_ask_struggle(
         self,
@@ -524,12 +570,13 @@ class StudentProfile:
         weight = 0.35 + (0.35 * max(0.0, min(1.0, strength)))
         entry.apply_soft_struggle(pull_toward=pull, weight=weight)
         self.total_struggle_signals += 1
+        deltas: list[float] = []
         for concept in concepts:
             key = _norm_concept(concept)
             if not key:
                 continue
             kind = EvidenceKind.HELP_REQUEST if help_level >= 0.4 else EvidenceKind.ASK_STRUGGLE
-            self.record_concept_evidence(
+            delta = self._apply_concept_evidence(
                 key,
                 EvidenceSample(
                     kind=kind,
@@ -540,13 +587,21 @@ class StudentProfile:
                     help_level=help_level or (0.5 if kind == EvidenceKind.HELP_REQUEST else 0.0),
                 ),
             )
-        if latency_ms is not None and latency_ms >= HIGH_LATENCY_THRESHOLD_MS:
-            self.record_high_latency(document_id, concepts, latency_ms)
+            if delta is not None:
+                deltas.append(delta)
+        self._track_batch_velocity(deltas)
+        # La latencia alta ya viaja en la muestra de arriba (`latency_ms`) y
+        # penaliza su ratio. Aquí se emitía además una muestra HIGH_LATENCY
+        # sobre los mismos conceptos: el mismo turno contado dos veces.
         # Los conceptos de la pregunta NO entran en `frequent_errors`: la
         # evidencia débil ya quedó registrada en cada `ConceptMastery`, y el
         # foco del motor lee esta lista como "aquí falló" (ADR-007).
-        if entry.mastery < 0.4:
-            self.pace = "slow"
+        #
+        # `pace` tiene un único escritor: `_update_pace`. Aquí se fijaba a
+        # "slow" a mano y nada lo recalculaba hasta el siguiente quiz, así que
+        # una pregunta dejaba al alumno "lento" indefinidamente — con efecto en
+        # dificultad (−0.1) y en estilo (STEP_BY_STEP) (ADR-008).
+        self._update_pace()
         self.updated_at = _utc_now()
 
     def record_conversational_success(
@@ -565,11 +620,12 @@ class StudentProfile:
         real pero más débil que acertar un ítem calificado.
         """
         s = max(0.0, min(1.0, float(strength)))
+        deltas: list[float] = []
         for concept in concepts:
             key = _norm_concept(concept)
             if not key:
                 continue
-            self.record_concept_evidence(
+            delta = self._apply_concept_evidence(
                 key,
                 EvidenceSample(
                     kind=EvidenceKind.SUCCESS,
@@ -579,6 +635,9 @@ class StudentProfile:
                     is_weak=True,
                 ),
             )
+            if delta is not None:
+                deltas.append(delta)
+        self._track_batch_velocity(deltas)
         self.updated_at = _utc_now()
 
     def record_high_latency(
@@ -587,12 +646,18 @@ class StudentProfile:
         concepts: tuple[str, ...] = (),
         latency_ms: float = 0.0,
     ) -> None:
-        """Señal explícita HIGH_LATENCY (no incrementa struggle)."""
+        """Señal explícita HIGH_LATENCY (no incrementa struggle).
+
+        La usa el projector cuando el turno fue lento **sin** señal de lucha en
+        el texto. Cuando sí la hubo, la latencia viaja dentro de la muestra de
+        `record_ask_struggle` y no se emite otra.
+        """
+        deltas: list[float] = []
         for concept in concepts:
             key = _norm_concept(concept)
             if not key:
                 continue
-            self.record_concept_evidence(
+            delta = self._apply_concept_evidence(
                 key,
                 EvidenceSample(
                     kind=EvidenceKind.HIGH_LATENCY,
@@ -602,6 +667,9 @@ class StudentProfile:
                     latency_ms=latency_ms,
                 ),
             )
+            if delta is not None:
+                deltas.append(delta)
+        self._track_batch_velocity(deltas)
         self.updated_at = _utc_now()
 
     def clear_document(self, document_id: UUID) -> None:
@@ -630,6 +698,20 @@ class StudentProfile:
         ranked = sorted(items, key=rank)
         return [c.concept_key for c in ranked[:limit]]
 
+    def effective_mastery_by_concept(
+        self, now: datetime | None = None
+    ) -> dict[str, float]:
+        """Mastery efectivo de cada concepto conocido, como lectura.
+
+        Lo consumen las vistas que derivan progreso (p. ej. la ruta de
+        aprendizaje): el perfil es la única fuente de verdad del mastery, así
+        que nadie más lo almacena ni lo declara (ADR-008).
+        """
+        return {
+            key: entry.effective_mastery(now)
+            for key, entry in self.mastery_by_concept.items()
+        }
+
     def forgotten_concepts(self, limit: int = 5, min_gap: float = 0.15) -> list[str]:
         ranked = sorted(
             self.mastery_by_concept.values(),
@@ -637,6 +719,25 @@ class StudentProfile:
             reverse=True,
         )
         return [c.concept_key for c in ranked if c.forgetting_gap() >= min_gap][:limit]
+
+    def pending_celebration(self, limit: int = 20) -> str | None:
+        """Concepto dominado que aún no se le ha reconocido, o None.
+
+        El hito reutiliza los umbrales ya calibrados de `mastered_concepts`
+        (mastery efectivo ≥ 0.8 y confianza ≥ 0.55): cruzar a dominado es el
+        logro, y se reconoce una sola vez (ADR-009).
+        """
+        for key in self.mastered_concepts(limit=limit):
+            if key not in self.celebrated_concepts:
+                return key
+        return None
+
+    def mark_celebrated(self, concept: str) -> None:
+        key = _norm_concept(concept)
+        if not key or key in self.celebrated_concepts:
+            return
+        self.celebrated_concepts.append(key)
+        self.updated_at = _utc_now()
 
     def mastered_concepts(
         self, limit: int = 5, min_mastery: float = 0.8, min_confidence: float = 0.55
@@ -666,8 +767,12 @@ class StudentProfile:
         if self.total_attempts <= 1 and self.total_struggle_signals == 0:
             self.pace = "steady"
             return
-        weak = sum(1 for m in self.mastery_by_document.values() if m.mastery < 0.4)
-        strong = sum(1 for m in self.mastery_by_document.values() if m.mastery >= 0.7)
+        # Solo los documentos con intentos calificados hablan del ritmo: un
+        # mastery de documento que solo bajó por señales de struggle es
+        # auto-reporte, no medición (ADR-007).
+        measured = [m for m in self.mastery_by_document.values() if m.attempts > 0]
+        weak = sum(1 for m in measured if m.mastery < 0.4)
+        strong = sum(1 for m in measured if m.mastery >= 0.7)
         if self.learning_velocity < -0.05 or weak > strong:
             self.pace = "slow"
         elif self.learning_velocity > 0.08 and strong > weak and self.total_attempts >= 3:

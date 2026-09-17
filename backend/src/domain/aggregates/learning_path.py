@@ -34,6 +34,14 @@ class LearningPathAggregate:
 
     Es un grafo ordenado de módulos (conceptos) encadenados por prerrequisitos.
     LARIA desbloquea módulos según el mastery previo y puertas de prerrequisito.
+
+    **La ruta es un plan, no una fuente de verdad del aprendizaje.** El mastery
+    de cada módulo se *proyecta* desde `StudentProfile` en cada lectura
+    (`project_mastery`); nadie lo declara ni se persiste como verdad. Antes
+    existía un endpoint que dejaba al cliente escribir su propio mastery, lo
+    que creaba una segunda verdad —nunca sincronizada con la evidencia— en un
+    sistema cuyo principio es que responder bien no prueba comprensión
+    (ADR-008).
     """
 
     id: UUID = field(default_factory=uuid4)
@@ -87,16 +95,34 @@ class LearningPathAggregate:
         key = canonicalize_concept(concept)
         return next((m for m in self.modules if m.concept == key), None)
 
+    def project_mastery(self, mastery_by_concept: dict[str, float]) -> None:
+        """Deriva el progreso de toda la ruta desde el mastery del perfil.
+
+        Un concepto sin evidencia queda en 0.0: la ruta no inventa progreso, y
+        un módulo solo se completa cuando la evidencia lo respalda.
+        """
+        for module in self.modules:
+            self.record_mastery(module.concept, mastery_by_concept.get(module.concept, 0.0))
+
     def record_mastery(self, concept: str, mastery: float) -> None:
-        """Actualiza el mastery de un módulo y desbloquea los que dependen de él."""
+        """Aplica a un módulo el mastery proyectado y desbloquea sus dependientes.
+
+        Primitiva de proyección: la llama `project_mastery` con números que
+        vienen del perfil. No es una operación de escritura del cliente.
+        """
         mod = self._module_by_concept(concept)
         if mod is None:
             return
         mod.mastery = max(0.0, min(1.0, mastery))
-        if mastery >= 0.7:
+        # El estado es función del mastery proyectado, también cuando baja: sin
+        # la rama del 0.0 un módulo se quedaba "completed" después de que el
+        # perfil perdiera la evidencia (olvido, borrado del documento).
+        if mod.mastery >= 0.7:
             mod.status = "completed"
-        elif mastery > 0.0:
+        elif mod.mastery > 0.0:
             mod.status = "in_progress"
+        else:
+            mod.status = "locked" if mod.prerequisites else "available"
         self._unlock_dependents()
         self.updated_at = _utc_now()
 

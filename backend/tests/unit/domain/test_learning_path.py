@@ -119,6 +119,49 @@ class TestLearningPathAggregate:
         )
         assert path.modules[0].difficulty == Difficulty.HARD
 
+    def test_project_mastery_deriva_progreso_del_perfil(self):
+        """La ruta es un plan: su progreso lo dicta la evidencia (ADR-008)."""
+        path = LearningPathAggregate.create(
+            owner_id=uuid4(),
+            subject="Matemática",
+            modules=[
+                {"concept": "grafos"},
+                {"concept": "bfs", "prerequisites": ["grafos"]},
+            ],
+        )
+
+        path.project_mastery({"grafos": 0.9})
+
+        assert path.modules[0].status == "completed"
+        assert path.modules[1].status == "available"
+        assert path.progress == 0.5
+
+    def test_project_mastery_sin_evidencia_no_inventa_progreso(self):
+        path = LearningPathAggregate.create(
+            owner_id=uuid4(),
+            subject="Matemática",
+            modules=[{"concept": "grafos"}, {"concept": "bfs", "prerequisites": ["grafos"]}],
+        )
+        path.project_mastery({"grafos": 0.9})
+        assert path.progress == 0.5
+
+        # El perfil pierde la evidencia (olvido, borrado): la ruta lo refleja.
+        path.project_mastery({})
+
+        assert path.modules[0].mastery == 0.0
+        assert path.modules[0].status == "available"
+        assert path.progress == 0.0
+
+    def test_project_mastery_ignora_conceptos_ajenos_a_la_ruta(self):
+        path = LearningPathAggregate.create(
+            owner_id=uuid4(), subject="Matemática", modules=[{"concept": "grafos"}]
+        )
+
+        path.project_mastery({"integrales": 1.0, "grafos": 0.5})
+
+        assert path.modules[0].mastery == 0.5
+        assert path.modules[0].status == "in_progress"
+
     def test_is_owned_by(self):
         owner = uuid4()
         path = LearningPathAggregate.create(owner_id=owner, subject="M")

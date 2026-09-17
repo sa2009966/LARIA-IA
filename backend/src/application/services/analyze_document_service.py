@@ -352,8 +352,18 @@ class AnalyzeDocumentService:
         except Exception:
             logger.exception("concept_graph_save_failed graph=%s", graph.graph_id)
 
-    async def finalize_interaction(self, plan: PedagogyPlan, answer: str) -> None:
-        """Cierra el turno: sesión, interacción, estado de interacción y evento."""
+    async def finalize_interaction(
+        self,
+        plan: PedagogyPlan,
+        answer: str,
+        celebrated_concept: str | None = None,
+    ) -> None:
+        """Cierra el turno: sesión, interacción, estado de interacción y evento.
+
+        `celebrated_concept` es el hito que el turno ya comunicó al estudiante:
+        viaja en el evento para que el projector —único escritor del perfil— lo
+        recuerde y no se celebre dos veces (ADR-009).
+        """
         latency_ms = (time.monotonic() - plan.started) * 1000.0
 
         if self._session_repo is not None:
@@ -402,6 +412,7 @@ class AnalyzeDocumentService:
                         ),
                         answer_length=len(answer),
                         focus_concepts=plan.decision.focus_concepts,
+                        celebrated_concept=celebrated_concept,
                     )
                 )
             except Exception:
