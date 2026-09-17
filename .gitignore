@@ -46,11 +46,12 @@ env_dashboard/
 .vscode/*
 !.vscode/extensions.json
 .idea/
-.cursor/*
-!.cursor/hooks.json
-!.cursor/hooks/
-!.cursor/hooks/**
+.cursor/
 .agents/
+
+# ─── Hooks locales (no versionar; instalar symlink en .git/hooks/) ──────────
+.githooks/
+.hooks/
 *.swp
 *.swo
 *~

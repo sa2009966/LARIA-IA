@@ -96,6 +96,19 @@ class Settings(BaseSettings):
     EVENT_BUS_BACKEND: str = "memory"  # memory | outbox
     METRICS_ENABLED: bool = True
     FORGETTING_HALF_LIFE_DAYS: float = 14.0
+
+    # Motor adaptativo (ADR-004). Son hipótesis nombradas, no constantes:
+    # se calibran con datos de outcome, no se tocan a ojo.
+    ADAPT_SHADOW_MODE: bool = True  # computa señales sin inyectarlas al prompt
+    ADAPT_BAND_LOW: float = 0.34
+    ADAPT_BAND_HIGH: float = 0.67
+    ADAPT_CUT_ABANDONMENT: float = 0.55
+    ADAPT_CUT_ATTENTION_SPAN: float = 0.6
+    ADAPT_CUT_PREFERENCE: float = 0.4
+    ADAPT_EWMA_ALPHA: float = 0.3
+    ADAPT_LONG_EXPLANATION_CHARS: int = 900
+    ADAPT_SESSION_GAP_MINUTES: int = 20
+    ADAPT_MIN_SAMPLES: int = 5
     LOG_LEVEL: str = "INFO"  # DEBUG | INFO | WARNING | ERROR
     LOG_FORMAT: str = "text"  # text | json
 

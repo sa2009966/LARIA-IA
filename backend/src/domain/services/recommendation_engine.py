@@ -102,7 +102,10 @@ class RecommendationEngine:
             if not (0.45 <= eff < 0.75):
                 continue
             gate = self._gate.evaluate(key, profile)
-            if gate.blocked:
+            # "Hay huecos" ya no es `blocked`: tras el ADR-006 eso significa
+            # solo SEQUENCE. Frena un hueco MEDIDO; uno sin medir no, porque
+            # ausencia de evidencia no es evidencia de carencia.
+            if gate.measured_gaps:
                 continue
             # Buscar un sucesor en el grafo
             successor = self._find_ready_successor(key, profile)
@@ -199,7 +202,9 @@ class RecommendationEngine:
         # Si otros conceptos lo requieren y está débil, es bloqueante
         for other in profile.mastery_by_concept:
             gate = self._gate.evaluate(other, profile)
-            if concept in gate.missing_prereqs:
+            # Solo los huecos MEDIDOS priorizan repaso: `missing_prereqs`
+            # ahora incluye prerrequisitos sin evidencia (ADR-006).
+            if concept in gate.measured_gaps:
                 return True
         return False
 
@@ -208,6 +213,9 @@ class RecommendationEngine:
         canon = graph.canonicalize(concept)
         for candidate in graph.successors_of(canon):
             gate = self._gate.evaluate(candidate, profile)
-            if not gate.blocked and profile.effective_concept_mastery(candidate) < 0.7:
+            if (
+                not gate.measured_gaps
+                and profile.effective_concept_mastery(candidate) < 0.7
+            ):
                 return candidate
         return None

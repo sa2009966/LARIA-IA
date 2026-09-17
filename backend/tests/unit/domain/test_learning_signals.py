@@ -38,7 +38,15 @@ class TestAskStruggleUpdatesProfile:
         profile.record_ask_struggle(doc, strength=0.9, concepts=("variable",))
         assert profile.mastery_for(doc) < 0.6
         assert profile.total_struggle_signals == 1
-        assert "variable" in profile.frequent_errors
+        # La señal queda registrada como evidencia DÉBIL del concepto...
+        cm = profile.mastery_by_concept["variable"]
+        assert cm.weak_evidence_count == 1
+        assert cm.measured_evidence_count == 0
+        # ...y no como un error ni como un malentendido: preguntar no es fallar
+        # (ADR-007). Antes, un ask escribía el expediente de errores y el motor
+        # lo leía como "aquí falló", desviando el foco de lo preguntado.
+        assert "variable" not in profile.frequent_errors
+        assert "variable" not in profile.pedagogical_memory.frequent_misconceptions
 
         decision = PedagogicalEngine().select(profile, doc, TutorIntent.ASK)
         # Tras struggle fuerte, debería caer a scaffold/easy o al menos no hard socratic puro

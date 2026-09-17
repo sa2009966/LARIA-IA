@@ -24,3 +24,7 @@ async def ensure_all_indexes(database: AsyncIOMotorDatabase | None = None) -> No
     await db.event_outbox.create_index([("processed_at", 1), ("created_at", 1)])
     await db.chats.create_index("owner_id")
     await db.chats.create_index("updated_at")
+    await db.learning_paths.create_index("owner_id")
+    # El grafo se busca por _id (graph_id); el índice sirve a la vista de
+    # curación, que lista grafos por recencia de edición.
+    await db.concept_graphs.create_index("updated_at")

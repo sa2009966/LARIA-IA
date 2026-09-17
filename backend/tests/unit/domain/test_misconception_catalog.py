@@ -8,7 +8,7 @@ from src.domain.services.misconception_resolver import (
     MisconceptionResolver,
     resolve_misconception,
 )
-from src.domain.services.prerequisite_graph import PrerequisiteGraph
+from src.domain.catalog.prerequisite_seeds import build_seeded_graph
 
 
 def test_algebra_catalog_has_required_fields_and_size():
@@ -23,7 +23,7 @@ def test_algebra_catalog_has_required_fields_and_size():
 
 
 def test_catalog_anchors_exist_on_prerequisite_graph():
-    graph = PrerequisiteGraph()
+    graph = build_seeded_graph()
     for entry in MisconceptionCatalog():
         key = graph.canonicalize(entry.anchor_concept)
         assert graph.prerequisites_of(key) or graph.successors_of(key), entry.id
@@ -33,9 +33,23 @@ def test_resolve_alias_and_accent_to_catalog_id():
     assert resolve_misconception("Confundir el signo al despejar") == (
         "algebra.moving-terms-wrong-sign"
     )
-    assert resolve_misconception("ECUACIÓN") == "algebra.equals-as-operation"
-    folded = canonicalize_concept("propiedad distributiva")
+    folded = canonicalize_concept("Distributiva Incompleta")
     assert resolve_misconception(folded) == "algebra.distributive-partial"
+
+
+def test_el_nombre_de_un_concepto_no_es_un_diagnostico():
+    """El ancla no resuelve (ADR-007).
+
+    `ecuación` es dónde vive un malentendido, no el malentendido. Resolver por
+    ancla convertía cualquier concepto con evidencia negativa en un diagnóstico
+    específico, y el motor lo afirmaba en el prompt sin haberlo observado.
+    """
+    assert resolve_misconception("ECUACIÓN") is None
+    assert resolve_misconception("variable") is None
+    # El malentendido que vive en ese concepto sigue resolviendo por su alias.
+    assert resolve_misconception("el igual es hacer la operacion") == (
+        "algebra.equals-as-operation"
+    )
 
 
 def test_resolve_unmapped_returns_none():

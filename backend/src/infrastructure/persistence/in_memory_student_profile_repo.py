@@ -37,6 +37,7 @@ def _copy_concepts(src: dict[str, ConceptMastery]) -> dict[str, ConceptMastery]:
             error_streak=v.error_streak,
             subject=v.subject,
             evidence_count=v.evidence_count,
+            weak_evidence_count=v.weak_evidence_count,
             half_life_days=v.half_life_days,
         )
         for k, v in src.items()
@@ -69,6 +70,10 @@ def _clone_profile(profile: StudentProfile, version: int | None = None) -> Stude
         pedagogical_memory=_copy_memory(profile.pedagogical_memory),
         learning_velocity=profile.learning_velocity,
         applied_event_ids=list(profile.applied_event_ids),
+        last_interaction_at=profile.last_interaction_at,
+        last_answer_length=profile.last_answer_length,
+        # Signal es frozen: copiar el dict basta para aislar el agregado.
+        adaptive_signals=dict(profile.adaptive_signals),
         updated_at=profile.updated_at,
         version=profile.version if version is None else version,
     )

@@ -28,20 +28,25 @@ class DifficultyCalculator:
             return Difficulty.MEDIUM
 
         if focus_concepts:
-            masteries = [profile.effective_concept_mastery(c) for c in focus_concepts]
+            # Solo los conceptos con evidencia deciden la dificultad. Un
+            # concepto sin medir no aporta un 0.0 que empuje a EASY: eso
+            # dejaría al estudiante por debajo de su nivel real (ADR-006).
+            # Un único auto-reporte tampoco basta: existir en el perfil no es
+            # lo mismo que haber sido medido (ADR-007).
+            measured = [c for c in focus_concepts if profile.has_decision_evidence(c)]
+            if not measured:
+                return Difficulty.MEDIUM
+            masteries = [profile.effective_concept_mastery(c) for c in measured]
             confidences = []
             errors = 0
-            for c in focus_concepts:
-                entry = profile.mastery_by_concept.get(c)
-                if entry is None:
-                    confidences.append(0.0)
-                    continue
+            for c in measured:
+                entry = profile.mastery_by_concept[c]
                 confidences.append(entry.confidence)
                 if entry.error_streak > 0 or entry.last_score_ratio < 0.5:
                     errors += 1
-            eff = min(masteries) if masteries else 0.0
-            conf = sum(confidences) / len(confidences) if confidences else 0.0
-            err_rate = errors / max(1, len(focus_concepts))
+            eff = min(masteries)
+            conf = sum(confidences) / len(confidences)
+            err_rate = errors / len(measured)
         else:
             docs = list(profile.mastery_by_document.values())
             eff = min((d.mastery for d in docs), default=0.0)
