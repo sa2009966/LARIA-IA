@@ -76,6 +76,9 @@ def _serialize(event: DomainEvent) -> dict[str, Any]:
             "signal_observations": [list(pair) for pair in event.signal_observations],
             "answer_length": event.answer_length,
             "focus_concepts": list(event.focus_concepts),
+            # Igual que los tres de arriba: producción usa outbox, así que un
+            # campo que no viaje aquí deja la feature muerta solo en prod.
+            "celebrated_concept": event.celebrated_concept,
         }
     return {
         "event_type": getattr(event, "event_type", type(event).__name__),
@@ -129,6 +132,7 @@ def _deserialize(doc: dict[str, Any]) -> DomainEvent | None:
             ),
             answer_length=int(payload.get("answer_length", 0)),
             focus_concepts=tuple(payload.get("focus_concepts") or ()),
+            celebrated_concept=payload.get("celebrated_concept"),
         )
     return None
 

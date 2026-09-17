@@ -49,6 +49,17 @@ def _apply_conversational_evidence(
     return True
 
 
+def _apply_celebration(profile: StudentProfile, event: TutorQuestionAskedEvent) -> None:
+    """Marca el hito que el turno ya le reconoció al estudiante (ADR-009).
+
+    El servicio decide y comunica; el perfil lo recuerda aquí, dentro de la
+    idempotencia por `event_id`, para que el mismo logro no se celebre dos
+    veces ni se pierda si el evento se reintenta.
+    """
+    if event.celebrated_concept:
+        profile.mark_celebrated(event.celebrated_concept)
+
+
 def _apply_interaction_state(
     profile: StudentProfile, event: TutorQuestionAskedEvent
 ) -> None:
@@ -110,6 +121,7 @@ class LearningEvidenceProjector:
                 if p.was_event_applied(event.event_id):
                     return p
                 _apply_conversational_evidence(p, event)
+                _apply_celebration(p, event)
                 _apply_interaction_state(p, event)
                 p.mark_event_applied(event.event_id)
                 await self._profile_repo.save(p)
@@ -147,6 +159,7 @@ class LearningEvidenceProjector:
                     profile.pedagogical_memory.set_preferred_style(event.cognitive_style)
                 if event.pedagogical_mode:
                     profile.pedagogical_memory.remember_strategy(event.pedagogical_mode)
+            _apply_celebration(profile, event)
             _apply_interaction_state(profile, event)
             profile.mark_event_applied(event.event_id)
             await self._profile_repo.save(profile)

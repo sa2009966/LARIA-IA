@@ -60,7 +60,12 @@ def test_high_latency_lowers_mastery_vs_fast_ask():
     assert slow.concept_mastery_for("variable") < fast.concept_mastery_for("variable")
     cm = slow.mastery_by_concept["variable"]
     assert cm.latency_ms_ema >= HIGH_LATENCY_THRESHOLD_MS
-    assert cm.evidence_count > fast.mastery_by_concept["variable"].evidence_count
+    # Un turno lento pesa más, pero sigue siendo UN turno: la latencia penaliza
+    # la muestra del turno en vez de añadir una segunda sobre el mismo concepto
+    # (E8). Antes, un ask lento contaba dos veces en `attempts`/`evidence_count`
+    # y corría dos veces la EWMA de mastery.
+    assert cm.evidence_count == fast.mastery_by_concept["variable"].evidence_count == 1
+    assert cm.attempts == 1
 
 
 def test_below_threshold_does_not_add_high_latency_sample():

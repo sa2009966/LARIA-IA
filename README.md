@@ -26,7 +26,7 @@ estudiante → documento / chat / quiz
 
 Flujo típico hoy:
 
-1. **Documento.** El estudiante autentica (JWT) y sube material de texto (`.txt` / `.md`). El análisis extrae resumen, conceptos y preguntas sugeridas; el resultado queda en el documento. El contexto sale de ese texto, no de un índice vectorial (no hay RAG).
+1. **Documento.** El estudiante autentica (JWT) y sube material: texto (`.txt`, `.md`, `.csv`, `.json`, `.log`), código, PDF, Word, Excel o PowerPoint. El análisis extrae resumen, conceptos y preguntas sugeridas; el resultado queda en el documento. El contexto sale de ese texto, no de un índice vectorial (no hay RAG).
 2. **Chat o pregunta.** Puede preguntar sobre un documento (`POST /documents/{id}/ask`) o conversar en un chat, opcionalmente vinculado a un documento. Con material propio, entra el motor pedagógico; sin documento, el turno es más libre y no sustituye al tutor grounded.
 3. **Evaluación.** Se genera un cuestionario MCQ (sin revelar las correctas al cliente). El intento se califica en servidor.
 4. **Adaptación.** Preguntas y quizzes publican eventos. Un projector actualiza mastery por concepto (con olvido), memoria pedagógica y señales de dificultad. Las siguientes decisiones —y las recomendaciones de `GET /learning/me`— usan ese perfil, no solo el hilo del chat.
@@ -43,11 +43,13 @@ En este árbol (`backend/`) el producto es la **API FastAPI** del tutor:
 | Documentos, análisis, pregunta tutor, quizzes y calificación | En código |
 | Chats multi-turno (con o sin documento; streaming disponible) | En código |
 | Perfil cognitivo, historial y recomendaciones (`/learning/me`, `/learning/me/profile`) | En código |
+| Extracción de texto de PDF, DOCX, XLSX, PPTX, texto y código | En código |
+| Rutas de aprendizaje de solo lectura: el progreso se proyecta del perfil | En código |
 | Gate de prerrequisitos y catálogo de misconceptions (álgebra, no todas las materias) | En dominio |
 | Persistencia MongoDB o memoria; Docker Compose (app + Mongo + Redis) | En código |
 | Observabilidad de borde (`/health`, `/ready`, `/metrics`) | En código |
 
-Límites honestos: no extrae PDF; no hay embeddings ni scraping web; no hay LMS, SSO de organización ni plan de estudio HTTP cerrado. El embodiment (voz/presencia) está detrás de puertos y **desactivado** por defecto. Un cliente web existe en la rama `feature/frontend` (Next.js); **no** está en este checkout ni integrado en `develop`/`main`.
+Límites honestos: no hay embeddings, RAG ni scraping web; no hay LMS ni SSO de organización. Las rutas de aprendizaje existen pero son un plan de solo lectura, no un planner automático. La adaptación por señales del ADR-004 corre en **modo sombra** (`ADAPT_SHADOW_MODE=true`): se mide y se persiste, y todavía no moldea el prompt. El embodiment (voz/presencia) está detrás de puertos y **desactivado** por defecto. Un cliente web existe en la rama `feature/frontend` (Next.js); **no** está en este checkout, **no** está integrado en `develop`/`main` y hoy no consume el tutor (habla con OpenAI por su cuenta).
 
 Detalle de capas, agregados y contratos: [`backend/docs/architecture.md`](backend/docs/architecture.md) y [`backend/docs/endpoints.md`](backend/docs/endpoints.md).
 
@@ -82,7 +84,7 @@ La frontera HTTP y los puertos permiten encajar esto **sin** meter pedagogía en
 | Más proveedores LLM | Puerto `IAAnalyst`; hoy solo OpenAI | Multi-vendor el mismo día |
 | LMS (Moodle, Canvas, LTI) | El LMS entrega identidad y materiales; LARIA sigue decidiendo la tutoría | Que LARIA se convierta en el campus |
 | SSO / organizaciones | Auth y ownership ya están en el borde | Multi-tenant o Clerk/SAML ya diseñados |
-| Plan de estudio / learning path | El perfil y el grafo de prerrequisitos son la base; falta producto HTTP estable | Un planner automático fiable |
+| Plan de estudio / learning path | Existe como plan de solo lectura con progreso proyectado (ADR-008); falta decidir si es producto | Un planner automático fiable |
 | Analítica educativa / vista docente | Eventos, perfil y `/metrics` ya existen | Un dashboard de institución |
 | Recuperación semántica (RAG) | Hoy el foco es el documento del estudiante | Que el grounding actual sea insuficiente para tutoría sobre *ese* material |
 | Repetición espaciada como producto | El olvido ya está en mastery | Un scheduler tipo Anki en la API |

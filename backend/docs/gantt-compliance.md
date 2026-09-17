@@ -32,10 +32,10 @@ Arquitectura: el Gantt pedía **Hexagonal**; el código es **Clean Architecture 
 | **F4** MongoDB local Docker | Cumple | Servicio `mongodb:7`, DB `laria_db`, sin puerto host |
 | **F4** Modelos de datos y esquemas | Cumple | Repos Motor + aggregates |
 | **F4** Persistencia conversaciones | Cumple | `tutor_interactions` + `tutor_sessions` |
-| **F5** Pruebas unitarias backend | Cumple | ~30 archivos de test; dominio, servicios, repos, seguridad |
+| **F5** Pruebas unitarias backend | Cumple | ~60 archivos de test (780 casos, gate de cobertura 90% en `pytest.ini`); dominio, servicios, repos, seguridad |
 | **F5** Pruebas de integración | Parcial | `tests/api`, `tests/integration`; no suite e2e Mongo real amplia |
 | **F5** Seguridad y penetración | Parcial | Rate limit, ownership 404, fail-closed secrets, tests security; sin pentest formal |
-| **F6** Deploy backend Render | No verificado en repo | Artefactos Docker listos; no hay config Render versionada |
+| **F6** Deploy backend Render | Cumple en repo | `render.yaml` (Blueprint), `Dockerfile`, `scripts/deploy-render-api.sh` y [deploy-render.md](deploy-render.md); el despliegue en sí no se verifica desde el repo |
 | **F6** Documentación final | Cumple en `feature/backend` | `docs/*`, ADRs, OpenAPI |
 
 ## Lo que el Gantt no pedía y el backend ya tiene

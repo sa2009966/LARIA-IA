@@ -13,10 +13,13 @@ class AffectPolicy:
     ) -> AffectState:
         if last_score_ratio is not None and last_score_ratio >= 0.85:
             return AffectState.CELEBRATORY
-        if decision and decision.mode == PedagogicalMode.SCAFFOLD:
+        # Andamiaje o ritmo lento piden paciencia. El ritmo lento devolvía
+        # ENCOURAGING, que es el default: la rama existía sin cambiar nada
+        # (ADR-008).
+        if (decision and decision.mode == PedagogicalMode.SCAFFOLD) or (
+            profile and profile.pace == "slow"
+        ):
             return AffectState.PATIENT
-        if profile and profile.pace == "slow":
-            return AffectState.ENCOURAGING
         if decision and decision.mode == PedagogicalMode.SOCRATIC:
             return AffectState.CALM
         return AffectState.ENCOURAGING

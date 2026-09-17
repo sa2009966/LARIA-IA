@@ -68,6 +68,7 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             "total_struggle_signals": profile.total_struggle_signals,
             "learning_velocity": profile.learning_velocity,
             "applied_event_ids": list(profile.applied_event_ids),
+            "celebrated_concepts": list(profile.celebrated_concepts),
             "pedagogical_memory": {
                 "frequent_misconceptions": list(mem.frequent_misconceptions),
                 "successful_examples": list(mem.successful_examples),
@@ -150,6 +151,7 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             pedagogical_memory=memory,
             learning_velocity=float(doc.get("learning_velocity", 0.0)),
             applied_event_ids=list(doc.get("applied_event_ids") or []),
+            celebrated_concepts=list(doc.get("celebrated_concepts") or []),
             last_interaction_at=doc.get("last_interaction_at"),
             last_answer_length=int(doc.get("last_answer_length", 0)),
             adaptive_signals=signals,

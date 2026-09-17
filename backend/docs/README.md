@@ -18,6 +18,8 @@
 | [adr/ADR-005-grafo-prerrequisitos-curado.md](adr/ADR-005-grafo-prerrequisitos-curado.md) | ADR-5: grafo de prerrequisitos curado y persistido |
 | [adr/ADR-006-oferta-vs-bloqueo.md](adr/ADR-006-oferta-vs-bloqueo.md) | ADR-6: oferta en vez de bloqueo |
 | [adr/ADR-007-evidencia-ponderada-por-calidad.md](adr/ADR-007-evidencia-ponderada-por-calidad.md) | ADR-7: la evidencia se pesa por su calidad |
+| [adr/ADR-008-progreso-derivado-no-declarado.md](adr/ADR-008-progreso-derivado-no-declarado.md) | ADR-8: el progreso se deriva de la evidencia, nadie lo declara |
+| [adr/ADR-009-contabilidad-y-canal-positivo.md](adr/ADR-009-contabilidad-y-canal-positivo.md) | ADR-9: una observación por turno, y el logro se le dice al estudiante |
 
 Swagger interactivo (solo con `ENABLE_DOCS=true`): `/docs`.
 

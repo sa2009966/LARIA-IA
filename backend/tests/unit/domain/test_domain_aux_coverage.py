@@ -39,11 +39,19 @@ def test_affect_policy_scaffold_and_socratic():
     assert policy.select(None, decision_socratic) == AffectState.CALM
 
 
-def test_affect_policy_slow_pace_encouraging():
+def test_affect_policy_slow_pace_patient():
+    """El ritmo lento pide paciencia, no el ánimo genérico del default.
+
+    Devolvía ENCOURAGING, idéntico al fallback: la rama no cambiaba nada y el
+    test pasaba sin ejercitarla (ADR-008).
+    """
     student = uuid4()
     profile = StudentProfile.create(student)
     profile.pace = "slow"
-    assert AffectPolicy().select(profile, None) == AffectState.ENCOURAGING
+    assert AffectPolicy().select(profile, None) == AffectState.PATIENT
+    assert AffectPolicy().select(StudentProfile.create(student), None) == (
+        AffectState.ENCOURAGING
+    )
 
 
 def test_cognitive_style_from_signals_and_profile():
