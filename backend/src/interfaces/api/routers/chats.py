@@ -1,18 +1,30 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 import json
 
 from src.application.services.chat_tutor_service import ChatTutorService
+from src.application.services.quiz_service import QuizService
 from src.domain.aggregates.chat import ChatAggregate
+from src.domain.ports.ia_analyst import IAAnalysisError
 from src.domain.ports.repositories import ChatRepository
 from src.interfaces.api.dependencies import (
     get_chat_repo,
     get_chat_tutor_service,
     get_current_user_id,
+    get_quiz_service,
 )
+from src.interfaces.api.openapi_responses import (
+    RESP_401_UNAUTHORIZED,
+    RESP_404_NOT_FOUND,
+    RESP_422_VALIDATION,
+    RESP_429_RATE_LIMIT,
+    RESP_502_BAD_GATEWAY,
+)
+from src.interfaces.api.quiz_mappers import quiz_to_public_response
+from src.interfaces.schemas.quiz_schemas import QuizPublicResponse
 from src.interfaces.schemas.chat_schemas import (
     ChatAddMessageRequest,
     ChatCreateRequest,
@@ -222,6 +234,54 @@ async def stream_message(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post(
+    "/{chat_id}/quiz",
+    response_model=QuizPublicResponse,
+    summary="Generar cuestionario sobre el material del chat",
+    description=(
+        "Genera y persiste un cuestionario a partir del **documento vinculado al chat**. "
+        "La respuesta NO incluye las respuestas correctas: se califican en servidor al enviar "
+        "el intento a `POST /quizzes/{quiz_id}/attempts`, que es lo que convierte el intento en "
+        "evidencia del perfil. Sin material vinculado responde **422**: evaluar sin material "
+        "sería preguntar por algo que el sistema no puede corregir contra nada."
+    ),
+    responses={
+        **RESP_401_UNAUTHORIZED,
+        **RESP_404_NOT_FOUND,
+        **RESP_422_VALIDATION,
+        **RESP_429_RATE_LIMIT,
+        **RESP_502_BAD_GATEWAY,
+    },
+)
+async def generate_chat_quiz(
+    chat_id: UUID,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    repo: Annotated[ChatRepository, Depends(get_chat_repo)],
+    service: Annotated[QuizService, Depends(get_quiz_service)],
+    num_questions: int = Query(5, ge=1, le=20, description="Cantidad de preguntas (1-20)."),
+):
+    chat = await repo.find_by_id(chat_id)
+    if chat is None or str(chat.owner_id) != current_user_id:
+        raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    if chat.document_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "Este chat no tiene material vinculado. Vincula un documento "
+                "(PUT /chats/{chat_id}) para poder evaluar sobre él."
+            ),
+        )
+    try:
+        quiz = await service.generate(
+            chat.document_id, UUID(current_user_id), num_questions=num_questions
+        )
+    except (ValueError, PermissionError):
+        raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    except IAAnalysisError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    return quiz_to_public_response(quiz)
 
 
 @router.delete("/{chat_id}", status_code=204, summary="Eliminar chat")

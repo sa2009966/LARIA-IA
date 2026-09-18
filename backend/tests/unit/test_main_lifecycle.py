@@ -315,13 +315,16 @@ async def test_readiness_redis_ok(monkeypatch):
     monkeypatch.setattr(settings, "REDIS_URL", "redis://localhost:6379/0")
 
     mock_client = MagicMock()
-    mock_client.ping.return_value = True
+    mock_client.ping = AsyncMock(return_value=True)
+    mock_client.aclose = AsyncMock()
     mock_redis_mod = MagicMock()
     mock_redis_mod.Redis.from_url.return_value = mock_client
-    with patch.dict("sys.modules", {"redis": mock_redis_mod}):
+    # `redis.asyncio`: el ping síncrono bloqueaba el event loop en /ready.
+    with patch.dict("sys.modules", {"redis.asyncio": mock_redis_mod}):
         resp = await readiness_check()
     assert resp.status_code == 200
     assert '"redis":"ok"' in resp.body.decode()
+    mock_client.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio
