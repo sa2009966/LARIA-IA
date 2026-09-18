@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     # MongoDB
     MONGODB_URL: str = "mongodb://localhost:27017"
     MONGODB_DB_NAME: str = "laria_db"
+    # Selección de servidor y conexión. 3 s van bien en local; en Atlas conviene
+    # subirlo (SRV + TLS + tier compartido en frío).
+    MONGODB_TIMEOUT_MS: int = 3_000
 
     # Upload de materiales (multipart / JSON). 200 MiB por defecto.
     DOCUMENT_MAX_UPLOAD_BYTES: int = 209_715_200

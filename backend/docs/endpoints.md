@@ -73,6 +73,7 @@ turno es conversación libre y no sustituye al tutor grounded.
 | `PUT` | `/api/v1/chats/{chat_id}` | Renombrar o vincular documento |
 | `POST` | `/api/v1/chats/{chat_id}/messages` | Añadir mensaje. Si `role="user"`, **el tutor responde en la misma llamada** y su mensaje queda persistido con el envelope en `metadata` |
 | `POST` | `/api/v1/chats/{chat_id}/stream` | Igual, en SSE: `thinking` → `token`(s) → `envelope` → `done` |
+| `POST` | `/api/v1/chats/{chat_id}/quiz` | Cuestionario sobre el **material vinculado al chat** (`num_questions` 1–20). Sin material → `422`. No incluye `correct_answer`: el intento se envía a `POST /quizzes/{id}/attempts` y se califica en servidor |
 | `DELETE` | `/api/v1/chats/{chat_id}` | Eliminar (`204`) |
 
 **Envelope del tutor** (`metadata` del mensaje `assistant`, y evento `envelope` en SSE):
@@ -81,7 +82,7 @@ turno es conversación libre y no sustituye al tutor grounded.
 |-------|---------|
 | `type` | `answer`, `explanation`, `hint`, `quiz`, `celebration`, `error` |
 | `emotion` | `calm`, `encouraging`, `patient`, `celebratory` |
-| `payload` | `content`, `mode`, `difficulty`, `cognitive_style`, `focus_concepts`, `session_step`, `intent`, `practice_before_advance`, `chunk_explanation`, y `celebrated_concept` cuando hay hito ([ADR-009](adr/ADR-009-contabilidad-y-canal-positivo.md)) |
+| `payload` | `content`, `grounded`, `mode`, `difficulty`, `cognitive_style`, `focus_concepts`, `session_step`, `intent`, `practice_before_advance`, `chunk_explanation`, y `celebrated_concept` cuando hay hito ([ADR-009](adr/ADR-009-contabilidad-y-canal-positivo.md)). `grounded=false` = chat sin material: conversación, no tutoría adaptativa |
 
 El envelope es determinista: lo decide el dominio, no el modelo.
 

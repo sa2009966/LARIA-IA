@@ -1,7 +1,13 @@
-"""Rate limiting por IP y ruta (memory o Redis)."""
+"""Rate limiting por IP y ruta (memory o Redis).
+
+El contador es **asíncrono** a propósito: el middleware corre en el event loop y
+el backend Redis va por red. Con el cliente síncrono, cada request rate-limitada
+bloqueaba el loop entero durante el viaje de ida y vuelta a Redis.
+"""
 from __future__ import annotations
 
 import ipaddress
+import logging
 import time
 from collections import defaultdict, deque
 from threading import Lock
@@ -13,17 +19,25 @@ from starlette.responses import JSONResponse, Response
 
 from src.infrastructure.config import settings
 
+logger = logging.getLogger("laria.http")
+
 
 class RateLimitCounter(Protocol):
-    def allow(self, key: str, limit: int, window_seconds: float) -> bool: ...
+    async def allow(self, key: str, limit: int, window_seconds: float) -> bool: ...
 
 
 class SlidingWindowCounter:
+    """Ventana deslizante en memoria, por proceso.
+
+    También es el plan B del contador Redis: si el backend compartido falla, el
+    borde sigue protegido (peor, por réplica) en vez de caerse.
+    """
+
     def __init__(self) -> None:
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self._lock = Lock()
 
-    def allow(self, key: str, limit: int, window_seconds: float) -> bool:
+    async def allow(self, key: str, limit: int, window_seconds: float) -> bool:
         now = time.monotonic()
         with self._lock:
             bucket = self._hits[key]
@@ -37,21 +51,36 @@ class SlidingWindowCounter:
 
 
 class RedisSlidingWindow:
-    """Contador sliding window compartido entre réplicas (Redis sorted set)."""
+    """Contador sliding window compartido entre réplicas (Redis sorted set).
 
-    def __init__(self, redis_client) -> None:
+    Espera un cliente `redis.asyncio`. Ante fallo de Redis degrada al contador
+    local en vez de devolver 500: un limitador caído no puede tumbar el borde.
+    """
+
+    def __init__(self, redis_client, fallback: RateLimitCounter | None = None) -> None:
         self._redis = redis_client
+        self._fallback = fallback or SlidingWindowCounter()
+        self._degraded = False
 
-    def allow(self, key: str, limit: int, window_seconds: float) -> bool:
+    async def allow(self, key: str, limit: int, window_seconds: float) -> bool:
         now = time.time()
         cutoff = now - window_seconds
         rkey = f"rl:{key}"
-        pipe = self._redis.pipeline()
-        pipe.zremrangebyscore(rkey, 0, cutoff)
-        pipe.zcard(rkey)
-        pipe.zadd(rkey, {f"{now}": now})
-        pipe.expire(rkey, int(window_seconds) + 1)
-        results = pipe.execute()
+        try:
+            pipe = self._redis.pipeline()
+            pipe.zremrangebyscore(rkey, 0, cutoff)
+            pipe.zcard(rkey)
+            pipe.zadd(rkey, {f"{now}": now})
+            pipe.expire(rkey, int(window_seconds) + 1)
+            results = await pipe.execute()
+        except Exception:  # noqa: BLE001 — cualquier fallo de red degrada, no rompe
+            if not self._degraded:
+                self._degraded = True
+                logger.warning("rate_limit_redis_degraded key=%s", key, exc_info=True)
+            return await self._fallback.allow(key, limit, window_seconds)
+        if self._degraded:
+            self._degraded = False
+            logger.info("rate_limit_redis_recovered")
         count_before = int(results[1])
         return count_before < limit
 
@@ -122,10 +151,11 @@ def _client_ip(request: Request) -> str:
 def build_rate_limit_counter() -> RateLimitCounter:
     backend = (settings.RATE_LIMIT_BACKEND or "memory").lower().strip()
     if backend == "redis":
-        import redis
+        # Cliente asíncrono y conexión perezosa: sin `ping()` de arranque, que
+        # se pagaba bloqueando el loop en la primera request rate-limitada.
+        from redis.asyncio import Redis
 
-        client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
-        client.ping()
+        client = Redis.from_url(settings.REDIS_URL, decode_responses=True)
         return RedisSlidingWindow(client)
     return SlidingWindowCounter()
 
@@ -149,7 +179,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         prefix, limit, window = rule
         client = _client_ip(request)
         key = f"{client}:{prefix}"
-        if not self._get_counter().allow(key, limit, window):
+        if not await self._get_counter().allow(key, limit, window):
             return JSONResponse(
                 status_code=429,
                 content={"detail": "Demasiadas solicitudes. Intenta de nuevo más tarde."},

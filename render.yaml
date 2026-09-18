@@ -27,6 +27,9 @@ services:
         sync: false
       - key: MONGODB_DB_NAME
         value: laria_db
+      # 3 s (default local) se quedan cortos contra Atlas en frío: SRV + TLS.
+      - key: MONGODB_TIMEOUT_MS
+        value: "10000"
       - key: RATE_LIMIT_BACKEND
         value: redis
       - key: EVENT_BUS_BACKEND
