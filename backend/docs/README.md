@@ -28,6 +28,7 @@
 | [adr/ADR-010-entrega-del-outbox-con-lease.md](adr/ADR-010-entrega-del-outbox-con-lease.md) | ADR-10: el outbox reclama con lease; un evento, un dueño |
 | [adr/ADR-011-calidad-de-la-evidencia.md](adr/ADR-011-calidad-de-la-evidencia.md) | ADR-11: la evidencia sabe de qué concepto habla |
 | [adr/ADR-012-texto-y-original.md](adr/ADR-012-texto-y-original.md) | ADR-12: el tutor lee texto; el alumno descarga su archivo |
+| [adr/ADR-013-decir-por-que.md](adr/ADR-013-decir-por-que.md) | ADR-13: la adaptación se explica o no existe |
 
 Swagger interactivo (solo con `ENABLE_DOCS=true`): `/docs`.
 

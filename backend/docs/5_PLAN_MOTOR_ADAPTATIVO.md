@@ -81,7 +81,12 @@ contradice al fondo **gana el fondo**.
 
 ---
 
-## Fase C — Explicabilidad (`payload.explanation`)
+## Fase C — Explicabilidad (`payload.explanation`) — ✅ **hecha**
+
+> Entregado: [ADR-013](adr/ADR-013-decir-por-que.md),
+> `domain/services/adaptation_explainer.py` (puro), `payload.explanation` en el envelope y 14 tests.
+> La regla que lo mantiene honesto: en modo sombra la frase **no** se le muestra al estudiante —se
+> registra en el log— porque prometer una adaptación que no llega al prompt es mentir.
 
 Derivar una frase en lenguaje natural desde los parámetros efectivos y las señales que los
 dispararon: *"te doy más ejemplos porque los has pedido varias veces"*.

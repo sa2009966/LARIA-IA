@@ -46,6 +46,7 @@ from src.domain.services.pedagogical_engine import (
     PedagogicalEngine,
     TutorIntent,
 )
+from src.domain.services.adaptation_explainer import explain_adaptation
 from src.domain.services.plan_composer import Override, compose_plan
 from src.domain.value_objects.analysis_result import AnalysisResult
 
@@ -77,6 +78,9 @@ class PedagogyPlan:
     # Qué pidió la política y no sobrevivió al fondo pedagógico (ADR-004,
     # Decisión 5). Se conserva para depurar y para explicárselo al estudiante.
     overrides: tuple[Override, ...] = ()
+    # Por qué el tutor habla así, en lenguaje natural. Vacío si no hubo nada
+    # que adaptar, o si la adaptación no se está aplicando (modo sombra).
+    explanation: str = ""
 
     @property
     def prompt_shaping(self) -> PromptShapingParameters:
@@ -322,6 +326,18 @@ class AnalyzeDocumentService:
                 decision.mode.value,
                 [o.parameter for o in compuesto.overrides],
             )
+
+        # Solo se le explica al estudiante lo que de verdad se le aplicó: en
+        # modo sombra la adaptación no llega al prompt, así que contarla sería
+        # mentir. Se registra igualmente, que para eso sirve como depurador.
+        porque = explain_adaptation(
+            compuesto.prompt_shaping,
+            compuesto.control_flow,
+            profile.signals_for_policy() if profile else {},
+            compuesto.overrides,
+        )
+        if porque:
+            logger.info("adaptacion_explicada aplicada=%s texto=%s", self._adaptation_enabled, porque)
         return PedagogyPlan(
             document_id=document_id,
             student_id=requesting_user_id,
@@ -337,6 +353,7 @@ class AnalyzeDocumentService:
             observations=observations,
             started=started,
             overrides=compuesto.overrides,
+            explanation=porque if self._adaptation_enabled else "",
         )
 
     async def _load_graph(self, concepts: tuple[str, ...]) -> ConceptGraph | None:

@@ -78,6 +78,7 @@ debe degradar con elegancia**: `payload.mode ?? null`, nunca `payload.mode.toUpp
 | `session_step` | solo con material | `introduce` · `hint` · `practice` · `check` |
 | `chunk_explanation`, `practice_before_advance` | solo con material | Orquestación sugerida: trocear la explicación, pedir práctica antes de avanzar |
 | `celebrated_concept` | solo con `type: celebration` | Qué concepto se acaba de dominar |
+| `explanation` | cuando hay adaptación activa | **Por qué el tutor habla así**, en una frase ([ADR-013](adr/ADR-013-decir-por-que.md)). Ausente si no hubo nada que adaptar o si la adaptación no se está aplicando: nunca se promete lo que no se hizo |
 
 ## Ejemplos reales
 
@@ -185,6 +186,35 @@ Fíjate en el payload reducido: esto es lo que hay que saber manejar.
 `emotion` puede no ser `celebratory`: el tono lo decide el último resultado calificado, y el hito lo
 decide el dominio del concepto. Son dos señales distintas y pueden no coincidir.
 
+### Con `explanation` — el tutor dice por qué habla así
+
+Mismo turno que el primero, pero de un estudiante cuyo historial muestra que abandona las
+explicaciones largas y pide ejemplos, y con la adaptación aplicada (fuera del modo sombra):
+
+```json
+{
+  "type": "explanation",
+  "emotion": "encouraging",
+  "payload": {
+    "content": "Restas 3 en ambos lados y divides entre 2.",
+    "intent": "general",
+    "grounded": true,
+    "explanation": "Voy al grano porque las explicaciones largas se te hacen cuesta arriba, y te pongo 2 ejemplos porque los has pedido varias veces.",
+    "practice_before_advance": false,
+    "chunk_explanation": false,
+    "mode": "explain",
+    "difficulty": "medium",
+    "cognitive_style": "simple",
+    "focus_concepts": ["variable", "ecuacion"],
+    "session_step": "introduce"
+  }
+}
+```
+
+La frase está escrita para mostrarse tal cual. Nombra la conducta, nunca la métrica, y **solo aparece
+cuando la adaptación se aplicó de verdad**: hoy el despliegue corre en modo sombra, así que este
+campo no llegará todavía ([ADR-013](adr/ADR-013-decir-por-que.md)).
+
 ### `error` — falló el proveedor
 
 ```json
@@ -211,7 +241,10 @@ En el turno normal llega como mensaje `role: "system"`; en SSE, como evento `err
    no la vuelve a ver: no la escondas detrás de un toast de 2 segundos.
 5. **Nunca uses `content` para evaluar.** La corrección de un quiz vive en
    `POST /quizzes/{id}/attempts` y la calcula el servidor.
-6. **Tipos y emociones pueden crecer.** Trata valores desconocidos con un caso por defecto en vez de
+6. **`explanation` es del estudiante, no de depuración.** Está escrita para mostrarse tal cual
+   ("Voy al grano porque las explicaciones largas se te hacen cuesta arriba"). No la recortes ni la
+   escondas en un tooltip: es lo que convierte la adaptación en colaboración.
+7. **Tipos y emociones pueden crecer.** Trata valores desconocidos con un caso por defecto en vez de
    romper la vista.
 
 ## Qué puede cambiar y qué no

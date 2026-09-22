@@ -156,6 +156,8 @@ class ChatTutorService:
             }
             if milestone:
                 extra["celebrated_concept"] = milestone
+            if plan.explanation:
+                extra["explanation"] = plan.explanation
             envelope = ResponseEnvelope.from_decision(
                 decision,
                 _envelope_type(decision, milestone),
@@ -223,6 +225,8 @@ class ChatTutorService:
             extra.update(_control_flow_payload(plan.adaptation))
             if milestone:
                 extra["celebrated_concept"] = milestone
+            if plan.explanation:
+                extra["explanation"] = plan.explanation
             envelope = ResponseEnvelope.from_decision(
                 plan.decision,
                 _envelope_type(plan.decision, milestone),
