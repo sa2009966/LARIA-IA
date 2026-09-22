@@ -1,13 +1,15 @@
 """Adaptador HTTP de chat completions; los prompts vienen de TutorPolicy (aplicación)."""
 import json
 import time
+from typing import Sequence
 
 import httpx
 
-from src.domain.services.tutor_policy import TutorPolicy
 from src.domain.aggregates.document_aggregate import DocumentAggregate
+from src.domain.ports.chat_title_generator import ChatTitleGenerator, TitleMessage
 from src.domain.ports.ia_analyst import IAAnalysisError, IAAnalyst
 from src.domain.ports.metrics_port import MetricsPort
+from src.domain.services.tutor_policy import TutorPolicy
 from src.domain.value_objects.analysis_result import AnalysisResult
 from src.domain.value_objects.question import Quiz, QuizQuestion
 
@@ -15,7 +17,7 @@ _MSG_PROVEEDOR = "El servicio de IA no está disponible en este momento."
 _MSG_RESPUESTA = "El servicio de IA devolvió una respuesta inválida."
 
 
-class BaseChatAnalyst(IAAnalyst):
+class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
     """Implementa analyze/answer_question/generate_quiz sobre un endpoint de chat.
 
     Las subclases solo definen `api_url`, `model` y `api_key`.
@@ -64,6 +66,7 @@ class BaseChatAnalyst(IAAnalyst):
         *,
         model: str | None = None,
         max_tokens: int | None = None,
+        task: str = "chat",
     ) -> str:
         use_model = model or self.model
         payload = {
@@ -101,8 +104,25 @@ class BaseChatAnalyst(IAAnalyst):
             raise
         except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
             if self._metrics:
-                self._metrics.incr("laria_llm_calls", task="chat", model=use_model, outcome="error")
+                self._metrics.incr("laria_llm_calls", task=task, model=use_model, outcome="error")
             raise IAAnalysisError(_MSG_PROVEEDOR) from exc
+
+    async def generate_chat_title(self, messages: Sequence[TitleMessage]) -> str:
+        prompt = self._policy.generate_chat_title(messages)
+        raw = await self._chat(
+            prompt.system,
+            prompt.user,
+            model=self.model,
+            max_tokens=20,
+            task="title",
+        )
+        title = " ".join(raw.strip().split()).strip("\"'`# ")
+        if title.lower().startswith("título:") or title.lower().startswith("titulo:"):
+            title = title.split(":", 1)[1].strip()
+        words = title.split()
+        if not 2 <= len(words) <= 7 or len(title) > 120:
+            raise IAAnalysisError(_MSG_RESPUESTA)
+        return title
 
     @staticmethod
     def _extract_json(raw: str) -> dict:

@@ -93,6 +93,8 @@ def _match_rule(path: str, method: str) -> tuple[str, int, float] | None:
         return ("/api/v1/auth/register", 5, 60.0)
     if path.startswith("/api/v1/auth/token"):
         return ("/api/v1/auth/token", 10, 60.0)
+    if method == "POST" and path.rstrip("/") == "/api/v1/chats/generate-title":
+        return ("ia:title", 8, 60.0)
     if "/analyze" in path:
         return ("ia:analyze", 8, 60.0)
     if path.rstrip("/").endswith("/ask") or "/ask" in path:

@@ -113,8 +113,13 @@ Ajustes del servicio: Root Directory `backend` · Dockerfile `./Dockerfile` · S
 
 ## Notas
 
-- Uploads grandes (hasta 200 MiB por GridFS) **requieren** Mongo; en `memory` el blob vive solo en
-  el proceso.
+- Los uploads **requieren** Mongo para persistir; en `memory` el blob vive solo en el proceso.
+- **Archivos originales en Cloudflare R2** (opcional, recomendado): Atlas M0 son 512 MB para *todo*,
+  así que los originales conviene sacarlos del cluster. Variables: `ORIGINAL_STORAGE=r2`,
+  `R2_ENDPOINT_URL` (`https://<account_id>.r2.cloudflarestorage.com`, el endpoint de la S3 API, no
+  `r2.dev`), `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`. El arranque falla si pones
+  `r2` y falta alguna: mejor no arrancar que perder el archivo del alumno en el primer upload.
+  Verificación: `python backend/scripts/check_r2.py` (escribe, lee, borra; no imprime secretos).
 - No subas `.env` ni claves a git: solo variables en el dashboard.
 - El hook `.githooks/pre-push` exige pytest en verde antes de empujar a `feature/backend`, que es la
   rama que despliega. Instalarlo en cada clon:

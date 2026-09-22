@@ -128,6 +128,74 @@ la misma evidencia se cuenta dos veces y la política sobrerreacciona.
 
 ---
 
+## Decisión 5 — Arbitraje: la forma no puede contradecir al fondo
+
+*(añadida el 2026-09-22, antes de apagar el modo sombra)*
+
+`PedagogicalEngine.select()` y `AdaptivePolicy.decide()` corren en paralelo en `prepare_pedagogy` y
+`TutorPolicy` los concatenaba sin comprobar nada:
+
+```python
+system = f"{system} {adaptation.to_prompt_fragment()}"
+```
+
+No es un riesgo teórico. Con `LONG_EXPLANATION_ABANDONMENT` y `SELF_CORRECTION` altos, la política
+produce `explanation_length=short` y `socratic_question_rate=high`; si el motor decidió `SCAFFOLD`,
+el prompt resultante dice, seguido:
+
+> "Usa andamiaje: pista → ejemplo parcial → invitación a completar. Reduce carga cognitiva; un paso
+> a la vez." … "Responde de forma breve: ve al grano, evita preámbulos. Guía sobre todo con
+> preguntas; deja que el estudiante concluya."
+
+Andamiaje gradual, brevedad e interrogatorio a la vez. Eso no es adaptación: es ruido con dos
+autores.
+
+**La regla: la pedagogía decide el fondo, la adaptación decide la forma, y cuando la forma
+contradice al fondo gana el fondo.** El fondo sale de evidencia del estudiante sobre *ese* concepto;
+la forma, de señales de comportamiento agregadas. Ante conflicto, manda lo específico.
+
+### Tabla de precedencia
+
+Se aplica en `domain/services/plan_composer.py`, función pura, antes de componer el prompt.
+
+| # | Condición (fondo) | Parámetro vetado | Valor efectivo | Por qué |
+|---|-------------------|------------------|----------------|---------|
+| 1 | `mode = SCAFFOLD` o `gate_action = SEQUENCE` | `explanation_length = short` | `medium` | El andamiaje es pista → ejemplo parcial → invitación; "ve al grano" lo anula |
+| 2 | `mode = SCAFFOLD` o `gate_action = SEQUENCE` | `socratic_question_rate ∈ {medium, high}` | `low` | Andamiar es sostener, no interrogar a quien ya está atascado |
+| 3 | `mode = SCAFFOLD` o `gate_action = SEQUENCE` | `examples_per_explanation = 0` | `1` | El ejemplo parcial **es** el andamiaje; sin ejemplo no hay tal |
+| 4 | `cognitive_style = STEP_BY_STEP` | `explanation_length = short` | `medium` | "Paso a paso" y "ve al grano" se contradicen |
+| 5 | `cognitive_style = ANALOGY` | `prefers_analogy = True` | `False` | El estilo ya pide analogía; repetirlo en el prompt es redundancia, no énfasis |
+| 6 | `explanation_length` efectivo `= short` | `chunk_explanation = True` | `False` | No se trocea lo que ya es breve |
+| — | `mode = SOCRATIC` | — | se respeta entero | Preguntar mucho es coherente con el fondo socrático |
+| — | `mode = EXPLAIN` sin estilo en conflicto | — | se respeta entero | No hay contradicción que arbitrar |
+
+Las reglas 1–3 comparten condición a propósito: `SEQUENCE` es "empezar por la base", que
+pedagógicamente **es** andamiaje aunque el modo nominal sea otro.
+
+La regla 6 se evalúa **después** de las demás: depende del `explanation_length` ya arbitrado, no del
+que pidió la política.
+
+### El arbitraje deja rastro
+
+`compose_plan()` no solo devuelve los parámetros efectivos: devuelve la lista de **vetos aplicados**
+(`parámetro`, `de`, `a`, `motivo`). Dos razones:
+
+1. **Depuración.** Cuando se apague el modo sombra, la pregunta será "¿por qué respondió así?", y la
+   respuesta está en qué pidió la política y qué sobrevivió al fondo.
+2. **Explicabilidad al estudiante** (fase 3 del plan de experiencia pedagógica): *"no acorté la
+   explicación porque estábamos construyendo la base"* es exactamente la frase que hace legible la
+   adaptación.
+
+### Lo que esto NO hace
+
+- **No toca la decisión pedagógica.** El arbitraje solo puede recortar la forma; jamás cambia modo,
+  dificultad ni foco. El fondo es soberano.
+- **No inventa parámetros.** Si la política no pidió nada, no hay nada que arbitrar.
+- **No resuelve conflictos entre señales**: eso es la Decisión 1, y ocurre antes, dentro de la
+  política.
+
+---
+
 ## Modo sombra
 
 `ADAPT_SHADOW_MODE=true` (por defecto) computa y persiste señales y parámetros **sin** inyectar

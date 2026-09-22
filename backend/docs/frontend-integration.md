@@ -163,6 +163,9 @@ mostrar como "lo que domina hoy". `/learning/me` añade historial y recomendacio
 
 ## El envelope, para renderizar
 
+> Contrato completo, con un ejemplo real por cada tipo y las reglas de degradación:
+> [`envelope-contract.md`](envelope-contract.md). Aquí va solo el resumen.
+
 | Campo | Valores | Qué hacer |
 |-------|---------|-----------|
 | `type` | `answer`, `explanation`, `hint`, `quiz`, `celebration`, `error` | Elegir componente. `hint` es andamiaje (destacar), `celebration` es un hito real: el estudiante acaba de dominar un concepto y se reconoce **una sola vez** |

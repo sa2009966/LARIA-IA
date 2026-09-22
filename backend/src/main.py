@@ -293,6 +293,22 @@ async def readiness_check():
                 await client.aclose()
     else:
         checks["redis"] = "skipped"
+
+    # Almacén de archivos originales: sin él, subir material falla. Se reporta
+    # siempre para que el despliegue sea verificable desde fuera.
+    almacen = (settings.ORIGINAL_STORAGE or "blob").lower().strip()
+    if almacen == "r2":
+        try:
+            from src.interfaces.api.dependencies import get_original_blob_store
+
+            await get_original_blob_store().ping()
+            checks["storage"] = "r2:ok"
+        except Exception as exc:  # noqa: BLE001
+            checks["storage"] = f"r2:error:{type(exc).__name__}"
+            ready = False
+    else:
+        checks["storage"] = "blob"
+
     status = "ready" if ready else "degraded"
     code = 200 if ready else 503
     return JSONResponse(

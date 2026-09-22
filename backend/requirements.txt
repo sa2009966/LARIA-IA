@@ -13,3 +13,5 @@ python-docx==1.1.2
 openpyxl==3.1.5
 python-pptx==1.0.2
 chardet==5.2.0
+# Cliente S3-compatible para Cloudflare R2 (almacén de archivos originales).
+boto3==1.43.98

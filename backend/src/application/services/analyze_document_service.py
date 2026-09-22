@@ -46,6 +46,7 @@ from src.domain.services.pedagogical_engine import (
     PedagogicalEngine,
     TutorIntent,
 )
+from src.domain.services.plan_composer import Override, compose_plan
 from src.domain.value_objects.analysis_result import AnalysisResult
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,9 @@ class PedagogyPlan:
     help_level: float = 0.0
     observations: dict[SignalKind, float] = field(default_factory=dict)
     started: float = 0.0
+    # Qué pidió la política y no sobrevivió al fondo pedagógico (ADR-004,
+    # Decisión 5). Se conserva para depurar y para explicárselo al estudiante.
+    overrides: tuple[Override, ...] = ()
 
     @property
     def prompt_shaping(self) -> PromptShapingParameters:
@@ -255,7 +259,9 @@ class AnalyzeDocumentService:
             raise ValueError("Repositorio de interacciones no configurado")
 
         started = time.monotonic()
-        signal = self._signals.detect(question)
+        # La materia acota las heurísticas de concepto: `desigualdad` no
+        # significa lo mismo en Matemática que en Historia (ADR-011).
+        signal = self._signals.detect(question, subject=document.subject)
         help_level = 0.5 if signal.kind == LearningSignalKind.HELP else 0.0
         profile = None
         observations: dict[SignalKind, float] = {}
@@ -302,9 +308,20 @@ class AnalyzeDocumentService:
             question=question,
             graph=graph,
         )
-        adaptation = self._adaptive.decide(
+        # La política propone la forma; el arbitraje la recorta cuando
+        # contradice el fondo. Aquí, y no en el prompt, para que streaming y
+        # no-streaming consuman exactamente lo mismo (ADR-004, Decisiones 3 y 5).
+        propuesta = self._adaptive.decide(
             profile.signals_for_policy() if profile else {}
         )
+        compuesto = compose_plan(decision, propuesta)
+        adaptation = compuesto.adaptation
+        if compuesto.overrides:
+            logger.info(
+                "plan_arbitrado mode=%s vetos=%s",
+                decision.mode.value,
+                [o.parameter for o in compuesto.overrides],
+            )
         return PedagogyPlan(
             document_id=document_id,
             student_id=requesting_user_id,
@@ -319,6 +336,7 @@ class AnalyzeDocumentService:
             help_level=help_level,
             observations=observations,
             started=started,
+            overrides=compuesto.overrides,
         )
 
     async def _load_graph(self, concepts: tuple[str, ...]) -> ConceptGraph | None:

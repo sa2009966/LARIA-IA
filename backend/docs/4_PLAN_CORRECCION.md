@@ -128,38 +128,54 @@ necesita sin preguntar.
 
 ---
 
-## Fase 3 — Endurecer producción
+## Fase 3 — Endurecer producción — código hecho; falta el flip
 
-Va después de la 2 porque `APP_ENV=production` exige `EVENT_BUS_BACKEND=outbox`, y el outbox no es
+Va después de la 2 porque `APP_ENV=production` exige `EVENT_BUS_BACKEND=outbox`, y el outbox no era
 seguro con más de una réplica hasta el paso 3.1.
+
+> **Hecho:** reclamación atómica con lease ([ADR-010](adr/ADR-010-entrega-del-outbox-con-lease.md)),
+> backoff exponencial en `with_concurrency_retry`, índice de reclamación y
+> [`scripts/migrate_preferred_style.py`](../scripts/migrate_preferred_style.py).
+> **Decidido no hacer:** el TTL del dedup (paso 2) — la reclamación eliminó el escenario que lo
+> motivaba; el razonamiento está en el ADR-010.
+> **Pendiente y tuyo:** el paso 4, el flip de variables en Render.
 
 1. **Claim atómico en el outbox** (`find_one_and_update` con lease). Hoy `process_pending` lee
    `{processed_at: null}` y marca *después*: con dos réplicas o un rolling deploy, dos workers
    procesan lo mismo y se duplican interacciones. *Tamaño: M.*
-2. **Dedup con TTL** en vez del techo de 256 `applied_event_ids` (W2 de la auditoría). *Tamaño: M.*
+2. ~~**Dedup con TTL** en vez del techo de 256 `applied_event_ids`~~ — **descartado con motivo**: con
+   `processed_at` y la reclamación, una fila procesada no se vuelve a leer, así que la re-entrega
+   solo ocurre dentro del lease (~60 s) y el tope descarta siempre lo más antiguo. Ver ADR-010.
 3. **Backoff exponencial** en `with_concurrency_retry` (W12: tres intentos inmediatos son tres
    colisiones). *Tamaño: S.*
 4. **Flip a `APP_ENV=production`** con `EVENT_BUS_BACKEND=outbox` y `ENABLE_DOCS=false`. El
    fail-fast del arranque valida la checklist entera y dice exactamente qué falta si algo no está.
-5. **Migración de datos:** `updateMany` que vacíe `preferred_explanation_style` (deuda #1 del plan
-   pedagógico) y nota operativa sobre `weak_evidence_count` (deuda #5).
+5. **Migración de datos:** `python scripts/migrate_preferred_style.py` (simula por defecto,
+   `--apply` escribe) para la deuda #1 del plan pedagógico. La deuda #5 (`weak_evidence_count`) no
+   tiene migración posible: se diluye con el uso.
 
 **Cerrado cuando:** producción arranca con `APP_ENV=production`, `/docs` responde 404, `/ready` da
 `ok`, y dos réplicas simuladas procesan el outbox sin duplicar.
 
 ---
 
-## Fase 4 — Calidad de la evidencia
+## Fase 4 — Calidad de la evidencia — ✅ hecha
+
+> Cerrada en [ADR-011](adr/ADR-011-calidad-de-la-evidencia.md). Corrección del alcance previsto: los
+> `concept_tags` del modelo **ya eran la fuente** (el prompt los exige, el adaptador los parsea, el
+> tagger solo rellena). Lo que faltaba era dejar de tapar sus huecos con un concepto inventado
+> (`"general"`) y poder medir cuántos huecos hay (`laria_quiz_items{tagged}`).
 
 Toda la ponderación fina del ADR-007 se calcula sobre conceptos que hoy decide un puñado de regex.
 
-1. **`concept_tags` desde la generación del quiz**: el LLM ya los devuelve; usarlos como fuente y
-   `ConceptTagger` solo como fallback, con métrica de cobertura de etiquetado. *Tamaño: M.*
-2. **Identidad de concepto por materia**: `desigualdades` (álgebra) canonicaliza hoy a
-   `desigualdad social`. Añadir `subject` a la identidad. *Tamaño: M.*
-3. **Decidir si la pregunta lidera el foco** (deuda #4; es producto, no implementación) e
-   implementarlo si la respuesta es sí. *Tamaño: M.*
-4. **`LearningSignalDetector` menos frágil**: hoy "no logro captarlo" no se detecta. *Tamaño: M.*
+1. ✅ **Cobertura de etiquetado**: sin `"general"` inventado, ítem sin concepto ⇒ sin evidencia de
+   concepto (el documento sí la recibe), y métrica `laria_quiz_items{tagged=yes|no}`.
+2. ✅ **Heurísticas acotadas por área** (`domain/subject_areas.py`): `desigualdad` ya no cruza de
+   álgebra a sociología. La materia **no** entra en la clave del mastery; el porqué, en el ADR-011.
+3. ✅ **La pregunta lidera el foco**: decidido que sí. Los conceptos que el material declara y la
+   pregunta nombra encabezan; las debilidades acompañan. `SEQUENCE` sigue siendo la única
+   desviación permitida.
+4. ✅ **Detector menos frágil**: normalización única y cobertura ampliada en las tres señales.
 
 **Cerrado cuando:** el mastery de un alumno de prueba refleja los conceptos de su material, y el foco
 del prompt coincide con lo que preguntó.
@@ -175,6 +191,21 @@ del prompt coincide con lo que preguntó.
 
 **Cerrado cuando:** existe una cifra que dice si adaptar mejora resultados. Hasta entonces, encender
 la adaptación es fe, no ingeniería.
+
+---
+
+## Fuera de las fases — hallazgo del spec del cliente
+
+`BACKEND_ENDPOINT_SPEC.md` pidió un endpoint de previsualización, y al mirar qué se podía servir
+apareció un bug peor: **el texto extraído de PDF/DOCX/XLSX/PPTX se tiraba** y el motor analizaba el
+binario decodificado como UTF-8. Cerrado en
+[ADR-012](adr/ADR-012-texto-y-original.md): texto y original se guardan por separado, el original
+detrás del mismo puerto (listo para Cloudflare R2 con una variable) y el límite de subida baja de
+200 MiB a 25 MiB, que es lo que aguanta Atlas M0.
+
+**Pendiente:** implementar `GET /documents/{id}/content` con las tres correcciones al spec (404 en
+vez de 403, `<img src>` no puede llevar el token, `expose_headers` para `Content-Disposition`), y
+decidir si se aceptan imágenes (adjunto sin tutorizar vs OCR/visión).
 
 ---
 

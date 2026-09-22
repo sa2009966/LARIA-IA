@@ -80,7 +80,11 @@ def comprobar_salud(cliente: httpx.Client, rep: Reporte) -> None:
 
 
 def comprobar_ready(
-    cliente: httpx.Client, rep: Reporte, exigir_mongo: bool, exigir_redis: bool
+    cliente: httpx.Client,
+    rep: Reporte,
+    exigir_mongo: bool,
+    exigir_redis: bool,
+    exigir_r2: bool = False,
 ) -> None:
     resp = _get(cliente, "/ready")
     if resp is None:
@@ -107,6 +111,25 @@ def comprobar_ready(
             )
         else:
             rep.add(FALLA, f"/ready · {dependencia}", estado_dep)
+
+    comprobar_almacen(checks, rep, exigir_r2)
+
+
+def comprobar_almacen(checks: dict, rep: Reporte, exigir_r2: bool) -> None:
+    """El almacén de archivos originales, visible desde fuera."""
+    estado = checks.get("storage", "ausente")
+    if estado == "r2:ok":
+        rep.add(OK, "/ready · storage", "Cloudflare R2 conectado")
+    elif estado == "blob":
+        rep.add(
+            FALLA if exigir_r2 else AVISO,
+            "/ready · storage",
+            "blob — los archivos originales viven junto a los datos (Atlas M0 son 512 MB)",
+        )
+    elif estado == "ausente":
+        rep.add(AVISO, "/ready · storage", "el backend desplegado es anterior a este chequeo")
+    else:
+        rep.add(FALLA, "/ready · storage", estado)
 
 
 def comprobar_docs(cliente: httpx.Client, rep: Reporte, exigir_cerrados: bool) -> None:
@@ -183,6 +206,7 @@ def main() -> int:
     parser.add_argument("base_url", help="p. ej. https://laria-ia.onrender.com")
     parser.add_argument("--expect-mongodb", action="store_true", help="exigir Mongo conectado")
     parser.add_argument("--expect-redis", action="store_true", help="exigir Redis conectado")
+    parser.add_argument("--expect-r2", action="store_true", help="exigir Cloudflare R2 conectado")
     parser.add_argument(
         "--expect-docs-closed", action="store_true", help="exigir /docs y /openapi.json cerrados"
     )
@@ -198,7 +222,9 @@ def main() -> int:
     print(f"Verificando {base}")
     with httpx.Client(base_url=base, timeout=TIMEOUT, follow_redirects=False) as cliente:
         comprobar_salud(cliente, rep)
-        comprobar_ready(cliente, rep, args.expect_mongodb, args.expect_redis)
+        comprobar_ready(
+            cliente, rep, args.expect_mongodb, args.expect_redis, args.expect_r2
+        )
         comprobar_docs(cliente, rep, args.expect_docs_closed)
         comprobar_cors(cliente, rep, args.origin)
         if args.register:
