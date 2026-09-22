@@ -42,10 +42,10 @@ services:
         value: redis
       - key: REDIS_URL
         sync: false
-      # Archivos originales fuera de Atlas (512 MB en M0). Pon "r2" cuando el
-      # bucket esté listo; los tres secretos se rellenan en el dashboard.
+      # Archivos originales fuera de Atlas (512 MB en M0). Los secretos de R2
+      # se rellenan en el dashboard (sync: false); no van en este archivo.
       - key: ORIGINAL_STORAGE
-        value: blob
+        value: r2
       - key: R2_ENDPOINT_URL
         sync: false
       - key: R2_BUCKET
