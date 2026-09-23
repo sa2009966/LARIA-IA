@@ -28,8 +28,17 @@ class DocumentAggregate:
     id: UUID = field(default_factory=uuid4)
     owner_id: UUID = field(default_factory=uuid4)
     filename: str = ""
+    # Texto analizable: lo que leen el análisis, el tutor y los quizzes. Vive
+    # inline o en `content_blob_id`, pero SIEMPRE es texto.
     content: str = ""
     content_blob_id: Optional[str] = None
+    # Archivo tal como lo subió el estudiante, para previsualizarlo y
+    # descargarlo. Antes se guardaba el binario en `content_blob_id` y el texto
+    # extraído se tiraba, así que el tutor analizaba un PDF decodificado como
+    # UTF-8: mojibake (ADR-012).
+    original_blob_id: Optional[str] = None
+    original_content_type: Optional[str] = None
+    original_size: Optional[int] = None
     subject: Subject = field(default_factory=lambda: Subject("Matemática"))
     status: DocumentStatus = DocumentStatus.UPLOADED
     uploaded_at: datetime = field(default_factory=_utc_now)
@@ -45,12 +54,18 @@ class DocumentAggregate:
         subject: str,
         *,
         content_blob_id: Optional[str] = None,
+        original_blob_id: Optional[str] = None,
+        original_content_type: Optional[str] = None,
+        original_size: Optional[int] = None,
     ) -> "DocumentAggregate":
         doc = DocumentAggregate(
             owner_id=owner_id,
             filename=filename,
             content=content,
             content_blob_id=content_blob_id,
+            original_blob_id=original_blob_id,
+            original_content_type=original_content_type,
+            original_size=original_size,
             subject=Subject(subject),
             status=DocumentStatus.UPLOADED,
         )

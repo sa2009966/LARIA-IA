@@ -40,7 +40,7 @@ Todos requieren JWT. Solo el **propietario** opera sobre el recurso. Ajeno/inexi
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | `POST` | `/api/v1/documents/` | Subir material (JSON: `filename`, `content`, `subject`; cuerpo → blob/GridFS) |
-| `POST` | `/api/v1/documents/upload` | Subir archivo multipart (`file`, `subject`, `filename` opcional; hasta 200 MiB). Formatos: texto (`.txt`, `.md`, `.csv`, `.json`, `.log`), código, PDF, `.docx`, `.xlsx`, `.pptx`. Formato no soportado → **422** |
+| `POST` | `/api/v1/documents/upload` | Subir archivo multipart (`file`, `subject`, `filename` opcional; hasta 25 MiB). Formatos: texto (`.txt`, `.md`, `.csv`, `.json`, `.log`), código, PDF, `.docx`, `.xlsx`, `.pptx`. Formato no soportado → **422** |
 | `GET` | `/api/v1/documents/` | Listar mis documentos |
 | `GET` | `/api/v1/documents/{document_id}` | Obtener uno propio |
 | `DELETE` | `/api/v1/documents/{document_id}` | Eliminar (`204`) |
@@ -54,7 +54,9 @@ Todos requieren JWT. Solo el **propietario** opera sobre el recurso. Ajeno/inexi
 - El cuerpo del material **no** viaja en listados ni se embebe en BSON si hay `content_blob_id` (GridFS `fs.files` / `fs.chunks`).
 - JSON (`POST /documents/`) sigue válido para textos ≤ 100 000 caracteres; archivos grandes deben usar `POST /documents/upload`.
 - Respuesta de upload/list/get: solo metadatos (sin `content`). Analyze/ask/quiz hidratan desde el blob en servidor.
-- La extracción de texto vive en `application/file_parser.py` (PDF, DOCX, XLSX, PPTX, texto y código); el dominio solo ve el texto resultante. Límite configurable: `DOCUMENT_MAX_UPLOAD_BYTES` (200 MiB). Sobre límite → `413`.
+- La extracción de texto vive en `application/file_parser.py` (PDF, DOCX, XLSX, PPTX, texto y código); el dominio solo ve el texto resultante. Se guardan **dos cosas**: el texto extraído (lo que lee el motor) y el archivo original con su
+  tipo real, para previsualizarlo o descargarlo ([ADR-012](adr/ADR-012-texto-y-original.md)).
+  Límite configurable: `DOCUMENT_MAX_UPLOAD_BYTES` (25 MiB). Sobre límite → `413`.
 - Domínio limpio: routers solo validan HTTP; tamaño y blob viven en application/infrastructure.
 
 ---
@@ -69,10 +71,12 @@ turno es conversación libre y no sustituye al tutor grounded.
 |--------|------|-------------|
 | `GET` | `/api/v1/chats/` | Listar mis chats |
 | `POST` | `/api/v1/chats/` | Crear chat (`title`, `document_id` opcional) |
+| `POST` | `/api/v1/chats/generate-title` | Generar un título breve desde 1–5 mensajes; no modifica ningún chat |
 | `GET` | `/api/v1/chats/{chat_id}` | Chat con sus mensajes |
 | `PUT` | `/api/v1/chats/{chat_id}` | Renombrar o vincular documento |
 | `POST` | `/api/v1/chats/{chat_id}/messages` | Añadir mensaje. Si `role="user"`, **el tutor responde en la misma llamada** y su mensaje queda persistido con el envelope en `metadata` |
 | `POST` | `/api/v1/chats/{chat_id}/stream` | Igual, en SSE: `thinking` → `token`(s) → `envelope` → `done` |
+| `POST` | `/api/v1/chats/{chat_id}/quiz` | Cuestionario sobre el **material vinculado al chat** (`num_questions` 1–20). Sin material → `422`. No incluye `correct_answer`: el intento se envía a `POST /quizzes/{id}/attempts` y se califica en servidor |
 | `DELETE` | `/api/v1/chats/{chat_id}` | Eliminar (`204`) |
 
 **Envelope del tutor** (`metadata` del mensaje `assistant`, y evento `envelope` en SSE):
@@ -81,7 +85,7 @@ turno es conversación libre y no sustituye al tutor grounded.
 |-------|---------|
 | `type` | `answer`, `explanation`, `hint`, `quiz`, `celebration`, `error` |
 | `emotion` | `calm`, `encouraging`, `patient`, `celebratory` |
-| `payload` | `content`, `mode`, `difficulty`, `cognitive_style`, `focus_concepts`, `session_step`, `intent`, `practice_before_advance`, `chunk_explanation`, y `celebrated_concept` cuando hay hito ([ADR-009](adr/ADR-009-contabilidad-y-canal-positivo.md)) |
+| `payload` | `content`, `grounded`, `mode`, `difficulty`, `cognitive_style`, `focus_concepts`, `session_step`, `intent`, `practice_before_advance`, `chunk_explanation`, y `celebrated_concept` cuando hay hito ([ADR-009](adr/ADR-009-contabilidad-y-canal-positivo.md)). `grounded=false` = chat sin material: conversación, no tutoría adaptativa |
 
 El envelope es determinista: lo decide el dominio, no el modelo.
 

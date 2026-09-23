@@ -1,6 +1,6 @@
 """Proveedores de dependencias FastAPI: conectan los adaptadores a los servicios."""
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, cast
 from uuid import UUID
 
 import jwt
@@ -15,6 +15,7 @@ from src.application.services.quiz_service import QuizService
 from src.application.services.user_service import UserService
 from src.domain.aggregates.user_aggregate import UserAggregate
 from src.domain.ports.cache_port import CachePort
+from src.domain.ports.chat_title_generator import ChatTitleGenerator
 from src.domain.ports.embodiment import (
     DeviceCommandPort,
     PresencePort,
@@ -89,6 +90,26 @@ def get_document_blob_store() -> DocumentBlobStore:
     )
 
     return InMemoryDocumentBlobStore()
+
+
+@lru_cache(maxsize=1)
+def get_original_blob_store() -> DocumentBlobStore:
+    """Dónde se guarda el archivo tal como lo subió el estudiante.
+
+    Por defecto, donde el texto. Con `ORIGINAL_STORAGE=r2` pasa a Cloudflare R2
+    sin que el dominio lo note: mismo puerto, otro adaptador (ADR-012).
+    """
+    if (settings.ORIGINAL_STORAGE or "blob").lower().strip() == "r2":
+        from src.infrastructure.storage.r2_document_blob_store import R2DocumentBlobStore
+
+        return R2DocumentBlobStore(
+            endpoint_url=settings.R2_ENDPOINT_URL,
+            bucket=settings.R2_BUCKET,
+            access_key_id=settings.R2_ACCESS_KEY_ID,
+            secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+            prefix=settings.R2_PREFIX,
+        )
+    return get_document_blob_store()
 
 
 @lru_cache(maxsize=1)
@@ -188,6 +209,10 @@ def get_ia_analyst() -> IAAnalyst:
     return OpenAIAnalyst(metrics=get_metrics())
 
 
+def get_chat_title_generator() -> ChatTitleGenerator:
+    return cast(ChatTitleGenerator, get_ia_analyst())
+
+
 @lru_cache(maxsize=1)
 def get_cache() -> CachePort:
     backend = (settings.CACHE_BACKEND or "memory").lower().strip()
@@ -284,6 +309,7 @@ def get_document_service() -> DocumentService:
         profile_repository=get_profile_repo(),
         session_repository=get_session_repo(),
         blob_store=get_document_blob_store(),
+        original_blob_store=get_original_blob_store(),
         max_upload_bytes=settings.DOCUMENT_MAX_UPLOAD_BYTES,
     )
 

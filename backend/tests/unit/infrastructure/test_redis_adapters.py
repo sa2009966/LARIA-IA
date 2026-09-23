@@ -80,43 +80,40 @@ async def test_redis_cache_lazy_client(monkeypatch):
     mock_from_url.assert_called_once_with("redis://localhost:6379/0", decode_responses=True)
 
 
-def test_redis_sliding_window_allows_under_limit():
+def _fake_async_redis(count_before: int) -> MagicMock:
+    """Cliente `redis.asyncio`: comandos síncronos, `execute()` awaitable."""
     mock_redis = MagicMock()
     mock_pipe = MagicMock()
     mock_redis.pipeline.return_value = mock_pipe
-    mock_pipe.zremrangebyscore = MagicMock()
-    mock_pipe.zcard = MagicMock()
-    mock_pipe.zadd = MagicMock()
-    mock_pipe.expire = MagicMock()
-    mock_pipe.execute.return_value = [None, 1, None, None]
-
-    counter = RedisSlidingWindow(mock_redis)
-    assert counter.allow("ip:route", limit=3, window_seconds=60.0) is True
+    mock_pipe.execute = AsyncMock(return_value=[None, count_before, None, None])
+    return mock_redis
 
 
-def test_redis_sliding_window_blocks_at_limit():
-    mock_redis = MagicMock()
-    mock_pipe = MagicMock()
-    mock_redis.pipeline.return_value = mock_pipe
-    mock_pipe.execute.return_value = [None, 3, None, None]
+@pytest.mark.asyncio
+async def test_redis_sliding_window_allows_under_limit():
+    counter = RedisSlidingWindow(_fake_async_redis(1))
+    assert await counter.allow("ip:route", limit=3, window_seconds=60.0) is True
 
-    counter = RedisSlidingWindow(mock_redis)
-    assert counter.allow("ip:route", limit=3, window_seconds=60.0) is False
+
+@pytest.mark.asyncio
+async def test_redis_sliding_window_blocks_at_limit():
+    counter = RedisSlidingWindow(_fake_async_redis(3))
+    assert await counter.allow("ip:route", limit=3, window_seconds=60.0) is False
 
 
 def test_build_rate_limit_counter_redis(monkeypatch):
+    """Cliente asíncrono y conexión perezosa: construir no habla con Redis."""
     from src.infrastructure.config import settings
 
-    mock_client = MagicMock()
-    mock_client.ping.return_value = True
     mock_redis_mod = MagicMock()
-    mock_redis_mod.Redis.from_url.return_value = mock_client
+    mock_redis_mod.Redis.from_url.return_value = MagicMock()
     monkeypatch.setattr(settings, "RATE_LIMIT_BACKEND", "redis")
     monkeypatch.setattr(settings, "REDIS_URL", "redis://localhost:6379/0")
-    monkeypatch.setitem(__import__("sys").modules, "redis", mock_redis_mod)
+    monkeypatch.setitem(__import__("sys").modules, "redis.asyncio", mock_redis_mod)
 
     counter = build_rate_limit_counter()
     assert isinstance(counter, RedisSlidingWindow)
+    mock_redis_mod.Redis.from_url.assert_called_once()
 
 
 def test_build_rate_limit_counter_memory(monkeypatch):

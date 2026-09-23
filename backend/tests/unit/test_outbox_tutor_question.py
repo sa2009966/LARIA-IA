@@ -1,6 +1,7 @@
 """Round-trip outbox: TutorQuestionAskedEvent → projector → StudentProfile."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -66,12 +67,45 @@ class _FakeCollection:
     async def update_one(self, filt, update):
         for d in self.docs:
             if d.get("_id") == filt.get("_id"):
-                if "$set" in update:
-                    d.update(update["$set"])
-                if "$inc" in update:
-                    for k, v in update["$inc"].items():
-                        d[k] = d.get(k, 0) + v
+                self._aplicar(d, update)
                 return
+
+    async def find_one_and_update(self, filt, update, sort=None, return_document=None):
+        """Reclamación atómica: modela `processed_at` + lease de `claimed_at`."""
+        candidatos = [d for d in self.docs if self._coincide(d, filt)]
+        if sort:
+            campo, direccion = sort[0]
+            candidatos.sort(key=lambda d: d.get(campo), reverse=direccion < 0)
+        if not candidatos:
+            return None
+        doc = candidatos[0]
+        self._aplicar(doc, update)
+        return dict(doc)
+
+    @staticmethod
+    def _aplicar(doc: dict, update: dict) -> None:
+        if "$set" in update:
+            doc.update(update["$set"])
+        if "$inc" in update:
+            for k, v in update["$inc"].items():
+                doc[k] = doc.get(k, 0) + v
+
+    @classmethod
+    def _coincide(cls, doc: dict, filt: dict) -> bool:
+        for clave, esperado in filt.items():
+            if clave == "$or":
+                if not any(cls._coincide(doc, sub) for sub in esperado):
+                    return False
+                continue
+            actual = doc.get(clave)
+            if isinstance(esperado, dict):
+                if "$exists" in esperado and (clave in doc) != esperado["$exists"]:
+                    return False
+                if "$lt" in esperado and not (actual is not None and actual < esperado["$lt"]):
+                    return False
+            elif actual != esperado:
+                return False
+        return True
 
     async def count_documents(self, query):
         return sum(1 for d in self.docs if d.get("processed_at") is None)
@@ -292,8 +326,11 @@ async def test_outbox_reprocess_same_row_does_not_double_evidence():
     assert profile is not None
     assert profile.total_struggle_signals == 1
 
+    # Re-entrega real: el evento vuelve a estar pendiente y sin reclamar, como
+    # tras caducar un lease o reinsertarse la fila.
     row = bus._database.event_outbox.docs[0]
     row["processed_at"] = None
+    row["claimed_at"] = None
     row["last_error"] = None
     n = await bus.process_pending(limit=10)
     assert n == 1
@@ -352,3 +389,67 @@ def test_outbox_tolera_payloads_anteriores_a_estos_campos():
     assert restored.signal_observations == ()
     assert restored.answer_length == 0
     assert restored.focus_concepts == ()
+
+
+@pytest.mark.asyncio
+async def test_dos_workers_no_se_llevan_el_mismo_evento():
+    """El riesgo real con dos réplicas o durante un rolling deploy.
+
+    Antes se leían los pendientes y se marcaban *después* de procesarlos: en la
+    ventana entre lectura y marca, dos procesos proyectaban la misma
+    interacción. La reclamación es ahora atómica (`find_one_and_update`).
+    """
+    db = _FakeDB()
+    procesados: list[str] = []
+
+    async def handler(event):
+        procesados.append(str(event.event_id))
+
+    worker_a = MongoOutboxEventBus(database=db)
+    worker_b = MongoOutboxEventBus(database=db)
+    for bus in (worker_a, worker_b):
+        await bus.subscribe(TutorQuestionAskedEvent, handler)
+
+    doc_id, student_id = uuid4(), uuid4()
+    await worker_a.publish(
+        TutorQuestionAskedEvent(
+            aggregate_id=doc_id,
+            student_id=student_id,
+            document_id=doc_id,
+            question="q",
+            answer="a",
+        )
+    )
+
+    n_a = await worker_a.process_pending(limit=10)
+    n_b = await worker_b.process_pending(limit=10)
+
+    assert (n_a, n_b) == (1, 0)
+    assert len(procesados) == 1
+
+
+@pytest.mark.asyncio
+async def test_una_reclamacion_caducada_la_retoma_otro_worker():
+    """Si el proceso muere a mitad, el evento no queda atrapado para siempre."""
+    db = _FakeDB()
+    doc_id, student_id = uuid4(), uuid4()
+    publicador = MongoOutboxEventBus(database=db)
+    await publicador.publish(
+        TutorQuestionAskedEvent(
+            aggregate_id=doc_id,
+            student_id=student_id,
+            document_id=doc_id,
+            question="q",
+            answer="a",
+        )
+    )
+    # Alguien lo reclamó y murió antes de marcarlo como procesado.
+    db.event_outbox.docs[0]["claimed_at"] = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+    con_lease_vivo = MongoOutboxEventBus(database=db, lease_seconds=3600)
+    assert await con_lease_vivo.process_pending(limit=5) == 0
+
+    rescatador = MongoOutboxEventBus(database=db, lease_seconds=60)
+    await rescatador.subscribe(TutorQuestionAskedEvent, lambda event: None)
+    assert await rescatador.process_pending(limit=5) == 1
+    assert db.event_outbox.docs[0]["processed_at"] is not None

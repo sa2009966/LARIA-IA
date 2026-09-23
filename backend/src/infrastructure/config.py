@@ -75,9 +75,20 @@ class Settings(BaseSettings):
     # MongoDB
     MONGODB_URL: str = "mongodb://localhost:27017"
     MONGODB_DB_NAME: str = "laria_db"
+    # Selección de servidor y conexión. 3 s van bien en local; en Atlas conviene
+    # subirlo (SRV + TLS + tier compartido en frío).
+    MONGODB_TIMEOUT_MS: int = 3_000
 
     # Upload de materiales (multipart / JSON). 200 MiB por defecto.
-    DOCUMENT_MAX_UPLOAD_BYTES: int = 209_715_200
+    DOCUMENT_MAX_UPLOAD_BYTES: int = 26_214_400  # 25 MiB
+    # Dónde vive el archivo original (el texto extraído siempre va al blob de
+    # contenido). `blob` = donde el texto (GridFS/memoria); `r2` = Cloudflare R2.
+    ORIGINAL_STORAGE: str = "blob"  # blob | r2
+    R2_ENDPOINT_URL: str = ""  # https://<account_id>.r2.cloudflarestorage.com
+    R2_BUCKET: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_PREFIX: str = "documents/"
 
     # Redis (rate limit horizontal + caché inteligente)
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -149,6 +160,26 @@ def validate_runtime_settings(s: "Settings") -> None:
     env = (s.APP_ENV or "development").lower().strip()
     if env not in {"development", "production"}:
         raise RuntimeError("APP_ENV debe ser 'development' o 'production'.")
+    almacen = (s.ORIGINAL_STORAGE or "blob").lower().strip()
+    if almacen not in {"blob", "r2"}:
+        raise RuntimeError("ORIGINAL_STORAGE debe ser 'blob' o 'r2'.")
+    if almacen == "r2":
+        # Mejor no arrancar que arrancar y perder los archivos de los alumnos
+        # en el primer upload por una variable a medias.
+        faltan = [
+            nombre
+            for nombre, valor in (
+                ("R2_ENDPOINT_URL", s.R2_ENDPOINT_URL),
+                ("R2_BUCKET", s.R2_BUCKET),
+                ("R2_ACCESS_KEY_ID", s.R2_ACCESS_KEY_ID),
+                ("R2_SECRET_ACCESS_KEY", s.R2_SECRET_ACCESS_KEY),
+            )
+            if not (valor or "").strip()
+        ]
+        if faltan:
+            raise RuntimeError(
+                "ORIGINAL_STORAGE=r2 exige " + ", ".join(faltan) + "."
+            )
     if env == "production":
         if s.DB_PROVIDER != "mongodb":
             raise RuntimeError(

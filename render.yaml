@@ -19,6 +19,8 @@ services:
     envVars:
       - key: LARIA_DEPLOY_TIER
         value: atlas
+      # Fase 3 del plan de corrección: pasar a `production` (exige, por
+      # fail-fast, EVENT_BUS_BACKEND=outbox, redis en cache+rate y docs off).
       - key: APP_ENV
         value: development
       - key: DB_PROVIDER
@@ -27,14 +29,33 @@ services:
         sync: false
       - key: MONGODB_DB_NAME
         value: laria_db
+      # 3 s (default local) se quedan cortos contra Atlas en frío: SRV + TLS.
+      - key: MONGODB_TIMEOUT_MS
+        value: "10000"
       - key: RATE_LIMIT_BACKEND
         value: redis
+      # Fase 3: `outbox`. El worker reclama con lease (ADR-010), así que ya es
+      # seguro con más de una réplica.
       - key: EVENT_BUS_BACKEND
         value: memory
       - key: CACHE_BACKEND
         value: redis
       - key: REDIS_URL
         sync: false
+      # Archivos originales fuera de Atlas (512 MB en M0). Los secretos de R2
+      # se rellenan en el dashboard (sync: false); no van en este archivo.
+      - key: ORIGINAL_STORAGE
+        value: r2
+      - key: R2_ENDPOINT_URL
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: DOCUMENT_MAX_UPLOAD_BYTES
+        value: "26214400"
       - key: IA_PROVIDER
         value: openai
       - key: OPENAI_MODEL

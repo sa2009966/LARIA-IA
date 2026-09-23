@@ -273,7 +273,11 @@ class TestChatsAPI:
         assert len(messages) == 2
         assert messages[0]["role"] == "user"
         assert messages[1]["role"] == "system"
-        assert messages[1]["metadata"]["source"] == "error"
+        # Un fallo también es un envelope: misma forma que cualquier turno, para
+        # que la UI no tenga que conocer dos contratos.
+        assert messages[1]["metadata"]["type"] == "error"
+        assert messages[1]["metadata"]["emotion"]
+        assert "content" in messages[1]["metadata"]["payload"]
         assert messages[1]["metadata"]["type"] == "error"
 
     def test_add_message_user_with_document_passes_doc_id(self, client):
@@ -374,3 +378,67 @@ class TestChatsStreaming:
             json={"role": "assistant", "content": "x"},
         )
         assert r.status_code == 422
+
+
+class TestChatTitleAPI:
+    def test_generate_title(self, client, monkeypatch):
+        token = _register_and_token(client, "title")
+        headers = {"Authorization": "Bearer " + token}
+        captured = {}
+
+        class FakeGenerator:
+            async def generate_chat_title(self, messages):
+                captured["messages"] = messages
+                return "Fotosíntesis vegetal"
+
+        from src.interfaces.api import dependencies
+
+        monkeypatch.setitem(
+            app.dependency_overrides,
+            dependencies.get_chat_title_generator,
+            lambda: FakeGenerator(),
+        )
+        response = client.post(
+            "/api/v1/chats/generate-title",
+            headers=headers,
+            json={"messages": [{"role": "user", "content": "¿Qué es la fotosíntesis?"}]},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json() == {"title": "Fotosíntesis vegetal"}
+        assert captured["messages"][0].role == "user"
+        assert captured["messages"][0].content == "¿Qué es la fotosíntesis?"
+
+    def test_generate_title_rejects_empty_messages(self, client):
+        token = _register_and_token(client, "title")
+        response = client.post(
+            "/api/v1/chats/generate-title",
+            headers={"Authorization": "Bearer " + token},
+            json={"messages": []},
+        )
+
+        assert response.status_code == 422
+
+    def test_generate_title_maps_provider_failure_to_502(self, client, monkeypatch):
+        token = _register_and_token(client, "title")
+
+        class FailingGenerator:
+            async def generate_chat_title(self, messages):
+                from src.domain.ports.ia_analyst import IAAnalysisError
+
+                raise IAAnalysisError("El servicio de IA no está disponible en este momento.")
+
+        from src.interfaces.api import dependencies
+
+        monkeypatch.setitem(
+            app.dependency_overrides,
+            dependencies.get_chat_title_generator,
+            lambda: FailingGenerator(),
+        )
+        response = client.post(
+            "/api/v1/chats/generate-title",
+            headers={"Authorization": "Bearer " + token},
+            json={"messages": [{"role": "user", "content": "Hola"}]},
+        )
+
+        assert response.status_code == 502

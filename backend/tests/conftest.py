@@ -23,6 +23,13 @@ os.environ["RATE_LIMIT_ENABLED"] = "false"
 os.environ["APP_ENV"] = "development"
 os.environ["METRICS_ENABLED"] = "true"
 os.environ["EMBODIMENT_ENABLED"] = "false"
+# Los archivos originales se quedan en el blob local: la suite no habla con
+# Cloudflare R2 ni necesita boto3. Sin esto, un `.env` con ORIGINAL_STORAGE=r2
+# hacía que los tests salieran a la red de verdad —y pasaran por eso— y que
+# `/ready` devolviera 503 en cualquier entorno sin boto3.
+os.environ["ORIGINAL_STORAGE"] = "blob"
+for _r2 in ("R2_ENDPOINT_URL", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"):
+    os.environ[_r2] = ""
 
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
@@ -39,6 +46,7 @@ _CACHE_NAMES = (
     "get_user_repo",
     "get_document_repo",
     "get_document_blob_store",
+    "get_original_blob_store",
     "get_quiz_repo",
     "get_attempt_repo",
     "get_interaction_repo",
@@ -119,3 +127,4 @@ def _assert_test_backends_isolated():
     """Falla temprano si el .env o un import prematuro contaminó Settings."""
     _assert_settings_use_memory()
     yield
+

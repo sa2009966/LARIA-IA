@@ -148,10 +148,16 @@ class ChatTutorService:
             )
             extra = {
                 "intent": intention.intent.value,
+                # La tutoría adaptativa exige material: con documento el turno
+                # pasa por el motor; sin él es conversación y no promete más.
+                # La UI necesita poder decirlo en vez de aparentar tutoría.
+                "grounded": True,
                 **_control_flow_payload(plan.adaptation),
             }
             if milestone:
                 extra["celebrated_concept"] = milestone
+            if plan.explanation:
+                extra["explanation"] = plan.explanation
             envelope = ResponseEnvelope.from_decision(
                 decision,
                 _envelope_type(decision, milestone),
@@ -174,7 +180,7 @@ class ChatTutorService:
             "answer",
             affect,
             content=content,
-            extra={"intent": intention.intent.value},
+            extra={"intent": intention.intent.value, "grounded": False},
         )
         return TutorResponse(content=content, envelope=envelope)
 
@@ -193,7 +199,10 @@ class ChatTutorService:
         if self._llm_gate is None:
             raise ValueError("LLM gate no configurado para streaming")
         intention = self._intent.detect(question)
-        extra: dict = {"intent": intention.intent.value}
+        extra: dict = {
+            "intent": intention.intent.value,
+            "grounded": document_id is not None,
+        }
         profile = None
         if self._profile_repo is not None:
             profile = await self._profile_repo.find_by_student(student_id)
@@ -216,6 +225,8 @@ class ChatTutorService:
             extra.update(_control_flow_payload(plan.adaptation))
             if milestone:
                 extra["celebrated_concept"] = milestone
+            if plan.explanation:
+                extra["explanation"] = plan.explanation
             envelope = ResponseEnvelope.from_decision(
                 plan.decision,
                 _envelope_type(plan.decision, milestone),

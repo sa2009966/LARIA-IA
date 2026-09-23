@@ -201,6 +201,8 @@ class LearningEvidenceProjector:
         missed: list[str] = []
         concept_results: list[tuple[str, float]] = []
 
+        etiquetados = 0
+        sin_etiquetar = 0
         if self._quiz_repo is not None and self._attempt_repo is not None:
             quiz = await self._quiz_repo.find_by_id(event.quiz_id)
             attempt = await self._attempt_repo.find_by_id(event.aggregate_id)
@@ -213,8 +215,14 @@ class LearningEvidenceProjector:
                         else False
                     )
                     item_ratio = 1.0 if ok else 0.0
-                    tags = tagged.concept_tags or ("general",)
-                    for tag in tags:
+                    if not tagged.concept_tags:
+                        # Ítem sin concepto conocido: cuenta para el mastery del
+                        # documento, pero no se le inventa un concepto al que
+                        # atribuirle evidencia (ADR-011).
+                        sin_etiquetar += 1
+                        continue
+                    etiquetados += 1
+                    for tag in tagged.concept_tags:
                         concept_results.append((tag, item_ratio))
                         if not ok:
                             missed.append(tag)
@@ -242,6 +250,12 @@ class LearningEvidenceProjector:
             if self._metrics:
                 self._metrics.incr("profile_updates", source="quiz")
                 self._metrics.incr("laria_quiz_attempts")
+                # Cobertura de etiquetado: qué parte de la evidencia sabe a qué
+                # concepto pertenece. Si esto cae, el perfil se vuelve ciego.
+                if etiquetados:
+                    self._metrics.incr("laria_quiz_items", etiquetados, tagged="yes")
+                if sin_etiquetar:
+                    self._metrics.incr("laria_quiz_items", sin_etiquetar, tagged="no")
                 self._metrics.observe("laria_quiz_score_ratio", ratio)
                 weak = len(profile.weakest_concepts(limit=20, use_effective=True))
                 mastered = len(profile.mastered_concepts(limit=50))
