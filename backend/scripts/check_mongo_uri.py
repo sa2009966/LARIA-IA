@@ -6,8 +6,10 @@ funcione, y que el servicio lo esté usando. `/ready` con `mongodb: "skipped"`
 significa que la app **no intentó conectarse** (`DB_PROVIDER` no es `mongodb`),
 no que el cluster falle.
 
-    # la URI se lee del entorno para que no quede en el historial del shell
-    export MONGODB_URL='mongodb+srv://usuario:clave@cluster.xxxxx.mongodb.net/...'
+    # La URI se lee del entorno. No la escribas en este archivo: una cadena
+    # mongodb+srv con usuario, clave y host .mongodb.net dispara el escáner
+    # de secretos de GitHub aunque usuario y clave sean de mentira.
+    export MONGODB_URL   # cópiala del dashboard de Atlas, solo en tu shell o .env
     python scripts/check_mongo_uri.py
 
     # o con la configuración del backend ya cargada (.env)
