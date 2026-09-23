@@ -115,7 +115,9 @@ class QuizService:
             )
 
         questions = ensure_quiz_quality(list(generated.questions))
-        questions = self._tagger.tag_questions(questions, concepts or decision.focus_concepts)
+        questions = self._tagger.tag_questions(
+            questions, concepts or decision.focus_concepts, subject=document.subject
+        )
         quiz = QuizAggregate.create(document_id, user_id, questions)
         await self._quiz_repo.save(quiz)
 

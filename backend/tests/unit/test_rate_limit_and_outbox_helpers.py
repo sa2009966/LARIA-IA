@@ -15,11 +15,12 @@ def test_rate_rules_prefer_ia_paths():
     assert _match_rule("/api/v1/documents/", "GET")[0] == "/api/v1/documents/"
 
 
-def test_sliding_window_memory():
+@pytest.mark.asyncio
+async def test_sliding_window_memory():
     c = SlidingWindowCounter()
-    assert c.allow("k", 2, 60)
-    assert c.allow("k", 2, 60)
-    assert not c.allow("k", 2, 60)
+    assert await c.allow("k", 2, 60)
+    assert await c.allow("k", 2, 60)
+    assert not await c.allow("k", 2, 60)
 
 
 @pytest.mark.asyncio

@@ -315,13 +315,16 @@ async def test_readiness_redis_ok(monkeypatch):
     monkeypatch.setattr(settings, "REDIS_URL", "redis://localhost:6379/0")
 
     mock_client = MagicMock()
-    mock_client.ping.return_value = True
+    mock_client.ping = AsyncMock(return_value=True)
+    mock_client.aclose = AsyncMock()
     mock_redis_mod = MagicMock()
     mock_redis_mod.Redis.from_url.return_value = mock_client
-    with patch.dict("sys.modules", {"redis": mock_redis_mod}):
+    # `redis.asyncio`: el ping síncrono bloqueaba el event loop en /ready.
+    with patch.dict("sys.modules", {"redis.asyncio": mock_redis_mod}):
         resp = await readiness_check()
     assert resp.status_code == 200
     assert '"redis":"ok"' in resp.body.decode()
+    mock_client.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -334,9 +337,12 @@ async def test_readiness_redis_failure_returns_503(monkeypatch):
     monkeypatch.setattr(settings, "RATE_LIMIT_BACKEND", "memory")
     monkeypatch.setattr(settings, "REDIS_URL", "redis://localhost:6379/0")
 
+    # Se parchea `redis.asyncio`, que es lo que importa `/ready`. Parchear
+    # `redis` a secas hacía que el resultado dependiera de si otro test había
+    # importado el submódulo antes: pasaba en la suite y fallaba en aislado.
     mock_redis_mod = MagicMock()
     mock_redis_mod.Redis.from_url.side_effect = ConnectionError("redis down")
-    with patch.dict("sys.modules", {"redis": mock_redis_mod}):
+    with patch.dict("sys.modules", {"redis.asyncio": mock_redis_mod}):
         resp = await readiness_check()
     assert resp.status_code == 503
     assert "error:ConnectionError" in resp.body.decode()
@@ -400,3 +406,44 @@ async def test_lifespan_cancels_outbox_worker(monkeypatch):
         with patch("src.main._outbox_worker_loop", side_effect=_hang):
             async with lifespan(app):
                 pass
+
+
+@pytest.mark.asyncio
+async def test_readiness_reporta_el_almacen_por_defecto(monkeypatch):
+    """Sin R2, `/ready` dice `blob` en vez de callar: el despliegue es verificable."""
+    from src.infrastructure.config import settings
+    from src.main import readiness_check
+
+    monkeypatch.setattr(settings, "DB_PROVIDER", "memory")
+    monkeypatch.setattr(settings, "RATE_LIMIT_BACKEND", "memory")
+    monkeypatch.setattr(settings, "CACHE_BACKEND", "memory")
+    monkeypatch.setattr(settings, "ORIGINAL_STORAGE", "blob")
+
+    resp = await readiness_check()
+
+    assert resp.status_code == 200
+    assert '"storage":"blob"' in resp.body.decode()
+
+
+@pytest.mark.asyncio
+async def test_readiness_degrada_si_r2_no_responde(monkeypatch):
+    """Si los originales no se pueden guardar, subir material falla: eso es 503."""
+    from src.infrastructure.config import settings
+    from src.interfaces.api import dependencies as deps
+    from src.main import readiness_check
+
+    monkeypatch.setattr(settings, "DB_PROVIDER", "memory")
+    monkeypatch.setattr(settings, "RATE_LIMIT_BACKEND", "memory")
+    monkeypatch.setattr(settings, "CACHE_BACKEND", "memory")
+    monkeypatch.setattr(settings, "ORIGINAL_STORAGE", "r2")
+
+    class AlmacenCaido:
+        async def ping(self):
+            raise ConnectionError("bucket inalcanzable")
+
+    monkeypatch.setattr(deps, "get_original_blob_store", lambda: AlmacenCaido())
+
+    resp = await readiness_check()
+
+    assert resp.status_code == 503
+    assert "r2:error:ConnectionError" in resp.body.decode()

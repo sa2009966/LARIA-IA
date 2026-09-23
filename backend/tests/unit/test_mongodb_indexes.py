@@ -55,7 +55,9 @@ async def test_ensure_all_indexes_creates_schema_indexes():
     assert db.quiz_attempts.create_index.await_count == 2
     assert db.tutor_interactions.create_index.await_count == 2
     assert db.tutor_sessions.create_index.await_count == 2
-    assert db.event_outbox.create_index.await_count == 2
+    # El tercero sostiene la reclamación atómica del worker (processed_at +
+    # claimed_at + created_at).
+    assert db.event_outbox.create_index.await_count == 3
     assert db.chats.create_index.await_count == 2
     db.chats.create_index.assert_any_await("owner_id")
     db.chats.create_index.assert_any_await("updated_at")

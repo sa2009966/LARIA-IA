@@ -100,12 +100,29 @@ async def _warm_embodiment_stubs() -> None:
     get_sensor_input()
 
 
-async def _ensure_mongo_indexes() -> None:
+async def _ensure_mongo_indexes(attempts: int = 3, delay_seconds: float = 2.0) -> None:
+    """Crea los índices al arrancar, con reintentos y sin tumbar el proceso.
+
+    Un blip de red con Atlas al arrancar no puede dejar el servicio sin nacer:
+    antes, cualquier excepción aquí rompía el `lifespan` y Render entraba en
+    bucle de reinicio. Si tras los reintentos sigue fallando, el servicio
+    arranca degradado y `/ready` lo reporta con 503, que es su trabajo.
+    """
     if settings.DB_PROVIDER != "mongodb":
         return
     from src.infrastructure.mongodb.indexes import ensure_all_indexes
 
-    await ensure_all_indexes()
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            await ensure_all_indexes()
+            if attempt > 1:
+                _logger.info("mongo_indexes_ready attempt=%d", attempt)
+            return
+        except Exception:  # noqa: BLE001
+            if attempt >= attempts:
+                _logger.exception("mongo_indexes_failed attempts=%d", attempts)
+                return
+            await asyncio.sleep(delay_seconds)
 
 
 async def _outbox_worker_loop(stop: asyncio.Event) -> None:
@@ -261,17 +278,37 @@ async def readiness_check():
         or (settings.CACHE_BACKEND or "").lower() == "redis"
     )
     if redis_needed:
+        client = None
         try:
-            import redis
+            from redis.asyncio import Redis
 
-            client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
-            client.ping()
+            client = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+            await client.ping()
             checks["redis"] = "ok"
         except Exception as exc:  # noqa: BLE001
             checks["redis"] = f"error:{type(exc).__name__}"
             ready = False
+        finally:
+            if client is not None:
+                await client.aclose()
     else:
         checks["redis"] = "skipped"
+
+    # Almacén de archivos originales: sin él, subir material falla. Se reporta
+    # siempre para que el despliegue sea verificable desde fuera.
+    almacen = (settings.ORIGINAL_STORAGE or "blob").lower().strip()
+    if almacen == "r2":
+        try:
+            from src.interfaces.api.dependencies import get_original_blob_store
+
+            await get_original_blob_store().ping()
+            checks["storage"] = "r2:ok"
+        except Exception as exc:  # noqa: BLE001
+            checks["storage"] = f"r2:error:{type(exc).__name__}"
+            ready = False
+    else:
+        checks["storage"] = "blob"
+
     status = "ready" if ready else "degraded"
     code = 200 if ready else 503
     return JSONResponse(

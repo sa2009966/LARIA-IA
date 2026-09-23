@@ -63,6 +63,36 @@ _PLAIN_CODE_EXTENSIONS = {
 }
 _BINARY_SUFFIXES = {".pdf", ".docx", ".xlsx", ".pptx"}
 
+#: Tipo MIME del archivo **original**, para servirlo tal cual se subió. Lo sabe
+#: este módulo porque es el que ya conoce los formatos; el router solo transporta.
+_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".md": "text/markdown; charset=utf-8",
+    ".markdown": "text/markdown; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
+    ".xml": "text/xml; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".htm": "text/html; charset=utf-8",
+}
+
+
+def content_type_for(filename: str) -> str:
+    """MIME con el que devolver el archivo original.
+
+    El código y los textos planos salen como `text/plain`: se muestran en el
+    navegador y no se descargan como binario opaco.
+    """
+    ext = "." + extension_of(filename)
+    if ext in _CONTENT_TYPES:
+        return _CONTENT_TYPES[ext]
+    if ext in _TEXT_SUFFIXES or ext in _PLAIN_CODE_EXTENSIONS:
+        return "text/plain; charset=utf-8"
+    return "application/octet-stream"
+
 
 def _input_key_factory() -> re.Pattern:
     return re.compile(r".+\.\w+$")

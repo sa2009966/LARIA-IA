@@ -1,66 +1,128 @@
-# Deploy en Render — demo efímera (NO producción)
+# Deploy en Render
 
-> **Etiqueta:** el blueprint de [`render.yaml`](../../render.yaml) es una **demo efímera**.
-> Usa `APP_ENV=development`, `DB_PROVIDER=memory`, `EVENT_BUS_BACKEND=memory` y
-> `ENABLE_DOCS=true`. Los datos **no persisten** entre reinicios ni sleep del plan free.
+> **Estado del servicio público hoy (2026-09-18):** corre como **demo efímera**. `/ready` devuelve
+> `mongodb: "skipped"` y `redis: "skipped"`, es decir `DB_PROVIDER=memory`: usuarios, documentos,
+> chats y **perfiles cognitivos se borran** en cada reinicio o sleep del plan free.
 >
-> **Producción real** = Docker Compose local/servidor propio con Mongo + Redis +
-> `APP_ENV=production` (`ENABLE_DOCS=false`, `EVENT_BUS_BACKEND=outbox`,
-> `RATE_LIMIT_BACKEND=redis`, `CACHE_BACKEND=redis`). Ver
-> [`production-checklist.md`](./production-checklist.md).
->
-> **Staging recomendado:** misma forma Compose/prod en un VPS de equipo (secrets distintos).
-> No usar Render free como staging con datos reales.
+> El blueprint [`render.yaml`](../../render.yaml) ya declara la forma persistente
+> (Atlas + Upstash); el servicio vivo **no la tiene aplicada**. Cerrar esa brecha es la
+> [fase 1 del plan de corrección](4_PLAN_CORRECCION.md).
+
+## Los dos escalones
+
+| | Demo efímera (lo que hay) | Persistente (fase 1) | Producción (fase 3) |
+|---|---|---|---|
+| `APP_ENV` | `development` | `development` | `production` |
+| `DB_PROVIDER` | `memory` | `mongodb` (Atlas) | `mongodb` |
+| `RATE_LIMIT_BACKEND` / `CACHE_BACKEND` | `memory` | `redis` (Upstash) | `redis` |
+| `EVENT_BUS_BACKEND` | `memory` | `memory` | `outbox` |
+| `ENABLE_DOCS` | `true` | `true` | `false` |
+| Los datos sobreviven | no | sí | sí |
+
+El salto a `production` va **después** porque su fail-fast exige `EVENT_BUS_BACKEND=outbox`, y el
+outbox necesita el claim atómico de la fase 3 para ser seguro con más de una réplica.
+
+## Fase 1 — pasar a persistente
+
+### 1. Aprovisionar
+
+- **MongoDB Atlas M0** (free): crea el clúster, un usuario de base de datos con contraseña larga y
+  copia la cadena `mongodb+srv://…`. Nombre de base: `laria_db`.
+- **Redis en Upstash** (free): crea la base y copia la URL `rediss://…`.
+
+### 2. Variables en Render (Dashboard → el servicio → Environment)
+
+| Variable | Valor | Nota |
+|----------|-------|------|
+| `DB_PROVIDER` | `mongodb` | el interruptor que hace persistir todo |
+| `MONGODB_URL` | `mongodb+srv://…` | secreto; nunca en git |
+| `MONGODB_DB_NAME` | `laria_db` | |
+| `MONGODB_TIMEOUT_MS` | `10000` | 3 s (default local) se queda corto contra Atlas en frío: SRV + TLS + tier compartido |
+| `RATE_LIMIT_BACKEND` | `redis` | rate limit compartido entre réplicas |
+| `CACHE_BACKEND` | `redis` | recupera la economía de tokens de `LlmGate` entre reinicios |
+| `REDIS_URL` | `rediss://…` | secreto |
+| `CORS_ORIGINS` | `["https://laria-frontend.vercel.app"]` | orígenes exactos, sin barra final |
+
+El resto (`APP_ENV`, `ENABLE_DOCS`, `EVENT_BUS_BACKEND`) **no se toca todavía**.
+
+### 3. Allowlist de Atlas
+
+Render free no da IP de salida fija, así que Atlas necesita `0.0.0.0/0` en Network Access. Es un
+riesgo aceptado a cambio de credenciales largas y un usuario con permisos solo sobre `laria_db`.
+Cuando el servicio pase a un plan con IP estática, se acota.
+
+### 4. Redeploy y verificar
+
+```bash
+python backend/scripts/verify_deployment.py https://laria-ia.onrender.com \
+    --expect-mongodb --expect-redis
+```
+
+Debe terminar con *"Todo lo exigido se cumple"* y salida `0`. Mientras siga en memoria, el script
+lo dice con todas las letras y devuelve `1`.
+
+### 5. Probar la persistencia de verdad
+
+Un `/ready` en verde prueba que hay conexión, no que los datos sobrevivan. La prueba es en dos
+tiempos, con un redeploy o un sleep en medio:
+
+```bash
+python backend/scripts/verify_deployment.py <url> --register
+# … redeploy manual en Render, o esperar a que se duerma y despertarlo …
+python backend/scripts/verify_deployment.py <url> --login <email> <password>
+```
+
+**Cerrado cuando** el segundo comando dice `persistencia · el usuario sobrevivió al reinicio`.
+
+### 6. Decidir el arranque en frío
+
+El plan free duerme a los ~15 min sin tráfico y el primer request tarda ~20-25 s (medido). Opciones,
+por orden de honestidad: subir de plan, o un ping externo cada 10 min. Sin una de las dos, el primer
+turno de cada sesión parece una plataforma caída.
+
+## Comportamiento del arranque (lo que ya no te va a tumbar el servicio)
+
+- **Índices:** `_ensure_mongo_indexes()` reintenta 3 veces y, si Atlas no responde, **deja arrancar
+  el servicio degradado** en vez de romper el `lifespan`. Antes, un blip de red al arrancar dejaba a
+  Render en bucle de reinicio. El estado real se ve en `/ready` (503 si Mongo falla).
+- **Rate limit:** el contador Redis es asíncrono y, si Redis se cae, degrada al contador en memoria
+  del proceso en lugar de devolver 500. El `health check` de Render apunta a `/health`, que es
+  liveness: un Mongo caído no provoca reinicios en cadena.
 
 ## Qué hay en el repo
 
 | Archivo | Rol |
 |---------|-----|
-| [`render.yaml`](../../render.yaml) | Blueprint **demo** (`LARIA_DEPLOY_TIER=demo`, memory, plan free; servicio `laria-backend`) |
+| [`render.yaml`](../../render.yaml) | Blueprint del servicio `laria-backend` (rama `feature/backend`, auto-deploy) |
 | [`Dockerfile`](../Dockerfile) | Imagen; escucha `$PORT` (Render) o `8000` |
+| [`scripts/verify_deployment.py`](../scripts/verify_deployment.py) | Verificación externa del despliegue |
+| [`scripts/deploy-render-api.sh`](../scripts/deploy-render-api.sh) | Deploy por API con `RENDER_API_KEY` |
 
-## Pasos (GitHub ya conectado)
+## Alta desde cero (Blueprint)
 
-1. Sube/pushea `feature/backend` con `render.yaml` en la raíz del repo.
-2. En [Render Dashboard](https://dashboard.render.com/) → **New** → **Blueprint**.
-3. Elige el repo `sa2009966/LARIA-IA`, rama `feature/backend`, path `render.yaml`.
-4. En variables pendientes, pega tu **`OPENAI_API_KEY`**.
-5. Configura **`CORS_ORIGINS`** con los orígenes exactos del frontend, sin
-   barra final. Para el frontend publicado de LARIA:
-   `["https://laria-frontend.vercel.app","http://localhost:4321"]`
-6. **Apply** / Deploy. Espera el build (~3–8 min en free).
-7. URL pública actual: `https://laria-ia.onrender.com` (el blueprint nombra el servicio `laria-backend`; el subdominio real lo muestra Render).
-8. Prueba: `GET https://laria-ia.onrender.com/health` y `GET https://laria-ia.onrender.com/ready`
-9. En el frontend (Vercel): `PUBLIC_LARIA_API_URL=https://laria-ia.onrender.com`
+1. Render Dashboard → **New** → **Blueprint** → repo `sa2009966/LARIA-IA`, rama `feature/backend`,
+   path `render.yaml`.
+2. Rellena los `sync: false`: `OPENAI_API_KEY`, `MONGODB_URL`, `REDIS_URL`.
+3. Ajusta `CORS_ORIGINS` a los orígenes reales del front.
+4. **Apply**. Build de ~3–8 min en free.
+5. Verifica con el script de arriba.
 
-`feature/backend` tiene **auto-deploy**. Un `git push` a esa rama actualiza el demo público. El hook Cursor (`.cursor/hooks/`) pide confirmación; `.githooks/pre-push` exige pytest en verde y bloquea force-push. Instalar el hook git en cada clon:
-
-```bash
-ln -sfn ../../.githooks/pre-push .git/hooks/pre-push
-```
+Ajustes del servicio: Root Directory `backend` · Dockerfile `./Dockerfile` · Start
+`sh -c 'uvicorn src.main:app --host 0.0.0.0 --port $PORT'` · Health Check `/health` · Branch
+`feature/backend` (auto-deploy: un push actualiza el público).
 
 ## Notas
 
-- Plan **free** se duerme sin tráfico; el primer request puede tardar ~1 min.
-- **Persistencia en Render:** el Web Service en la nube **no puede** usar el Mongo Docker de tu laptop (`localhost`). Este proyecto **no usa MongoDB Atlas**. En Render la demo sigue con `DB_PROVIDER=memory` (datos no persisten entre reinicios) hasta que exista un Mongo **alcanzable desde Render** (host propio / túnel / otro proveedor). Desarrollo local: Docker Compose + `DB_PROVIDER=mongodb` + GridFS.
-- Uploads grandes (hasta 200 MiB vía GridFS) requieren Mongo; en `memory` el blob queda solo en proceso.
-- No subas `.env` ni keys a git; solo variables en el dashboard de Render.
-
-## Deploy automático vía API (opcional)
-
-Si tienes una API Key de Render (`rnd_...`):
-
-```bash
-cd ~/Descargas/Laria_ia/LARIA-IA
-export RENDER_API_KEY='rnd_...'   # Account Settings → API Keys
-./backend/scripts/deploy-render-api.sh
-```
-
-El script lee `OPENAI_API_KEY` de `backend/.env` (gitignored), genera `SECRET_KEY`, crea/actualiza `laria-backend` y dispara el deploy. **No imprime secretos.**
-
-
-Root Directory: `backend`  
-Dockerfile Path: `./Dockerfile` (con root `backend`) o `backend/Dockerfile` desde la raíz del repo  
-Start / Docker Command: `sh -c 'uvicorn src.main:app --host 0.0.0.0 --port $PORT'`  
-Health Check Path: `/health`  
-Branch: `feature/backend`
+- Los uploads **requieren** Mongo para persistir; en `memory` el blob vive solo en el proceso.
+- **Archivos originales en Cloudflare R2** (opcional, recomendado): Atlas M0 son 512 MB para *todo*,
+  así que los originales conviene sacarlos del cluster. Variables: `ORIGINAL_STORAGE=r2`,
+  `R2_ENDPOINT_URL` (`https://<account_id>.r2.cloudflarestorage.com`, el endpoint de la S3 API, no
+  `r2.dev`), `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`. El arranque falla si pones
+  `r2` y falta alguna: mejor no arrancar que perder el archivo del alumno en el primer upload.
+  Verificación: `python backend/scripts/check_r2.py` (escribe, lee, borra; no imprime secretos).
+- No subas `.env` ni claves a git: solo variables en el dashboard.
+- El hook `.githooks/pre-push` exige pytest en verde antes de empujar a `feature/backend`, que es la
+  rama que despliega. Instalarlo en cada clon:
+  ```bash
+  ln -sfn ../../.githooks/pre-push .git/hooks/pre-push
+  ```

@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo import ReturnDocument
 
 from src.domain.events.domain_events import (
     DomainEvent,
@@ -29,6 +30,12 @@ from src.infrastructure.mongodb.database import get_database
 logger = logging.getLogger(__name__)
 
 _SUPPORTED = frozenset({"QuizAttemptCompletedEvent", "TutorQuestionAskedEvent"})
+
+#: Cuánto dura una reclamación antes de que otro worker pueda retomar el evento.
+#: Si el proceso muere a mitad de un handler, el evento no queda atrapado para
+#: siempre: se vuelve a reclamar pasado este plazo. Re-procesar es seguro porque
+#: el perfil deduplica por `event_id`.
+DEFAULT_LEASE_SECONDS = 60.0
 
 
 def _utc_now() -> datetime:
@@ -144,9 +151,11 @@ class MongoOutboxEventBus(EventBus):
         self,
         database: AsyncIOMotorDatabase | None = None,
         metrics: MetricsPort | None = None,
+        lease_seconds: float = DEFAULT_LEASE_SECONDS,
     ) -> None:
         self._database = database
         self._metrics = metrics
+        self._lease_seconds = max(1.0, float(lease_seconds))
         self._subscribers: dict[type, list[Callable[[DomainEvent], Any]]] = {}
 
     async def _get_db(self) -> AsyncIOMotorDatabase:
@@ -164,6 +173,7 @@ class MongoOutboxEventBus(EventBus):
                 "payload": payload,
                 "created_at": _utc_now(),
                 "processed_at": None,
+                "claimed_at": None,
                 "attempts": 0,
                 "last_error": None,
             }
@@ -176,15 +186,38 @@ class MongoOutboxEventBus(EventBus):
         db = await self._get_db()
         return int(await db.event_outbox.count_documents({"processed_at": None}))
 
+    async def _claim_next(self, db) -> dict | None:
+        """Reclama en exclusiva el evento pendiente más antiguo.
+
+        `find_one_and_update` es atómico: dos réplicas —o dos procesos durante
+        un rolling deploy— no pueden llevarse el mismo evento. Antes se leían
+        los pendientes y se marcaban *después* de procesarlos, así que la
+        ventana entre lectura y marca permitía proyectar dos veces la misma
+        interacción.
+        """
+        now = _utc_now()
+        caducadas = now - timedelta(seconds=self._lease_seconds)
+        return await db.event_outbox.find_one_and_update(
+            {
+                "processed_at": None,
+                "$or": [
+                    {"claimed_at": None},
+                    {"claimed_at": {"$exists": False}},
+                    {"claimed_at": {"$lt": caducadas}},
+                ],
+            },
+            {"$set": {"claimed_at": now}},
+            sort=[("created_at", 1)],
+            return_document=ReturnDocument.AFTER,
+        )
+
     async def process_pending(self, limit: int = 20) -> int:
         db = await self._get_db()
-        cursor = (
-            db.event_outbox.find({"processed_at": None})
-            .sort("created_at", 1)
-            .limit(limit)
-        )
         processed = 0
-        async for row in cursor:
+        for _ in range(max(1, int(limit))):
+            row = await self._claim_next(db)
+            if row is None:
+                break
             event = _deserialize(row)
             if event is None:
                 await db.event_outbox.update_one(
@@ -221,6 +254,10 @@ class MongoOutboxEventBus(EventBus):
                     {"_id": row["_id"]},
                     {
                         "$inc": {"attempts": 1},
+                        # La reclamación NO se suelta aquí: el reintento espera
+                        # a que caduque el lease. Soltarla en el acto hacía que
+                        # el mismo evento se reintentara en bucle dentro del
+                        # propio lote, quemándolo entero con un solo fallo.
                         "$set": {"last_error": str(exc)[:500]},
                     },
                 )

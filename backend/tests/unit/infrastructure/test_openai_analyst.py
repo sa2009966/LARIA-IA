@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from src.domain.aggregates.document_aggregate import DocumentAggregate
+from src.domain.ports.chat_title_generator import TitleMessage
+from src.domain.ports.ia_analyst import IAAnalysisError
 from src.domain.value_objects.analysis_result import AnalysisResult
 from src.domain.value_objects.question import Quiz
 from src.infrastructure.openai.openai_ia_analyst import OpenAIAnalyst
@@ -91,3 +93,24 @@ async def test_generate_quiz_con_valores_por_defecto(analyst: OpenAIAnalyst):
         quiz = await analyst.generate_quiz(doc)
 
     assert quiz.questions[0].difficulty == "medium"
+
+
+@pytest.mark.asyncio
+async def test_generate_chat_title_limpia_etiqueta_y_limita_tokens(analyst: OpenAIAnalyst):
+    messages = [TitleMessage(role="user", content="¿Qué es la fotosíntesis?")]
+
+    with patch.object(analyst, "_chat", AsyncMock(return_value="Título: Fotosíntesis vegetal")) as chat:
+        title = await analyst.generate_chat_title(messages)
+
+    assert title == "Fotosíntesis vegetal"
+    assert chat.await_args.kwargs["max_tokens"] == 20
+    assert chat.await_args.kwargs["task"] == "title"
+
+
+@pytest.mark.asyncio
+async def test_generate_chat_title_rejects_invalid_word_count(analyst: OpenAIAnalyst):
+    messages = [TitleMessage(role="user", content="Explícame álgebra")]
+
+    with patch.object(analyst, "_chat", AsyncMock(return_value="Álgebra")):
+        with pytest.raises(IAAnalysisError):
+            await analyst.generate_chat_title(messages)
