@@ -26,13 +26,14 @@ from src.domain.services.response_envelope import (
 
 
 def _control_flow_payload(adaptation: AdaptationParameters) -> dict:
-    """Familia control-flow: orquestación, no prompt.
+    """Pistas de orquestación para el cliente, con y sin streaming.
 
-    Viaja en el envelope para que la UI aplique la misma orquestación con y sin
-    streaming (ADR-004, Decisión 3).
+    `chunk_explanation` solo lo puede aplicar quien pinta. `practice_before_advance`
+    **ya viene aplicado en el prompt** desde el ADR-015 y se sigue emitiendo para
+    que la UI pueda destacar el ejercicio: es información, no una orden.
     """
     return {
-        "practice_before_advance": adaptation.control_flow.practice_before_advance,
+        "practice_before_advance": adaptation.prompt_shaping.practice_before_advance,
         "chunk_explanation": adaptation.control_flow.chunk_explanation,
     }
 

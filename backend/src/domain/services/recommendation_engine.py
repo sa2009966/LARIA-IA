@@ -1,4 +1,20 @@
-"""Motor de recomendaciones pedagógicas."""
+"""Motor de recomendaciones pedagógicas.
+
+Tres reglas que este módulo garantiza, aprendidas al ejercitarlo por primera vez
+con perfiles realistas (fase F):
+
+1. **Un concepto aparece una sola vez.** Antes la deduplicación era por
+   `(kind, concepto, documento)`, así que el mismo concepto salía como
+   "olvidado", como "prioridad de repaso" y como "repasa" — tres filas que
+   dicen lo mismo. Una lista de diez recomendaciones sobre tres conceptos no es
+   una lista de diez recomendaciones.
+2. **Lo que bloquea se dice, no se multiplica en silencio.** Un concepto débil
+   que impide avanzar valía `×1.2` de prioridad y nada más; ahora se nombra lo
+   que desbloquea, que es la única forma de que el estudiante entienda por qué
+   se le pide repasar algo que no preguntó.
+3. **El tiempo sugerido se calcula sobre la lista final.** Sumarlo antes de
+   deduplicar contaba el mismo concepto varias veces e inflaba la cifra.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -75,26 +91,32 @@ class RecommendationEngine:
                 continue
             entry = profile.mastery_by_concept.get(concept)
             conf = entry.confidence if entry else 0.0
-            blocker = 1.2 if self._is_blocking_prereq(concept, profile) else 1.0
-            priority = (1.0 - mastery) * (1.1 - 0.3 * conf) * blocker
-            recs.append(
-                LearningRecommendation(
-                    kind="review_priority",
-                    message=f"Prioridad de repaso: {concept}.",
-                    concept=concept,
-                    priority=priority,
-                    suggested_minutes=int(8 + 25 * (1.0 - mastery)),
+            bloqueados = self._blocked_by(concept, profile)
+            priority = (1.0 - mastery) * (1.1 - 0.3 * conf) * (1.2 if bloqueados else 1.0)
+            minutos = int(8 + 25 * (1.0 - mastery))
+            if bloqueados:
+                recs.append(
+                    LearningRecommendation(
+                        kind="unblock",
+                        message=(
+                            f"Repasa {concept}: es lo que te está frenando en "
+                            f"{', '.join(bloqueados)}."
+                        ),
+                        concept=concept,
+                        priority=priority,
+                        suggested_minutes=minutos,
+                    )
                 )
-            )
-            recs.append(
-                LearningRecommendation(
-                    kind="review_concept",
-                    message=f"Repasa: {concept}.",
-                    concept=concept,
-                    priority=priority * 0.95,
-                    suggested_minutes=int(8 + 20 * (1.0 - mastery)),
+            else:
+                recs.append(
+                    LearningRecommendation(
+                        kind="review_priority",
+                        message=f"Prioridad de repaso: {concept}.",
+                        concept=concept,
+                        priority=priority,
+                        suggested_minutes=minutos,
+                    )
                 )
-            )
 
         # Next topic (prereqs OK, mastery medio)
         for key, cm in profile.mastery_by_concept.items():
@@ -130,19 +152,6 @@ class RecommendationEngine:
                     concept=concept,
                     priority=0.2,
                     suggested_minutes=5,
-                )
-            )
-
-        # Study time aggregate
-        top = sorted(recs, key=lambda r: r.priority, reverse=True)[:3]
-        if top:
-            total_min = sum(r.suggested_minutes or 10 for r in top)
-            recs.append(
-                LearningRecommendation(
-                    kind="study_time",
-                    message=f"Tiempo sugerido de estudio hoy: ~{total_min} minutos.",
-                    priority=0.55,
-                    suggested_minutes=total_min,
                 )
             )
 
@@ -189,24 +198,47 @@ class RecommendationEngine:
                     )
                 )
 
-        # Deduplicate by (kind, concept, document), keep highest priority
+        # Un concepto, una recomendación: la clave es el concepto, no el `kind`.
+        # Con la clave anterior, "olvidado", "prioridad de repaso" y "repasa"
+        # eran tres filas del mismo concepto y llenaban el tope de diez.
         best: dict[tuple, LearningRecommendation] = {}
         for r in recs:
-            key = (r.kind, r.concept, r.document_id)
+            key = ("concept", r.concept) if r.concept else (r.kind, r.document_id)
             prev = best.get(key)
             if prev is None or r.priority > prev.priority:
                 best[key] = r
-        return sorted(best.values(), key=lambda x: x.priority, reverse=True)[:10]
 
-    def _is_blocking_prereq(self, concept: str, profile: StudentProfile) -> bool:
-        # Si otros conceptos lo requieren y está débil, es bloqueante
-        for other in profile.mastery_by_concept:
-            gate = self._gate.evaluate(other, profile)
-            # Solo los huecos MEDIDOS priorizan repaso: `missing_prereqs`
-            # ahora incluye prerrequisitos sin evidencia (ADR-006).
-            if concept in gate.measured_gaps:
-                return True
-        return False
+        final = sorted(best.values(), key=lambda x: x.priority, reverse=True)[:9]
+        if final:
+            total_min = sum(r.suggested_minutes or 10 for r in final[:3])
+            final.append(
+                LearningRecommendation(
+                    kind="study_time",
+                    message=f"Tiempo sugerido de estudio hoy: ~{total_min} minutos.",
+                    priority=0.55,
+                    suggested_minutes=total_min,
+                )
+            )
+        return sorted(final, key=lambda x: x.priority, reverse=True)
+
+    def _blocked_by(self, concept: str, profile: StudentProfile) -> tuple[str, ...]:
+        """Qué conceptos tiene este delante, y por tanto está frenando.
+
+        Mira **hacia adelante en el grafo**, no solo entre lo que el estudiante
+        ya ha tocado. Antes se recorría `mastery_by_concept`, así que un hueco
+        solo contaba como bloqueante si el concepto bloqueado ya tenía
+        evidencia — justo lo que no ocurre cuando el alumno aún no ha llegado
+        ahí. El caso típico se perdía entero: quien falla el orden de las
+        operaciones no ha intentado todavía despejar una ecuación.
+        """
+        graph = self._gate.graph
+        canon = graph.canonicalize(concept)
+        bloqueados = [
+            sucesor
+            for sucesor in graph.successors_of(canon)
+            if canon in self._gate.evaluate(sucesor, profile).measured_gaps
+        ]
+        return tuple(bloqueados[:2])
 
     def _find_ready_successor(self, concept: str, profile: StudentProfile) -> str | None:
         graph = self._gate.graph

@@ -110,7 +110,11 @@ class Settings(BaseSettings):
 
     # Motor adaptativo (ADR-004). Son hipótesis nombradas, no constantes:
     # se calibran con datos de outcome, no se tocan a ojo.
-    ADAPT_SHADOW_MODE: bool = True  # computa señales sin inyectarlas al prompt
+    # Falso desde la fase D: la adaptación llega al prompt y `payload.explanation`
+    # se le muestra al estudiante. Poner True vuelve al modo sombra —señales
+    # computadas, prompt intacto—, que es el interruptor para apagarla sin
+    # desplegar código si algo sale mal en producción.
+    ADAPT_SHADOW_MODE: bool = False
     ADAPT_BAND_LOW: float = 0.34
     ADAPT_BAND_HIGH: float = 0.67
     ADAPT_CUT_ABANDONMENT: float = 0.55
