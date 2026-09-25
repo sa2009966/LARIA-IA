@@ -210,11 +210,13 @@ class LearningEvidenceProjector:
         sin_etiquetar = 0
         tema_nivelacion: str | None = None
         ronda_nivelacion: str | None = None
+        etiqueta_nivelacion: str | None = None
         if self._quiz_repo is not None and self._attempt_repo is not None:
             quiz = await self._quiz_repo.find_by_id(event.quiz_id)
             if quiz is not None:
                 tema_nivelacion = quiz.topic
                 ronda_nivelacion = quiz.placement_round
+                etiqueta_nivelacion = quiz.topic_label
             attempt = await self._attempt_repo.find_by_id(event.aggregate_id)
             if quiz is not None and attempt is not None:
                 for i, question in enumerate(quiz.questions):
@@ -267,7 +269,9 @@ class LearningEvidenceProjector:
                         ratio,
                         PlacementLevel(guardado) if guardado else None,
                     )
-                    profile.record_placement(tema_nivelacion, nivel.value)
+                    profile.record_placement(
+                        tema_nivelacion, nivel.value, etiqueta_nivelacion
+                    )
             else:
                 profile.record_quiz_result(
                     document_id=event.document_id,

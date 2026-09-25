@@ -71,6 +71,8 @@ debe degradar con elegancia**: `payload.mode ?? null`, nunca `payload.mode.toUpp
 | `content` | sí | El texto a mostrar. Lo escribe el modelo |
 | `grounded` | sí | `true` = el turno pasó por el motor con material; `false` = conversación libre, **no prometas tutoría adaptativa** |
 | `intent` | sí | Intención detectada: `learn`, `quiz`, `hint`, `celebrate`, `general` |
+| `topic_hint` | cuando se detecta | Tema del mensaje. Si el estudiante pidió aprender uno, **tal como lo escribió** (con tildes): es lo que se le muestra |
+| `suggest_placement` | solo si `true` | El estudiante pidió aprender un **tema** ("quiero aprender X", "me enseñas X"), no preguntó un concepto. Es la señal para ofrecer nivelación con `POST /quizzes/diagnostic {topic: topic_hint}` ([ADR-017](adr/ADR-017-nivelacion-por-rondas.md)). **No uses `intent == "learn"` para eso**: salta también con "qué es" o "define". En un chat **sin material**, el propio texto del tutor ya ofrece la nivelación (sin hacer él las preguntas) en vez de recomendar recursos externos: tu botón y su frase dicen lo mismo |
 | `mode` | solo con material | `explain` · `socratic` · `scaffold` · `practice` |
 | `difficulty` | solo con material | `easy` · `medium` · `hard` |
 | `cognitive_style` | solo con material | `simple` · `technical` · `mathematical` · `analogy` · `visual` · `step_by_step` |

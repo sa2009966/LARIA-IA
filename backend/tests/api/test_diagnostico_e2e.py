@@ -175,6 +175,7 @@ async def test_aprobar_las_dos_rondas_deja_al_estudiante_en_avanzado(client: Tes
     r1 = _responder(client, headers, base, todas)
     assert r1["placement"] == {
         "topic": "ecuaciones lineales",
+        "topic_label": "Ecuaciones",
         "round": "base",
         "level": "intermedio",
         "passed": True,
@@ -219,6 +220,38 @@ def test_suspender_la_avanzada_no_ofrece_repetirla_en_bucle(client: TestClient):
 
     assert r["placement"]["level"] == "intermedio"
     assert r["placement"]["has_next_round"] is False
+
+
+def test_el_nivel_llega_al_cliente_en_el_perfil(client: TestClient):
+    """Se guardaba en el perfil pero `GET /learning/me/profile` no lo devolvía:
+    el cliente no tenía forma de mostrarle al estudiante su nivel."""
+    headers, _ = _auth(client)
+    assert client.get("/api/v1/learning/me/profile", headers=headers).json()["level_by_topic"] == {}
+
+    _responder(client, headers, _pedir(client, headers), todas)
+
+    perfil = client.get("/api/v1/learning/me/profile", headers=headers).json()
+    assert perfil["level_by_topic"] == {"ecuaciones lineales": "intermedio"}
+
+
+def test_el_tema_se_muestra_con_sus_tildes(client: TestClient):
+    """`topic` es la clave y va sin tildes a propósito; el cliente pinta `topic_label`.
+
+    En la prueba contra producción salía "electronica" y "astronomia": la clave,
+    que no está hecha para enseñarse.
+    """
+    headers, _ = _auth(client)
+
+    quiz = _pedir(client, headers, tema="electrónica")
+    assert quiz["topic"] == "electronica"
+    assert quiz["topic_label"] == "Electrónica"
+
+    r = _responder(client, headers, quiz, todas)
+    assert r["placement"]["topic_label"] == "Electrónica"
+
+    perfil = client.get("/api/v1/learning/me/profile", headers=headers).json()
+    assert perfil["level_by_topic"] == {"electronica": "intermedio"}
+    assert perfil["topic_labels"] == {"electronica": "Electrónica"}
 
 
 def test_el_nivel_se_reconoce_lo_escriba_como_lo_escriba(client: TestClient):

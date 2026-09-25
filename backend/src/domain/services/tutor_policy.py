@@ -16,6 +16,31 @@ if TYPE_CHECKING:  # pragma: no cover - solo para tipos
     from src.domain.services.diagnostic_planner import DiagnosticPlan
 
 
+def _oferta_de_nivelacion(tema: str | None) -> str:
+    """Qué hace el tutor cuando le piden aprender un tema sin material.
+
+    Respondía recomendando tutoriales, cursos gratuitos o elegir Python: mandaba
+    al estudiante fuera del producto justo cuando decía que quería aprender. Aquí
+    se le orienta y se le ofrece nivelarse, que es lo que el sistema sabe hacer.
+
+    Las preguntas de la nivelación NO las hace el modelo en el chat: las presenta
+    la plataforma y se califican en el servidor. Si las hiciera el modelo, las
+    respuestas no dejarían evidencia y el estudiante las contestaría dos veces.
+    """
+    if not tema:
+        return ""
+    return (
+        f" El estudiante quiere aprender «{tema}», y LARIA es donde lo va a "
+        "aprender: no le recomiendes cursos, tutoriales, libros, vídeos ni otras "
+        "plataformas. En tres o cuatro frases, cuéntale de forma atractiva qué "
+        "abarca el tema y por dónde suele empezarse. Después ofrécele una "
+        "nivelación rápida —unas pocas preguntas para ver qué sabe ya y empezar por "
+        "su nivel—. No hagas tú esas preguntas en este mensaje: se las presentará la "
+        "plataforma si acepta. Si el tema es muy amplio, sugiérele además acotarlo "
+        "(por ejemplo, qué época de la historia o qué lenguaje de programación)."
+    )
+
+
 @dataclass(frozen=True)
 class ChatPrompt:
     system: str
@@ -123,18 +148,34 @@ class TutorPolicy:
         question: str,
         decision: PedagogicalDecision | None = None,
         adaptation: PromptShapingParameters | None = None,
+        *,
+        learning_topic: str | None = None,
     ) -> ChatPrompt:
         """Único punto de inyección de la familia prompt-shaping.
 
         Lo consumen por igual el path de streaming y el de no-streaming, así que
         la adaptación no puede divergir entre ambos (ADR-004, Decisión 3).
+
+        `learning_topic`: el estudiante pidió aprender ese tema (ADR-017). Solo
+        cambia el modo libre: con material, el motor pedagógico ya decide.
         """
         if decision is None:
+            # Sin material el contexto llega vacío. Pedir "basarse únicamente en
+            # el contexto" era una instrucción imposible, y el modelo respondía
+            # lo que se le ocurría.
+            fuente = (
+                "Responde basándote únicamente en el contexto proporcionado. "
+                if context.strip()
+                else "No hay material vinculado: responde con tu conocimiento, con "
+                "rigor y sin inventar datos. "
+            )
             system = (
-                "Eres un tutor educativo. Responde la pregunta del estudiante basándote "
-                "únicamente en el contexto proporcionado. Sé claro y conciso. "
+                "Eres un tutor educativo de LARIA. "
+                f"{fuente}"
+                "Sé claro y conciso. "
                 "Si el estudiante muestra confusión, aclara con un ejemplo breve sin "
                 "entregar la respuesta completa de un examen."
+                f"{_oferta_de_nivelacion(learning_topic)}"
             )
         else:
             focus = ", ".join(decision.focus_concepts) or "los conceptos del documento"

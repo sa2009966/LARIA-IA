@@ -361,6 +361,8 @@ class StudentProfile:
     # alguna vez discrepa del mastery manda el mastery, que se mide de forma
     # continua. Este se recalcula en la siguiente nivelación.
     level_by_topic: dict[str, str] = field(default_factory=dict)
+    #: Cómo mostrar cada tema de `level_by_topic` (mismas claves).
+    topic_labels: dict[str, str] = field(default_factory=dict)
     updated_at: datetime = field(default_factory=_utc_now)
     version: int = 0
 
@@ -482,12 +484,14 @@ class StudentProfile:
         """Nivel alcanzado en un tema, o None si nunca se niveló."""
         return self.level_by_topic.get(_norm_concept(topic))
 
-    def record_placement(self, topic: str, level: str) -> None:
+    def record_placement(self, topic: str, level: str, label: str | None = None) -> None:
         """Guarda el veredicto de una ronda de nivelación (ADR-017)."""
         clave = _norm_concept(topic)
         if not clave or not level:
             return
         self.level_by_topic[clave] = level
+        if label:
+            self.topic_labels[clave] = label
         self.updated_at = _utc_now()
 
     def record_diagnostic_result(

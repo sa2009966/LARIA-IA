@@ -22,6 +22,7 @@ class QuizPublicDTO:
     #: El tema diagnosticado. Va al final y con default para no obligar a
     #: reescribir a todo el que ya construía este DTO con material.
     topic: str | None = None
+    topic_label: str | None = None
 
 
 @dataclass
@@ -38,6 +39,7 @@ class PlacementResultDTO:
     """Veredicto de una ronda de nivelación (ADR-017)."""
 
     topic: str
+    topic_label: str
     round: str
     level: str
     passed: bool
@@ -137,3 +139,6 @@ class StudentProfileDTO:
     total_struggle_signals: int = 0
     learning_velocity: float = 0.0
     pedagogical_memory: PedagogicalMemoryDTO | None = None
+    #: Veredicto de nivelación por tema (ADR-017).
+    level_by_topic: dict[str, str] = field(default_factory=dict)
+    topic_labels: dict[str, str] = field(default_factory=dict)

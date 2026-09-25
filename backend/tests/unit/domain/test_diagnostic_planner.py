@@ -147,3 +147,29 @@ def test_un_tema_vacio_es_un_error_util():
 
 def test_el_mismo_tema_y_ronda_producen_el_mismo_plan():
     assert plan_diagnostic("derivadas", grafo()) == plan_diagnostic("derivadas", grafo())
+
+
+# --- La etiqueta para mostrar --------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "escrito, etiqueta",
+    [
+        ("electrónica", "Electrónica"),
+        ("historia de México", "Historia de México"),
+        ("  química   orgánica? ", "Química orgánica"),
+        ("ecuaciones", "Ecuaciones"),
+    ],
+)
+def test_la_etiqueta_conserva_lo_que_escribio(escrito, etiqueta):
+    """Tildes y mayúsculas intactas; solo se ordena y se pone mayúscula inicial."""
+    from src.domain.services.diagnostic_planner import display_label
+
+    assert display_label(escrito) == etiqueta
+
+
+def test_la_clave_y_la_etiqueta_son_cosas_distintas():
+    plan = plan_diagnostic("electrónica", grafo())
+
+    assert plan.topic == "electronica", "la clave une variantes: va sin tildes"
+    assert plan.label == "Electrónica", "la etiqueta se muestra: va con tildes"

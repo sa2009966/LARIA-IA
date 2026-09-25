@@ -41,6 +41,8 @@ class QuizAggregate:
     #: Sin esto el projector no puede distinguir un intento de nivelación
     #: de un quiz normal, y no sabría qué veredicto escribir.
     placement_round: str | None = None
+    #: Cómo se le muestra el tema al estudiante (ver `DiagnosticPlan.label`).
+    topic_label: str | None = None
     owner_id: UUID = field(default_factory=uuid4)
     questions: list[QuizQuestion] = field(default_factory=list)
     created_at: datetime = field(default_factory=_utc_now)
@@ -53,6 +55,7 @@ class QuizAggregate:
         questions: list[QuizQuestion],
         topic: str | None = None,
         placement_round: str | None = None,
+        topic_label: str | None = None,
     ) -> "QuizAggregate":
         if not questions:
             raise ValueError("Un quiz debe tener al menos una pregunta")
@@ -74,6 +77,7 @@ class QuizAggregate:
             document_id=document_id,
             topic=(topic or "").strip() or None,
             placement_round=placement_round,
+            topic_label=topic_label,
             owner_id=owner_id,
             questions=normalized,
         )

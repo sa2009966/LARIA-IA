@@ -82,8 +82,18 @@ superó lo básico, la **avanzada**: 8 ítems, 3 medios y 5 difíciles. **No man
 ronda**: el cliente no lleva estado.
 
 ```json
-{ "id": "…", "document_id": null, "topic": "ecuaciones lineales", "questions": [ … ] }
+{
+  "id": "…",
+  "document_id": null,
+  "topic": "ecuaciones lineales",
+  "topic_label": "Ecuaciones",
+  "questions": [ … ]
+}
 ```
+
+`topic` es la **clave** del tema: sin tildes a propósito, para que "Electrónica" y
+"electronica" sean el mismo. **Para mostrar, usa `topic_label`**, que es lo que
+escribió el estudiante con sus tildes.
 
 **Responderla.** Como cualquier quiz, y la respuesta trae el veredicto:
 
@@ -97,6 +107,7 @@ POST /api/v1/quizzes/{id}/attempts
   "score": 60, "total_points": 60,
   "placement": {
     "topic": "ecuaciones lineales",
+    "topic_label": "Ecuaciones",
     "round": "base",
     "level": "intermedio",
     "passed": true,
@@ -116,9 +127,10 @@ Cuatro cosas que respetar:
    tiene por qué nivelarse. El patrón: responderle *y además* proponer.
 2. **`document_id` viene `null`** en todo lo que sale de una nivelación —el quiz,
    el intento y su entrada en el historial—. Si tu modelo lo asume presente, rompe.
-3. **Muestra `topic`, no lo que escribió el alumno.** El currículum canoniza:
-   "ecuaciones" pasa a "ecuaciones lineales". Es el mismo tema, y es el nombre con
-   el que se guarda el nivel.
+3. **Muestra `topic_label`, identifica con `topic`.** `topic` es la clave
+   canónica —"ecuaciones" pasa a "ecuaciones lineales", y sin tildes—; es con la
+   que se guarda el nivel. `topic_label` es para pintar. En el perfil,
+   `level_by_topic` y `topic_labels` comparten claves.
 4. **No es un examen.** Quedar en `básico` no es suspender: es el dato que hace que
    el resto de la sesión se ajuste. Presentarlo así cambia cómo lo vive.
 

@@ -27,11 +27,16 @@ class Intention:
     intent: TutorIntent
     confidence: float  # 0..1
     topic_hint: str | None = None  # concepto detectado en la pregunta
+    #: El estudiante pidió aprender un TEMA, no preguntó un concepto suelto. Es la
+    #: señal para ofrecerle nivelación (ADR-017). Más estrecha que `LEARN`, que
+    #: también salta con "qué es" o "define": ofrecer un diagnóstico a cada
+    #: pregunta conceptual sería ruido.
+    suggest_placement: bool = False
 
 
 _LEARN = re.compile(
     r"\b(?:qu[eé]\s+es|qu[eé]\s+son|qu[eé]\s+significa|expl[ií]ca(?:r|rme|me)?|"
-    r"ense[ñn]a(?:r)?|d[eé]fin(?:e|ici[oó]n)?|concepto de|qu[ií]ero\s+aprender|"
+    r"ens[eé][ñn]a(?:r|rme|me|s)?|d[eé]fin(?:e|ici[oó]n)?|concepto de|qu[ií]ero\s+aprender|"
     r"introdu[cç](?:e|ir)?|empecemos|por\s+d[oó]nde|ay[úu]dame\s+a\s+entender|"
     r"quiero\s+entender|vamos\s+a\s+ver)\b",
     re.IGNORECASE,
@@ -46,6 +51,45 @@ _CELEBRATE = re.compile(
     r"lo\s+logre|perfecto|bien|listo|continuemos|d[aá]le)\b",
     re.IGNORECASE,
 )
+
+#: Pedir aprender un tema, no preguntar un concepto. "¿Qué es una variable?" es
+#: una duda; "quiero aprender álgebra" es un punto de partida. Solo lo segundo
+#: justifica ofrecer una nivelación.
+_WANTS_TO_LEARN = re.compile(
+    r"\b(?:quiero\s+(?:aprender|estudiar|entender)|"
+    # "ensé" con tilde: sin ella "enséñame" no se reconocía.
+    r"(?:me\s+)?(?:puedes\s+)?ens[eé][ñn]a(?:s|r|rme|me)?|"
+    r"empecemos\s+con|"
+    r"por\s+d[oó]nde\s+empiezo\s+(?:con|en))\b\s*(?P<resto>.*)$",
+    re.IGNORECASE,
+)
+#: Relleno entre el verbo y el tema: "quiero aprender SOBRE LA historia".
+_RELLENO = re.compile(
+    r"^(?:(?:sobre|acerca\s+de|de|a|el|la|los|las|lo|un|una|algo\s+de|"
+    r"qu[eé]\s+es|c[oó]mo\s+funciona|un\s+poco\s+de)\s+)+",
+    re.IGNORECASE,
+)
+#: "…por favor" no es parte del tema.
+_CORTESIA = re.compile(r"[\s,]*(?:por\s+favor|porfa(?:vor)?|pls|please)\s*$", re.IGNORECASE)
+_MAX_TEMA = 60
+
+
+def _tema_pedido(texto: str) -> str | None:
+    """El tema tal como lo escribió el estudiante, si pidió aprender uno.
+
+    Conserva su forma —tildes, mayúsculas— porque es lo que se le va a mostrar.
+    La canonización para buscar en el currículum la hace quien lo consuma.
+    """
+    m = _WANTS_TO_LEARN.search(texto)
+    if not m:
+        return None
+    resto = re.split(r"[?.!¿¡\n]", m.group("resto"), maxsplit=1)[0]
+    resto = _RELLENO.sub("", resto.strip()).strip(" ,;:")
+    resto = _CORTESIA.sub("", resto).strip(" ,;:")
+    if not resto:
+        return None
+    return resto[:_MAX_TEMA].rsplit(" ", 1)[0] if len(resto) > _MAX_TEMA else resto
+
 
 # Conceptos frecuentes al pedir aprender (heurística ligera, reuso del detector)
 _TOPIC_PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -75,20 +119,27 @@ class IntentDetector:
         if not text:
             return Intention(TutorIntent.NONE, 0.0, None)
 
-        topic = next(
+        # El tema escrito por el estudiante manda sobre la lista fija: la lista
+        # solo conoce doce conceptos, y "quiero aprender historia" no traía tema.
+        pedido = _tema_pedido(text)
+        topic = pedido or next(
             (label for pattern, label in _TOPIC_PATTERNS if pattern.search(text)),
             None,
         )
+        ofrecer = pedido is not None
 
         # Señal de ayuda/confusión tiene prioridad: pedir ayuda ≠ aprender.
         signal = self._signal.detect(text)
         if signal.kind.value in ("confusion", "help", "novice"):
-            return Intention(TutorIntent.HINT, signal.strength, topic)
+            # "Soy principiante, quiero aprender X" es justo a quien más le
+            # sirve nivelarse: la oferta sobrevive aunque la intención sea HINT.
+            return Intention(TutorIntent.HINT, signal.strength, topic, ofrecer)
 
         if _QUIZ.search(text):
             return Intention(TutorIntent.QUIZ, 0.9, topic)
-        if _LEARN.search(text):
-            return Intention(TutorIntent.LEARN, 0.8, topic)
+        # Pedir aprender un tema es LEARN aunque la frase no encaje en _LEARN.
+        if ofrecer or _LEARN.search(text):
+            return Intention(TutorIntent.LEARN, 0.8, topic, ofrecer)
         if _CELEBRATE.search(text):
             return Intention(TutorIntent.CELEBRATE, 0.6, topic)
         return Intention(TutorIntent.GENERAL, 0.4, topic)

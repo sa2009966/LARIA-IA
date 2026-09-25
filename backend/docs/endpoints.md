@@ -43,6 +43,7 @@ Todos requieren JWT. Solo el **propietario** opera sobre el recurso. Ajeno/inexi
 | `POST` | `/api/v1/documents/upload` | Subir archivo multipart (`file`, `subject`, `filename` opcional; hasta 25 MiB). Formatos: texto (`.txt`, `.md`, `.csv`, `.json`, `.log`), código, PDF, `.docx`, `.xlsx`, `.pptx`. Formato no soportado → **422** |
 | `GET` | `/api/v1/documents/` | Listar mis documentos |
 | `GET` | `/api/v1/documents/{document_id}` | Obtener uno propio |
+| `GET` | `/api/v1/documents/{document_id}/content` | **El archivo original**, con su `Content-Type`, para previsualizar o descargar. Solo el dueño; ajeno o inexistente → `404` (no `403`, para no confirmar que existe). Sin original guardado → su texto extraído como `text/plain`. `.html`/`.xml` se sirven como `text/plain` (servirlos inline desde la API sería XSS). Requiere `Authorization: Bearer`: usar `fetch` + `URL.createObjectURL`, porque `<img src>`/`<iframe src>` no mandan la cabecera |
 | `DELETE` | `/api/v1/documents/{document_id}` | Eliminar (`204`) |
 | `POST` | `/api/v1/documents/{document_id}/analyze` | Análisis IA (cachea resultado; `force_refresh=true` opcional) |
 | `POST` | `/api/v1/documents/{document_id}/ask` | Pregunta tutor sobre el documento (registra evidencia) |

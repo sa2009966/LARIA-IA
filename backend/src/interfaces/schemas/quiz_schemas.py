@@ -15,8 +15,10 @@ class QuizPublicResponse(BaseModel):
     id: str
     #: `null` en un diagnóstico de entrada: no nace de material (ADR-016).
     document_id: str | None = None
-    #: El tema diagnosticado. `null` en un quiz sobre material.
+    #: El tema diagnosticado: la CLAVE, sin tildes. `null` en un quiz sobre material.
     topic: str | None = None
+    #: El tema para mostrar, como lo escribió el estudiante ("Electrónica").
+    topic_label: str | None = None
     questions: list[QuizQuestionPublicItem]
     total_points: int
     created_at: datetime
@@ -57,6 +59,7 @@ class PlacementResult(BaseModel):
     """Veredicto de una ronda de nivelación (ADR-017)."""
 
     topic: str
+    topic_label: str = Field(description="El tema para mostrar, con tildes")
     round: str = Field(description="`base` o `avanzada`")
     level: str = Field(description="`basico`, `intermedio` o `avanzado`")
     passed: bool
@@ -153,3 +156,9 @@ class StudentProfileResponse(BaseModel):
     total_struggle_signals: int = 0
     learning_velocity: float = 0.0
     pedagogical_memory: PedagogicalMemoryItem | None = None
+    #: Tema canónico → `basico` | `intermedio` | `avanzado`. Vacío si nunca se
+    #: niveló. Es un resumen para la ruta: si discrepa del mastery, manda el
+    #: mastery (ADR-017).
+    level_by_topic: dict[str, str] = {}
+    #: Cómo mostrar cada clave de `level_by_topic` (mismas claves, con tildes).
+    topic_labels: dict[str, str] = {}

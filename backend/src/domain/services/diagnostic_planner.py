@@ -69,6 +69,9 @@ class DiagnosticPlan:
     round: PlacementRound
     concepts: tuple[str, ...]
     rungs: tuple[DiagnosticRung, ...]
+    #: Cómo mostrárselo al estudiante. `topic` es la clave —sin tildes, para que
+    #: "Electrónica" y "electronica" sean el mismo tema— y no sirve para pintar.
+    label: str = ""
 
     @property
     def total_items(self) -> int:
@@ -78,6 +81,16 @@ class DiagnosticPlan:
     def prerequisites(self) -> tuple[str, ...]:
         """Los conceptos del plan que no son el tema pedido."""
         return tuple(c for c in self.concepts if c != self.topic)
+
+
+def display_label(typed: str) -> str:
+    """El tema como lo escribió el estudiante, listo para mostrar.
+
+    Se conservan tildes y mayúsculas ("historia de México"); solo se ordenan los
+    espacios y se pone mayúscula inicial para que se lea como un título.
+    """
+    limpio = " ".join((typed or "").split()).strip(" .,;:!?¡¿")
+    return limpio[:1].upper() + limpio[1:] if limpio else ""
 
 
 def round_for(level: PlacementLevel | None) -> PlacementRound:
@@ -165,4 +178,5 @@ def plan_diagnostic(
         round=round_,
         concepts=(tema,) + prereqs,
         rungs=rungs,
+        label=display_label(topic),
     )

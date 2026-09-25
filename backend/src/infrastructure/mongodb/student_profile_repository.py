@@ -70,6 +70,7 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             "applied_event_ids": list(profile.applied_event_ids),
             "celebrated_concepts": list(profile.celebrated_concepts),
             "level_by_topic": dict(profile.level_by_topic),
+            "topic_labels": dict(profile.topic_labels),
             "pedagogical_memory": {
                 "frequent_misconceptions": list(mem.frequent_misconceptions),
                 "successful_examples": list(mem.successful_examples),
@@ -154,6 +155,7 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             applied_event_ids=list(doc.get("applied_event_ids") or []),
             celebrated_concepts=list(doc.get("celebrated_concepts") or []),
             level_by_topic=dict(doc.get("level_by_topic") or {}),
+            topic_labels=dict(doc.get("topic_labels") or {}),
             last_interaction_at=doc.get("last_interaction_at"),
             last_answer_length=int(doc.get("last_answer_length", 0)),
             adaptive_signals=signals,

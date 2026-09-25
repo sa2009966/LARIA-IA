@@ -184,7 +184,12 @@ class QuizService:
         # omite la evidencia se perdería sin que nadie lo note.
         questions = self._tagger.tag_questions(questions, plan.concepts)
         quiz = QuizAggregate.create(
-            None, user_id, questions, topic=plan.topic, placement_round=ronda.value
+            None,
+            user_id,
+            questions,
+            topic=plan.topic,
+            placement_round=ronda.value,
+            topic_label=plan.label,
         )
         await self._quiz_repo.save(quiz)
 
@@ -295,6 +300,7 @@ class QuizService:
         nivel = resolve_placement(ronda, ratio, previo)
         return PlacementResultDTO(
             topic=quiz.topic,
+            topic_label=quiz.topic_label or quiz.topic,
             round=ronda.value,
             level=nivel.value,
             passed=ratio >= PASSING_RATIO,
@@ -306,6 +312,7 @@ class QuizService:
             id=quiz.id,
             document_id=quiz.document_id,
             topic=quiz.topic,
+            topic_label=quiz.topic_label,
             questions=[
                 QuizQuestionPublicDTO(
                     index=i,

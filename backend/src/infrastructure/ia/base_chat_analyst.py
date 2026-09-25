@@ -170,16 +170,30 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         )
 
     async def answer_question(
-        self, context: str, question: str, decision=None, adaptation=None
+        self, context: str, question: str, decision=None, adaptation=None, *, learning_topic=None
     ) -> str:
         return await self.answer_question_with_model(
-            context, question, decision, model=self.model, adaptation=adaptation
+            context,
+            question,
+            decision,
+            model=self.model,
+            adaptation=adaptation,
+            learning_topic=learning_topic,
         )
 
     async def answer_question_with_model(
-        self, context: str, question: str, decision=None, *, model: str, adaptation=None
+        self,
+        context: str,
+        question: str,
+        decision=None,
+        *,
+        model: str,
+        adaptation=None,
+        learning_topic=None,
     ) -> str:
-        prompt = self._policy.answer_question(context, question, decision, adaptation)
+        prompt = self._policy.answer_question(
+            context, question, decision, adaptation, learning_topic=learning_topic
+        )
         return await self._chat(prompt.system, prompt.user, model=model)
 
     async def answer_question_stream(
@@ -189,6 +203,8 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         decision=None,
         model: str | None = None,
         adaptation=None,
+        *,
+        learning_topic=None,
     ):
         """Genera la respuesta del tutor en streaming (yield de tokens).
 
@@ -196,7 +212,9 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         trozo de contenido a medida que llega. Si el proveedor no está
         configurado para streaming (no stream), se degrada a `answer_question`.
         """
-        prompt = self._policy.answer_question(context, question, decision, adaptation)
+        prompt = self._policy.answer_question(
+            context, question, decision, adaptation, learning_topic=learning_topic
+        )
         use_model = model or self.model
         payload = {
             "model": use_model,

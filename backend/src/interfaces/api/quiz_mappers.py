@@ -7,6 +7,7 @@ def quiz_to_public_response(quiz) -> QuizPublicResponse:
         id=str(quiz.id),
         document_id=str(quiz.document_id) if quiz.document_id else None,
         topic=getattr(quiz, "topic", None),
+        topic_label=getattr(quiz, "topic_label", None),
         questions=[
             QuizQuestionPublicItem(
                 index=q.index,

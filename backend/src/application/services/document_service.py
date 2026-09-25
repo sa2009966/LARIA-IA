@@ -5,6 +5,7 @@ from typing import Optional
 from src.application.concurrency import with_concurrency_retry
 from src.application.dto.document_dto import DocumentDTO, UploadDocumentDTO, DocumentListDTO
 from src.application.file_parser import content_type_for, is_supported, parse_file
+from dataclasses import dataclass
 from src.domain.aggregates.document_aggregate import DocumentAggregate
 from src.domain.ports.document_blob_store import DocumentBlobStore
 from src.domain.ports.event_bus import EventBus
@@ -171,6 +172,56 @@ class DocumentService:
             raise PermissionError("No tienes permiso para ver este documento")
         return self._to_dto(doc)
 
+    async def get_original(
+        self, document_id: UUID, requesting_user_id: UUID
+    ) -> "OriginalFile":
+        """El archivo tal como se subió, para previsualizarlo o descargarlo.
+
+        Tres orígenes, en orden:
+
+        1. **El original**, en su almacén (R2 en producción, ADR-012).
+        2. **El almacén de texto con el mismo id**, si el original no aparece:
+           los documentos subidos antes de pasar a R2 guardaron el original en
+           GridFS, y su id no existe en R2. Sin este paso, todo lo anterior al
+           cambio de almacén daría 404.
+        3. **El texto extraído**, como `text/plain`, si nunca hubo original: los
+           documentos anteriores al ADR-012 y los creados enviando texto. El visor
+           muestra algo legible en vez de un error.
+        """
+        doc = await self._doc_repo.find_by_id(document_id)
+        if doc is None:
+            raise ValueError("Documento no encontrado")
+        if not doc.is_owned_by(requesting_user_id):
+            raise PermissionError("Documento no encontrado")
+
+        if doc.original_blob_id:
+            for almacen in (self._original_store, self._blob_store):
+                if almacen is None:
+                    continue
+                try:
+                    datos = await almacen.get(doc.original_blob_id)
+                except KeyError:
+                    continue
+                return OriginalFile(
+                    data=datos,
+                    content_type=doc.original_content_type or content_type_for(doc.filename),
+                    filename=doc.filename,
+                )
+            logger.warning(
+                "original_no_encontrado document=%s blob=%s",
+                doc.id,
+                doc.original_blob_id,
+            )
+
+        texto = doc.content or await self._doc_repo.get_content(document_id)
+        if not texto:
+            raise ValueError("Documento no encontrado")
+        return OriginalFile(
+            data=texto.encode("utf-8"),
+            content_type="text/plain; charset=utf-8",
+            filename=doc.filename,
+        )
+
     async def list_by_owner(self, owner_id: UUID) -> DocumentListDTO:
         docs = await self._doc_repo.find_by_owner(owner_id)
         return DocumentListDTO(
@@ -231,3 +282,12 @@ class DocumentService:
             has_analysis=doc.has_analysis(),
             error_message=doc.error_message,
         )
+
+
+@dataclass(frozen=True)
+class OriginalFile:
+    """Bytes de un documento y cómo servirlos."""
+
+    data: bytes
+    content_type: str
+    filename: str
