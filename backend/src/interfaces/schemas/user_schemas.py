@@ -3,6 +3,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from src.domain.value_objects.password import Password
+
 
 class UserRegisterRequest(BaseModel):
     username: Annotated[str, Field(min_length=2, max_length=64, description="Nombre de usuario visible")]
@@ -10,9 +12,12 @@ class UserRegisterRequest(BaseModel):
     password: Annotated[
         str,
         Field(
-            min_length=12,
+            min_length=Password.MIN_LENGTH,
             max_length=256,
-            description="Mínimo 12 caracteres, mayúsculas, minúsculas y dígito",
+            description=(
+                f"Mínimo {Password.MIN_LENGTH} caracteres, mayúsculas, "
+                "minúsculas y dígito"
+            ),
         ),
     ]
 

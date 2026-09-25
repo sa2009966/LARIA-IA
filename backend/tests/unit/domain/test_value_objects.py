@@ -53,20 +53,36 @@ class TestEmail:
 
 
 class TestPassword:
+    """El mínimo vive en `Password.MIN_LENGTH` y nadie más lo repite.
+
+    Estos ejemplos usaban contraseñas de 8 y 11 caracteres porque el objeto de
+    dominio pedía 8 mientras la API pedía 12. El objeto aceptaba entonces
+    contraseñas que la aplicación siempre rechazaba. Lo que cada test comprueba
+    —mayúsculas, dígito, inmutabilidad— no ha cambiado; solo el número.
+    """
+
     def test_valid_password(self):
-        pw = Password("securePass1")
-        assert pw.value == "securePass1"
+        pw = Password("securePass1x")
+        assert pw.value == "securePass1x"
 
     def test_too_short_password(self):
-        with pytest.raises(ValueError, match="at least 8"):
+        with pytest.raises(ValueError, match=f"at least {Password.MIN_LENGTH}"):
             Password("Ab1")
 
+    def test_el_minimo_no_se_repite_en_ningun_sitio(self):
+        """Si alguien vuelve a escribir el número a mano, esto lo caza."""
+        from src.interfaces.schemas.user_schemas import UserRegisterRequest
+
+        campo = UserRegisterRequest.model_fields["password"]
+        restricciones = [m for m in campo.metadata if hasattr(m, "min_length")]
+        assert restricciones[0].min_length == Password.MIN_LENGTH
+
     def test_weak_password_all_lowercase(self):
-        pw = Password("abcdefgh")
+        pw = Password("abcdefghijkl")
         assert pw.is_weak() is True
 
     def test_weak_password_no_digit(self):
-        pw = Password("Abcdefgh")
+        pw = Password("Abcdefghijkl")
         assert pw.is_weak() is True
 
     def test_strong_password(self):
@@ -74,12 +90,12 @@ class TestPassword:
         assert pw.is_weak() is False
 
     def test_password_str_hidden(self):
-        pw = Password("securePass1")
+        pw = Password("securePass1x")
         assert str(pw) == "****"
         assert repr(pw) == "Password(****)"
 
     def test_password_immutable(self):
-        pw = Password("securePass1")
+        pw = Password("securePass1x")
         with pytest.raises(Exception):
             pw.value = "changed"
 

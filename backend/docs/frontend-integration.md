@@ -65,6 +65,15 @@ POST /api/v1/chats/{chat_id}/messages
 { "role": "user", "content": "¿cómo resuelvo 2x + 3 = 7?" }
 ```
 
+> **`role: "user"` no es "añadir un mensaje": es pedir un turno.** Dispara la llamada al modelo,
+> escribe evidencia en el perfil del estudiante y reinicia su reloj de interacción —el mismo del que
+> salen `long_explanation_abandonment` y `attention_span`—. Una nota decorativa ("📎 Subí el
+> archivo") mandada así se convierte en un turno medido y sesga las señales sin que se note.
+>
+> **Para cualquier mensaje que no deba provocar respuesta, usa `role: "system"`.** Se guarda en el
+> chat y no pasa nada más: ni modelo, ni evento, ni perfil tocado. Cómo lo pintes en la UI es cosa
+> tuya; el `role` solo decide si hay turno.
+
 Devuelve **el chat completo**: tu mensaje y el del tutor ya persistidos. El mensaje `assistant`
 trae el envelope en `metadata`:
 

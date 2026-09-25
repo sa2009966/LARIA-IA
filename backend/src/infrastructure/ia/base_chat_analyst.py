@@ -15,6 +15,9 @@ from src.domain.value_objects.question import Quiz, QuizQuestion
 
 _MSG_PROVEEDOR = "El servicio de IA no está disponible en este momento."
 _MSG_RESPUESTA = "El servicio de IA devolvió una respuesta inválida."
+#: Un título más largo se recorta, no se rechaza: el modelo dio algo usable.
+_MAX_TITLE_WORDS = 7
+_MAX_TITLE_CHARS = 120
 
 
 class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
@@ -112,16 +115,26 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         raw = await self._chat(
             prompt.system,
             prompt.user,
+            # 20 cortaba títulos a media palabra ("Fotosíntesis vege"). Sobran
+            # tokens para siete palabras y la diferencia de coste es ruido.
+            max_tokens=32,
             model=self.model,
-            max_tokens=20,
             task="title",
         )
         title = " ".join(raw.strip().split()).strip("\"'`# ")
         if title.lower().startswith("título:") or title.lower().startswith("titulo:"):
             title = title.split(":", 1)[1].strip()
         words = title.split()
-        if not 2 <= len(words) <= 7 or len(title) > 120:
+        # Solo una respuesta vacía es inservible. Antes se exigían entre 2 y 7
+        # palabras y se lanzaba error fuera de ese rango, así que un título de
+        # una sola palabra —"Agradecimiento", "Álgebra": perfectamente buenos—
+        # devolvía un 502 al cliente. Largo de más se recorta; corto no es un
+        # fallo del proveedor.
+        if not words:
             raise IAAnalysisError(_MSG_RESPUESTA)
+        title = " ".join(words[:_MAX_TITLE_WORDS])
+        if len(title) > _MAX_TITLE_CHARS:
+            title = title[:_MAX_TITLE_CHARS].rsplit(" ", 1)[0].rstrip()
         return title
 
     @staticmethod

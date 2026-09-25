@@ -66,8 +66,10 @@ async def _comprobar(url: str) -> int:
         print(f"  ✓ ping ok · {latencia:.0f} ms de ida y vuelta")
         if latencia > 300:
             print(
-                "    ⚠ más de 300 ms: la región de Upstash está lejos de Render. "
-                "Cada request de auth y de chat paga esto."
+                f"    · {latencia:.0f} ms medidos **desde esta máquina**, no desde Render.\n"
+                "      Lo que importa en producción es la distancia Render↔Upstash: con el\n"
+                "      servicio en Oregon y la base en us-west-2 son pocos ms. Esta\n"
+                "      cifra solo dice lo lejos que estás tú del datacenter."
             )
 
         await cliente.set(CLAVE, "1", ex=5)
@@ -140,9 +142,10 @@ async def _comprobar_rate_limit(cliente) -> bool:
     contador = RedisSlidingWindow(cliente, fallback=_FallbackQueGrita())
     clave = f"check:{uuid4().hex[:8]}"
     try:
-        permitidas = sum(
-            1 for _ in range(5) if await contador.allow(clave, limit=3, window_seconds=60)
-        )
+        permitidas = 0
+        for _ in range(5):
+            if await contador.allow(clave, limit=3, window_seconds=60):
+                permitidas += 1
     except RuntimeError as exc:
         print(f"  ✗ {exc}", file=sys.stderr)
         return False

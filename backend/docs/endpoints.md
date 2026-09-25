@@ -71,10 +71,10 @@ turno es conversación libre y no sustituye al tutor grounded.
 |--------|------|-------------|
 | `GET` | `/api/v1/chats/` | Listar mis chats |
 | `POST` | `/api/v1/chats/` | Crear chat (`title`, `document_id` opcional) |
-| `POST` | `/api/v1/chats/generate-title` | Generar un título breve desde 1–5 mensajes; no modifica ningún chat |
+| `POST` | `/api/v1/chats/generate-title` | Generar un título breve desde 1–5 mensajes; no modifica ningún chat. De 1 a 7 palabras: más largo se recorta, y solo una respuesta vacía del proveedor da error |
 | `GET` | `/api/v1/chats/{chat_id}` | Chat con sus mensajes |
 | `PUT` | `/api/v1/chats/{chat_id}` | Renombrar o vincular documento |
-| `POST` | `/api/v1/chats/{chat_id}/messages` | Añadir mensaje. Si `role="user"`, **el tutor responde en la misma llamada** y su mensaje queda persistido con el envelope en `metadata` |
+| `POST` | `/api/v1/chats/{chat_id}/messages` | Añadir mensaje. Si `role="user"`, **el tutor responde en la misma llamada**, el turno cuenta como evidencia y su mensaje queda persistido con el envelope en `metadata`. Para una nota que no debe disparar turno, usa `role="system"` |
 | `POST` | `/api/v1/chats/{chat_id}/stream` | Igual, en SSE: `thinking` → `token`(s) → `envelope` → `done` |
 | `POST` | `/api/v1/chats/{chat_id}/quiz` | Cuestionario sobre el **material vinculado al chat** (`num_questions` 1–20). Sin material → `422`. No incluye `correct_answer`: el intento se envía a `POST /quizzes/{id}/attempts` y se califica en servidor |
 | `DELETE` | `/api/v1/chats/{chat_id}` | Eliminar (`204`) |
