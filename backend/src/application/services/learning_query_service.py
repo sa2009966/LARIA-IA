@@ -89,6 +89,8 @@ class LearningQueryService:
             frequent_errors=list(profile.frequent_errors),
             updated_at=profile.updated_at,
             learning_velocity=profile.learning_velocity,
+            level_by_topic=dict(profile.level_by_topic),
+            topic_labels=dict(profile.topic_labels),
             pedagogical_memory=PedagogicalMemoryDTO(
                 frequent_misconceptions=list(mem.frequent_misconceptions),
                 successful_examples=list(mem.successful_examples),

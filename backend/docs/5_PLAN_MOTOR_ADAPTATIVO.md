@@ -17,8 +17,8 @@
 | Arrancar un primer despliegue | **Existe** y está al día; le falta la base de datos |
 | "Los tests pasan con `ADAPT_SHADOW_MODE=False`" como criterio | **Ya se cumplía** antes de tocar nada. No probaba nada: ningún test cubría el prompt adaptado |
 
-Y dos datos corregidos: el grafo semilla tiene **19 conceptos** (no ~23), y la suite son **838 tests**
-(753 era la cifra de hace dos semanas).
+Y dos datos corregidos: el grafo semilla tenía **19 conceptos** (no ~23) —hoy son 57, ver fase E— y
+la suite son **838 tests** (753 era la cifra de hace dos semanas).
 
 ---
 
@@ -102,45 +102,133 @@ porque estabas andamiando"* es explicabilidad de primera.
 
 ---
 
-## Fase D — Encender la adaptación
+## Fase D — Encender la adaptación — ✅ **hecha**
 
-1. **Decidir control-flow**, que hoy se emite sin consumidor: `chunk_explanation` es presentación y
-   se queda en el envelope; `practice_before_advance` es secuencia pedagógica y sube al backend (si
-   está activo y el `session_step` va a avanzar, se fuerza un turno de práctica) **o se borra del
-   payload**. Emitir algo que nadie consume es deuda disfrazada de feature.
-2. `ADAPT_SHADOW_MODE=false`.
+> Entregado: [ADR-015](adr/ADR-015-ofrecer-practica-no-orquestarla.md), `ADAPT_SHADOW_MODE=False`
+> por defecto y 8 tests en `tests/unit/domain/test_prompt_compuesto.py`.
 
-**Cerrado cuando:** existen tests sobre el **prompt compuesto** —no solo sobre la política— y pasan
-con el modo sombra apagado. El criterio viejo ("los tests pasan") ya se cumplía sin haber hecho nada.
+La decisión de producto que bloqueaba la fase se resolvió sola al intentar escribirla. Implementar
+`practice_before_advance` como orquestación significa **forzar un turno de práctica antes de dejar
+avanzar**, y eso es bloquear — exactamente lo que el [ADR-006](adr/ADR-006-oferta-vs-bloqueo.md) le
+negó al gate de prerrequisitos. No hay razón para que la política de adaptación, que corre sobre
+señales *más débiles* que la evidencia del gate, tenga licencia para hacer lo que al gate se le negó.
+
+Así que el parámetro cambia de familia: pasa a prompt-shaping y **ofrece** en vez de orquestar.
+
+> *"Cierra ofreciendo un ejercicio breve para practicar antes de avanzar."*
+
+El estudiante recibe su respuesta **y** la invitación. `chunk_explanation` se queda en control-flow y
+el contrato ahora dice lo que es: una pista para quien pinta, porque el backend no puede trocear lo
+que ya escribió.
+
+`ControlFlowParameters` queda con un solo campo. Es un resultado, no un descuido: casi nada de lo que
+parecía orquestación lo era.
+
+**Cerrado:** existen tests sobre el prompt compuesto, que antes no existían. El criterio viejo ("los
+tests pasan con el modo sombra apagado") se cumplía sin haber hecho nada, porque ninguno miraba la
+cadena que se manda al modelo. Ahora hay uno que falla si alguien cablea la adaptación de forma que
+ya no se pueda apagar por variable de entorno.
 
 ---
 
-## Fase E — Datos que hacen visible el motor · *depende de A*
+## Fase E — Datos que hacen visible el motor — código hecho; falta correrlo contra la base
 
-1. **Poblar el grafo** de la materia de la demo. Hoy son 19 conceptos de álgebra, cálculo y física:
-   con otra materia, `PrerequisiteGate` no dispara nunca y medio motor es invisible. Media jornada,
-   la mejor relación coste/impacto del plan.
-2. **`scripts/seed_demo_profiles.py`** — no existe nada parecido. `min_samples_for_adaptation=5`, así
-   que una cuenta nueva **no adapta**: la demo necesita cuentas con historial y conceptos en los
-   cuatro estados (dominado, débil, olvidado, bloqueado por prerrequisito).
-3. Ejecutar `scripts/migrate_preferred_style.py --apply` y, si hay documentos antiguos,
-   `scripts/migrate_document_blobs.py --apply`.
+> Entregado: el grafo enriquecido (**19 → 57 conceptos**, 30 → 94 aristas),
+> [`scripts/seed_demo_profiles.py`](../scripts/seed_demo_profiles.py) y 17 tests entre
+> `tests/unit/domain/test_semilla_curricular.py` y `tests/scripts/`. Falta el paso 3, que **depende
+> de la fase A**: sin Mongo no hay nada que migrar ni dónde sembrar.
 
-**Cerrado cuando:** una pregunta de la materia de demo dispara `OFFER` o `SEQUENCE` de forma
-observable, y al entrar con una cuenta semilla la adaptación ya está activa.
+### 1. El grafo — hecho
+
+Tenía 19 conceptos y una sola raíz de tres niveles, así que el gate casi nunca escalaba por encima de
+`INTEGRATE`: la evidencia del alumno rara vez caía sobre un prerrequisito declarado. Ahora son 57
+conceptos y 94 aristas, con la columna vertebral del **álgebra escolar** —la materia de la demo— y
+las ramas de cálculo y física que ya existían.
+
+Tres criterios, escritos en el propio archivo de semillas:
+
+1. Una arista es una afirmación pedagógica defendible en voz alta, no completitud temática.
+2. **Una sola raíz** (`número entero`), para que `root_causes()` converja siempre a una base concreta.
+3. Lo **procedimental** depende de la aritmética; lo conceptual, no. `resolver ecuación` necesita
+   `jerarquía de operaciones` porque ahí es donde el alumno falla; `variable` no.
+
+Dos huecos concretos que esto cierra:
+
+- `ConceptTagger` etiquetaba ítems como `operaciones` y `constante`, conceptos **que el grafo no
+  conocía**: esa evidencia se medía y no podía gatear nada. Hay un test que falla si vuelve a pasar.
+- Un alias guardado con tilde (`"límites"`) nunca se encontraba, porque la búsqueda usa la clave
+  plegada. `ConceptGraph` ahora pliega las claves al entrar, así que la semilla no necesita duplicar
+  cada alias acentuado.
+
+### 2. Las cuentas semilla — hecho
+
+`min_samples_for_adaptation=5` y `has_decision_evidence` hacen —correctamente— que una cuenta nueva
+**no adapte nada**. Una demo con cuentas nuevas enseña un tutor genérico.
+
+El guion siembra tres cuentas **por eventos de dominio, a través del projector real**: el mastery, las
+rachas y las señales los calcula el mismo código que corre en producción, así que los números de la
+demo son los que el sistema produciría de verdad. Única excepción, marcada en el código: el estado
+"olvidado" exige que haya pasado tiempo, y el tiempo no se emite como evento — se retrasa
+`last_practiced_at` y nada más; el decaimiento lo sigue calculando el dominio.
+
+| Cuenta | Qué hace visible | Lo que produce hoy |
+|---|---|---|
+| `ana_demo` | dominado + débil, adaptación por impaciencia | `short` + 3 ejemplos: *"Voy al grano porque las explicaciones largas se te hacen cuesta arriba…"* |
+| `bruno_demo` | **bloqueado por prerrequisito** | `SEQUENCE` liderando con `jerarquía de operaciones`, y práctica antes de avanzar |
+| `carla_demo` | **olvidado** (dominó hace 45 días) | `OFFER`, `long` + socrático `high`: *"…te pregunto más de lo que te cuento porque sueles llegar tú a la respuesta"* |
+
+Un hallazgo de calibración del que nadie se había dado cuenta: la confianza de un concepto sube
+**0,08 por observación** y `mastered_concepts` exige 0,55, así que **un concepto no cuenta como
+dominado hasta el séptimo acierto calificado**. Con quizzes de cinco ítems, una demo corta no
+enseñaría ni un concepto dominado ni una sola celebración. Está anotado en el guion, que repite ítems
+para cruzar el umbral; si el umbral es el equivocado, es una decisión de producto, no un bug.
+
+### 3. Migraciones — pendiente, depende de A
+
+`scripts/migrate_preferred_style.py --apply` y, si hay documentos antiguos,
+`scripts/migrate_document_blobs.py --apply`.
+
+**Cerrado cuando:** `python scripts/seed_demo_profiles.py --apply` corre contra la base real y al
+entrar con `ana_demo` la adaptación ya está activa.
+
+### Lo que el grafo profundo dejó al descubierto
+
+Con tres niveles, la causa raíz de un hueco era informativa. Con ocho, y un estudiante **sin nada
+medido**, `root_causes()` devuelve siempre la raíz global: `INTEGRATE` acaba diciendo *"apoya la
+explicación en número entero"* para cualquier pregunta y cualquier alumno. Un valor constante no
+informa de nada.
+
+Para `SEQUENCE` —fallo medido y repetido— atacar la raíz sigue siendo correcto y es lo que hace
+bruno_demo legible. La propuesta sería **distinguir por acción**: raíz para `SEQUENCE` y `OFFER`;
+prerrequisito *inmediato* para `INTEGRATE`. Toca la Decisión 4 del ADR-005, así que pide su propio
+ADR y no se ha hecho aquí.
 
 ---
 
-## Fase F — Ruta de aprendizaje de punta a punta · *depende de E*
+## Fase F — Ruta de aprendizaje de punta a punta — ✅ **hecha**
 
-Ejercitar `RecommendationEngine` con los perfiles semilla. Tiene lógica fina —prioriza por brecha de
-olvido, penaliza baja confianza, multiplica ×1.2 si el concepto bloquea un prerrequisito— y **nunca
-se ha ejercitado con un perfil realista**: hoy son 8 referencias en un solo archivo de tests. Lo que
-va a aparecer son recomendaciones repetidas, mensajes redundantes y prioridades que no ordenan como
-esperas.
+> Entregado: [ADR-014](adr/ADR-014-una-recomendacion-por-concepto.md), el motor corregido y 10 tests
+> en `tests/unit/domain/test_recomendaciones.py`.
 
-**Cerrado cuando:** una cuenta semilla produce al menos tres recomendaciones priorizadas, variadas y
-defendibles en voz alta.
+Apareció exactamente lo que se predijo, y se comprobó ejecutándolo contra las cuentas de la fase E:
+`carla_demo` recibía **diez recomendaciones sobre tres conceptos** —`forgotten`, `review_priority` y
+`review_concept` son tres redacciones del mismo dato— y `bruno_demo`, el estudiante que el gate manda
+secuenciar, recibía dos filas sin que ninguna mencionara que estaba bloqueado.
+
+Cuatro correcciones, razonadas en el ADR-014:
+
+1. **Deduplicar por concepto**, no por `(kind, concepto, documento)`. Un concepto, una fila.
+2. **`review_concept` deja de emitirse**: con la clave nueva perdía siempre.
+3. **`unblock`**: lo que un concepto bloquea se dice en vez de valer un `×1.2` mudo —
+   *"Repasa jerarquia de operaciones: es lo que te está frenando en resolver ecuacion"*.
+4. **Buscar lo bloqueado hacia adelante en el grafo.** Antes se recorría `mastery_by_concept`, así
+   que un hueco solo contaba como bloqueante si el concepto bloqueado ya tenía evidencia — que es
+   justo lo que no pasa cuando el alumno aún no ha llegado ahí. El caso típico se perdía entero.
+
+La lista baja de 10 filas a 3–6, y esa es la mejora: son conceptos distintos en vez de repeticiones.
+
+**Cerrado cuando:** ~~una cuenta semilla produce al menos tres recomendaciones priorizadas, variadas
+y defendibles en voz alta.~~ Cumplido para las tres cuentas.
 
 ---
 

@@ -27,7 +27,13 @@ class IAAnalyst(ABC):
         question: str,
         decision: Optional[PedagogicalDecision] = None,
         adaptation: Optional[PromptShapingParameters] = None,
+        *,
+        learning_topic: Optional[str] = None,
     ) -> str:
+        """`learning_topic`: el estudiante pidió aprender ese tema (ADR-017).
+
+        Opcional y por nombre: quien lo llama solo lo pasa si existe, así que una
+        implementación que no lo declare sigue funcionando sin él."""
         ...
 
     @abstractmethod
@@ -55,5 +61,7 @@ class StreamingIAAnalyst(ABC):
         decision: Optional[PedagogicalDecision] = None,
         model: Optional[str] = None,
         adaptation: Optional[PromptShapingParameters] = None,
+        *,
+        learning_topic: Optional[str] = None,
     ) -> "AsyncIterator[str]":
         ...

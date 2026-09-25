@@ -58,12 +58,100 @@ POST /api/v1/chats/
 libre: sin contexto del material, sin decisión pedagógica y sin evidencia. El envelope lo dice con
 `payload.grounded`.
 
+### 2.bis Nivelación: "quiero aprender X"
+
+Cuando el estudiante dice que quiere aprender algo —**no hace falta que haya subido
+nada**— el tutor puede nivelarlo antes de enseñarle. Son **rondas**: una básica y,
+si la aprueba, una avanzada. Al final queda guardado su nivel en ese tema.
+
+```
+falla la ronda base            → básico
+aprueba la base, falla la 2ª   → intermedio
+aprueba las dos                → avanzado
+```
+
+**Pedir una ronda.** Siempre la misma llamada; el backend sabe cuál toca:
+
+```http
+POST /api/v1/quizzes/diagnostic
+{ "topic": "ecuaciones" }
+```
+
+La primera vez devuelve la ronda **base**: 6 ítems, 4 fáciles y 2 medios. Si ya
+superó lo básico, la **avanzada**: 8 ítems, 3 medios y 5 difíciles. **No mandes la
+ronda**: el cliente no lleva estado.
+
+```json
+{
+  "id": "…",
+  "document_id": null,
+  "topic": "ecuaciones lineales",
+  "topic_label": "Ecuaciones",
+  "questions": [ … ]
+}
+```
+
+`topic` es la **clave** del tema: sin tildes a propósito, para que "Electrónica" y
+"electronica" sean el mismo. **Para mostrar, usa `topic_label`**, que es lo que
+escribió el estudiante con sus tildes.
+
+**Responderla.** Como cualquier quiz, y la respuesta trae el veredicto:
+
+```http
+POST /api/v1/quizzes/{id}/attempts
+{ "answers": { "0": "B", "1": "D", … } }
+```
+
+```json
+{
+  "score": 60, "total_points": 60,
+  "placement": {
+    "topic": "ecuaciones lineales",
+    "topic_label": "Ecuaciones",
+    "round": "base",
+    "level": "intermedio",
+    "passed": true,
+    "has_next_round": true
+  }
+}
+```
+
+**`has_next_round` decide el siguiente paso.** Si es `true`, ofrece la siguiente
+ronda llamando otra vez a `/diagnostic` con el mismo tema. Si es `false`, la
+nivelación terminó y `level` es el veredicto. `placement` solo aparece en rondas de
+nivelación; en un quiz sobre material viene `null`.
+
+Cuatro cosas que respetar:
+
+1. **Ofrecer, no imponer.** Un estudiante que solo quiere una respuesta rápida no
+   tiene por qué nivelarse. El patrón: responderle *y además* proponer.
+2. **`document_id` viene `null`** en todo lo que sale de una nivelación —el quiz,
+   el intento y su entrada en el historial—. Si tu modelo lo asume presente, rompe.
+3. **Muestra `topic_label`, identifica con `topic`.** `topic` es la clave
+   canónica —"ecuaciones" pasa a "ecuaciones lineales", y sin tildes—; es con la
+   que se guarda el nivel. `topic_label` es para pintar. En el perfil,
+   `level_by_topic` y `topic_labels` comparten claves.
+4. **No es un examen.** Quedar en `básico` no es suspender: es el dato que hace que
+   el resto de la sesión se ajuste. Presentarlo así cambia cómo lo vive.
+
+**Por qué importa:** sin nivelar, el motor necesita cinco turnos para empezar a
+adaptarse y siete aciertos por concepto para dar algo por dominado.
+
 ### 3. Turno de tutoría
 
 ```http
 POST /api/v1/chats/{chat_id}/messages
 { "role": "user", "content": "¿cómo resuelvo 2x + 3 = 7?" }
 ```
+
+> **`role: "user"` no es "añadir un mensaje": es pedir un turno.** Dispara la llamada al modelo,
+> escribe evidencia en el perfil del estudiante y reinicia su reloj de interacción —el mismo del que
+> salen `long_explanation_abandonment` y `attention_span`—. Una nota decorativa ("📎 Subí el
+> archivo") mandada así se convierte en un turno medido y sesga las señales sin que se note.
+>
+> **Para cualquier mensaje que no deba provocar respuesta, usa `role: "system"`.** Se guarda en el
+> chat y no pasa nada más: ni modelo, ni evento, ni perfil tocado. Cómo lo pintes en la UI es cosa
+> tuya; el `role` solo decide si hay turno.
 
 Devuelve **el chat completo**: tu mensaje y el del tutor ya persistidos. El mensaje `assistant`
 trae el envelope en `metadata`:

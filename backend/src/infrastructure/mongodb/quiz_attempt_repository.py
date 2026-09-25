@@ -23,7 +23,7 @@ class MongoDBQuizAttemptRepository(QuizAttemptRepository):
         return {
             "_id": str(attempt.id),
             "quiz_id": str(attempt.quiz_id),
-            "document_id": str(attempt.document_id),
+            "document_id": str(attempt.document_id) if attempt.document_id else None,
             "student_id": str(attempt.student_id),
             "answers": {str(k): v for k, v in attempt.answers.items()},
             "per_question_correct": list(attempt.per_question_correct),
@@ -37,7 +37,7 @@ class MongoDBQuizAttemptRepository(QuizAttemptRepository):
         return QuizAttemptAggregate(
             id=UUID(doc["_id"]),
             quiz_id=UUID(doc["quiz_id"]),
-            document_id=UUID(doc["document_id"]),
+            document_id=UUID(doc["document_id"]) if doc.get("document_id") else None,
             student_id=UUID(doc["student_id"]),
             answers={int(k): v for k, v in doc.get("answers", {}).items()},
             per_question_correct=list(doc.get("per_question_correct", [])),

@@ -55,6 +55,14 @@ class ConceptGraph:
     updated_at: datetime = field(default_factory=_utc_now)
     version: int = 0
 
+    def __post_init__(self) -> None:
+        # Las claves de alias se pliegan al entrar. La búsqueda de
+        # `canonicalize()` siempre usa la clave plegada, así que un alias
+        # guardado con tilde ("límites") nunca se encontraría y quedaría muerto
+        # sin avisar. Plegarlo aquí cubre la semilla, lo que cura un docente y
+        # lo que vuelve de la base de datos.
+        self.aliases = {_norm(k): v for k, v in self.aliases.items() if _norm(k)}
+
     # --- Identidad de conceptos ---------------------------------------------------
 
     def canonicalize(self, concept: str) -> str:

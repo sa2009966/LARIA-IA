@@ -71,12 +71,15 @@ debe degradar con elegancia**: `payload.mode ?? null`, nunca `payload.mode.toUpp
 | `content` | sí | El texto a mostrar. Lo escribe el modelo |
 | `grounded` | sí | `true` = el turno pasó por el motor con material; `false` = conversación libre, **no prometas tutoría adaptativa** |
 | `intent` | sí | Intención detectada: `learn`, `quiz`, `hint`, `celebrate`, `general` |
+| `topic_hint` | cuando se detecta | Tema del mensaje. Si el estudiante pidió aprender uno, **tal como lo escribió** (con tildes): es lo que se le muestra |
+| `suggest_placement` | solo si `true` | El estudiante pidió aprender un **tema** ("quiero aprender X", "me enseñas X"), no preguntó un concepto. Es la señal para ofrecer nivelación con `POST /quizzes/diagnostic {topic: topic_hint}` ([ADR-017](adr/ADR-017-nivelacion-por-rondas.md)). **No uses `intent == "learn"` para eso**: salta también con "qué es" o "define". En un chat **sin material**, el propio texto del tutor ya ofrece la nivelación (sin hacer él las preguntas) en vez de recomendar recursos externos: tu botón y su frase dicen lo mismo |
 | `mode` | solo con material | `explain` · `socratic` · `scaffold` · `practice` |
 | `difficulty` | solo con material | `easy` · `medium` · `hard` |
 | `cognitive_style` | solo con material | `simple` · `technical` · `mathematical` · `analogy` · `visual` · `step_by_step` |
 | `focus_concepts` | solo con material | Conceptos sobre los que versa el turno, el primero es el principal |
 | `session_step` | solo con material | `introduce` · `hint` · `practice` · `check` |
-| `chunk_explanation`, `practice_before_advance` | solo con material | Orquestación sugerida: trocear la explicación, pedir práctica antes de avanzar |
+| `chunk_explanation` | solo con material | **Pista para el cliente**: conviene trocear la explicación al pintarla. El servidor no puede hacerlo por ti ([ADR-015](adr/ADR-015-ofrecer-practica-no-orquestarla.md)) |
+| `practice_before_advance` | solo con material | **Ya aplicado**: el tutor cierra ofreciendo un ejercicio. Es información para que puedas destacarlo, no una orden pendiente |
 | `celebrated_concept` | solo con `type: celebration` | Qué concepto se acaba de dominar |
 | `explanation` | cuando hay adaptación activa | **Por qué el tutor habla así**, en una frase ([ADR-013](adr/ADR-013-decir-por-que.md)). Ausente si no hubo nada que adaptar o si la adaptación no se está aplicando: nunca se promete lo que no se hizo |
 
@@ -212,8 +215,9 @@ explicaciones largas y pide ejemplos, y con la adaptación aplicada (fuera del m
 ```
 
 La frase está escrita para mostrarse tal cual. Nombra la conducta, nunca la métrica, y **solo aparece
-cuando la adaptación se aplicó de verdad**: hoy el despliegue corre en modo sombra, así que este
-campo no llegará todavía ([ADR-013](adr/ADR-013-decir-por-que.md)).
+cuando la adaptación se aplicó de verdad** ([ADR-013](adr/ADR-013-decir-por-que.md)). Desde la fase D
+el modo sombra está apagado, así que este campo **sí llega**; sigue ausente para un estudiante sin
+historial suficiente, que es el caso mayoritario al principio.
 
 ### `error` — falló el proveedor
 

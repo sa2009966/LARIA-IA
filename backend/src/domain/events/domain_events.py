@@ -68,7 +68,9 @@ class QuizGeneratedEvent(DomainEventBase):
 @dataclass(kw_only=True)
 class QuizAttemptCompletedEvent(DomainEventBase):
     quiz_id: UUID
-    document_id: UUID
+    # None en un diagnóstico de entrada: la evidencia va a los conceptos y no
+    # hay documento cuyo mastery mover (ADR-016).
+    document_id: UUID | None
     student_id: UUID
     score: int
     total: int

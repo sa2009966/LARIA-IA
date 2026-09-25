@@ -26,15 +26,39 @@ from src.domain.services.response_envelope import (
 
 
 def _control_flow_payload(adaptation: AdaptationParameters) -> dict:
-    """Familia control-flow: orquestación, no prompt.
+    """Pistas de orquestación para el cliente, con y sin streaming.
 
-    Viaja en el envelope para que la UI aplique la misma orquestación con y sin
-    streaming (ADR-004, Decisión 3).
+    `chunk_explanation` solo lo puede aplicar quien pinta. `practice_before_advance`
+    **ya viene aplicado en el prompt** desde el ADR-015 y se sigue emitiendo para
+    que la UI pueda destacar el ejercicio: es información, no una orden.
     """
     return {
-        "practice_before_advance": adaptation.control_flow.practice_before_advance,
+        "practice_before_advance": adaptation.prompt_shaping.practice_before_advance,
         "chunk_explanation": adaptation.control_flow.chunk_explanation,
     }
+
+
+def _tema_a_ofrecer(intention) -> str | None:
+    """El tema para el que el tutor ofrecerá nivelación, si el estudiante pidió
+    aprender uno. Misma condición que `suggest_placement`: el texto del tutor y la
+    oferta que pinta el cliente no pueden decir cosas distintas (ADR-017)."""
+    return intention.topic_hint if intention.suggest_placement else None
+
+
+def _intent_payload(intention) -> dict:
+    """Intención del turno, y si el estudiante pidió aprender un tema.
+
+    `intent` puede ser `learn` con cualquier pregunta conceptual ("qué es…"), así
+    que no sirve para decidir cuándo ofrecer nivelación. `suggest_placement` solo
+    aparece cuando pidió aprender un TEMA, y `topic_hint` trae ese tema tal como lo
+    escribió: con sus tildes, para mostrárselo (ADR-017).
+    """
+    carga: dict = {"intent": intention.intent.value}
+    if intention.topic_hint:
+        carga["topic_hint"] = intention.topic_hint
+    if intention.suggest_placement:
+        carga["suggest_placement"] = True
+    return carga
 
 
 def _is_remediation(decision: Optional[PedagogicalDecision]) -> bool:
@@ -147,7 +171,7 @@ class ChatTutorService:
                 last_score_ratio=_last_graded_ratio(profile, document_id, decision),
             )
             extra = {
-                "intent": intention.intent.value,
+                **_intent_payload(intention),
                 # La tutoría adaptativa exige material: con documento el turno
                 # pasa por el motor; sin él es conversación y no promete más.
                 # La UI necesita poder decirlo en vez de aparentar tutoría.
@@ -173,6 +197,7 @@ class ChatTutorService:
             context="",
             question=question,
             decision=None,
+            learning_topic=_tema_a_ofrecer(intention),
         )
         affect = self._affect.select(profile, None)
         envelope = ResponseEnvelope.from_decision(
@@ -180,7 +205,7 @@ class ChatTutorService:
             "answer",
             affect,
             content=content,
-            extra={"intent": intention.intent.value, "grounded": False},
+            extra={**_intent_payload(intention), "grounded": False},
         )
         return TutorResponse(content=content, envelope=envelope)
 
@@ -200,7 +225,7 @@ class ChatTutorService:
             raise ValueError("LLM gate no configurado para streaming")
         intention = self._intent.detect(question)
         extra: dict = {
-            "intent": intention.intent.value,
+            **_intent_payload(intention),
             "grounded": document_id is not None,
         }
         profile = None
@@ -248,6 +273,7 @@ class ChatTutorService:
             context="",
             question=question,
             decision=None,
+            learning_topic=_tema_a_ofrecer(intention),
         ):
             content += token
             yield token, None

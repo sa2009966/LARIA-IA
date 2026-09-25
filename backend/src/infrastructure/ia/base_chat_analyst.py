@@ -15,6 +15,9 @@ from src.domain.value_objects.question import Quiz, QuizQuestion
 
 _MSG_PROVEEDOR = "El servicio de IA no está disponible en este momento."
 _MSG_RESPUESTA = "El servicio de IA devolvió una respuesta inválida."
+#: Un título más largo se recorta, no se rechaza: el modelo dio algo usable.
+_MAX_TITLE_WORDS = 7
+_MAX_TITLE_CHARS = 120
 
 
 class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
@@ -112,16 +115,26 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         raw = await self._chat(
             prompt.system,
             prompt.user,
+            # 20 cortaba títulos a media palabra ("Fotosíntesis vege"). Sobran
+            # tokens para siete palabras y la diferencia de coste es ruido.
+            max_tokens=32,
             model=self.model,
-            max_tokens=20,
             task="title",
         )
         title = " ".join(raw.strip().split()).strip("\"'`# ")
         if title.lower().startswith("título:") or title.lower().startswith("titulo:"):
             title = title.split(":", 1)[1].strip()
         words = title.split()
-        if not 2 <= len(words) <= 7 or len(title) > 120:
+        # Solo una respuesta vacía es inservible. Antes se exigían entre 2 y 7
+        # palabras y se lanzaba error fuera de ese rango, así que un título de
+        # una sola palabra —"Agradecimiento", "Álgebra": perfectamente buenos—
+        # devolvía un 502 al cliente. Largo de más se recorta; corto no es un
+        # fallo del proveedor.
+        if not words:
             raise IAAnalysisError(_MSG_RESPUESTA)
+        title = " ".join(words[:_MAX_TITLE_WORDS])
+        if len(title) > _MAX_TITLE_CHARS:
+            title = title[:_MAX_TITLE_CHARS].rsplit(" ", 1)[0].rstrip()
         return title
 
     @staticmethod
@@ -157,16 +170,30 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         )
 
     async def answer_question(
-        self, context: str, question: str, decision=None, adaptation=None
+        self, context: str, question: str, decision=None, adaptation=None, *, learning_topic=None
     ) -> str:
         return await self.answer_question_with_model(
-            context, question, decision, model=self.model, adaptation=adaptation
+            context,
+            question,
+            decision,
+            model=self.model,
+            adaptation=adaptation,
+            learning_topic=learning_topic,
         )
 
     async def answer_question_with_model(
-        self, context: str, question: str, decision=None, *, model: str, adaptation=None
+        self,
+        context: str,
+        question: str,
+        decision=None,
+        *,
+        model: str,
+        adaptation=None,
+        learning_topic=None,
     ) -> str:
-        prompt = self._policy.answer_question(context, question, decision, adaptation)
+        prompt = self._policy.answer_question(
+            context, question, decision, adaptation, learning_topic=learning_topic
+        )
         return await self._chat(prompt.system, prompt.user, model=model)
 
     async def answer_question_stream(
@@ -176,6 +203,8 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         decision=None,
         model: str | None = None,
         adaptation=None,
+        *,
+        learning_topic=None,
     ):
         """Genera la respuesta del tutor en streaming (yield de tokens).
 
@@ -183,7 +212,9 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         trozo de contenido a medida que llega. Si el proveedor no está
         configurado para streaming (no stream), se degrada a `answer_question`.
         """
-        prompt = self._policy.answer_question(context, question, decision, adaptation)
+        prompt = self._policy.answer_question(
+            context, question, decision, adaptation, learning_topic=learning_topic
+        )
         use_model = model or self.model
         payload = {
             "model": use_model,
@@ -251,8 +282,22 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         text = context if context is not None else document.content
         prompt = self._policy.generate_quiz(text, num_questions, decision)
         raw = await self._chat(prompt.system, prompt.user, model=model)
-        data = self._extract_json(raw)
+        return self._quiz_desde_json(raw)
 
+    async def generate_diagnostic(self, plan, *, model: str | None = None) -> Quiz:
+        """Diagnóstico de entrada a partir de un tema, sin documento (ADR-016).
+
+        Comparte contrato JSON y parseo con `generate_quiz`: lo que cambia es el
+        prompt —una escalera de dificultad que el dominio ya decidió— y que aquí
+        no hay contenido del que partir, solo un tema.
+        """
+        prompt = self._policy.generate_diagnostic(plan)
+        raw = await self._chat(prompt.system, prompt.user, model=model or self.model)
+        return self._quiz_desde_json(raw)
+
+    def _quiz_desde_json(self, raw: str) -> Quiz:
+        """Contrato de ítems compartido por el quiz normal y el diagnóstico."""
+        data = self._extract_json(raw)
         try:
             questions = []
             for q in data.get("questions", []):

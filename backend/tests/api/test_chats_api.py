@@ -171,6 +171,30 @@ class TestChatsAPI:
         assert r.status_code == 200
         assert r.json()["messages"][0]["metadata"] == {"source": "tutor"}
 
+    def test_un_mensaje_que_no_es_del_usuario_no_dispara_turno(self, client):
+        """`role` decide si hay turno, no solo cómo se pinta el mensaje.
+
+        Un cliente que deja una nota ("📎 Subí el archivo") con `role="user"`
+        paga una llamada al modelo, recibe una respuesta fantasma y **escribe
+        evidencia en el perfil del estudiante**, reiniciando además su reloj de
+        interacción. Con `role="system"` se guarda y no pasa nada más. Esto está
+        documentado en `docs/frontend-integration.md`; el test lo hace exigible.
+        """
+        token = _register_and_token(client, "chat")
+        headers = {"Authorization": "Bearer " + token}
+        created = client.post("/api/v1/chats/", headers=headers, json={}).json()
+
+        r = client.post(
+            "/api/v1/chats/" + created["id"] + "/messages",
+            headers=headers,
+            json={"role": "system", "content": "📎 Subí el archivo algebra.pdf"},
+        )
+
+        assert r.status_code == 200
+        mensajes = r.json()["messages"]
+        assert len(mensajes) == 1, "el tutor respondió a una nota que no le preguntaba nada"
+        assert mensajes[0]["role"] == "system"
+
     def test_add_message_empty_422(self, client):
         token = _register_and_token(client, "chat")
         headers = {"Authorization": "Bearer " + token}

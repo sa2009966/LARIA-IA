@@ -103,14 +103,42 @@ async def test_generate_chat_title_limpia_etiqueta_y_limita_tokens(analyst: Open
         title = await analyst.generate_chat_title(messages)
 
     assert title == "Fotosíntesis vegetal"
-    assert chat.await_args.kwargs["max_tokens"] == 20
+    # 20 cortaba títulos a media palabra; siete palabras no caben en 20 tokens.
+    assert chat.await_args.kwargs["max_tokens"] == 32
     assert chat.await_args.kwargs["task"] == "title"
 
 
 @pytest.mark.asyncio
-async def test_generate_chat_title_rejects_invalid_word_count(analyst: OpenAIAnalyst):
+async def test_un_titulo_de_una_palabra_es_un_titulo_valido(analyst: OpenAIAnalyst):
+    """El 502 que veía el cliente: se exigían 2 palabras como mínimo.
+
+    El modelo responde a menudo con una sola palabra —"Álgebra",
+    "Agradecimiento"— y son títulos perfectamente buenos. Devolver un error de
+    proveedor por eso confunde un título corto con una respuesta rota.
+    """
     messages = [TitleMessage(role="user", content="Explícame álgebra")]
 
     with patch.object(analyst, "_chat", AsyncMock(return_value="Álgebra")):
+        assert await analyst.generate_chat_title(messages) == "Álgebra"
+
+
+@pytest.mark.asyncio
+async def test_un_titulo_largo_se_recorta_en_vez_de_rechazarse(analyst: OpenAIAnalyst):
+    """Largo de más sigue siendo usable: el modelo dio contenido, no basura."""
+    messages = [TitleMessage(role="user", content="cuéntame algo")]
+    largo = "Uno dos tres cuatro cinco seis siete ocho nueve diez"
+
+    with patch.object(analyst, "_chat", AsyncMock(return_value=largo)):
+        title = await analyst.generate_chat_title(messages)
+
+    assert title == "Uno dos tres cuatro cinco seis siete"
+    assert len(title.split()) == 7
+
+
+@pytest.mark.asyncio
+async def test_solo_una_respuesta_vacia_es_un_fallo_del_proveedor(analyst: OpenAIAnalyst):
+    messages = [TitleMessage(role="user", content="hola")]
+
+    with patch.object(analyst, "_chat", AsyncMock(return_value="   \n  ")):
         with pytest.raises(IAAnalysisError):
             await analyst.generate_chat_title(messages)

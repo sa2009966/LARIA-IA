@@ -66,6 +66,7 @@ _R_ANDAMIAJE_EJEMPLO = "el ejemplo parcial es el andamiaje: sin ejemplo no hay t
 _R_PASO_A_PASO = "'paso a paso' y 've al grano' se contradicen"
 _R_ANALOGIA_DUPLICADA = "el estilo cognitivo ya pide analogía; repetirlo no es énfasis"
 _R_NADA_QUE_TROCEAR = "no se trocea una explicación que ya es breve"
+_R_YA_ES_PRACTICA = "el turno ya es práctica: ofrecerla otra vez no añade nada"
 
 
 def _es_andamiaje(decision: PedagogicalDecision) -> bool:
@@ -123,6 +124,12 @@ def compose_plan(
     ):
         vetos.append(Override("explanation_length", "short", "medium", _R_PASO_A_PASO))
         shaping = replace(shaping, explanation_length="medium")
+
+    if decision.mode == PedagogicalMode.PRACTICE and shaping.practice_before_advance:
+        vetos.append(
+            Override("practice_before_advance", "True", "False", _R_YA_ES_PRACTICA)
+        )
+        shaping = replace(shaping, practice_before_advance=False)
 
     if decision.cognitive_style == CognitiveStyle.ANALOGY and shaping.prefers_analogy:
         vetos.append(
