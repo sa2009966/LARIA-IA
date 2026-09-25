@@ -60,7 +60,7 @@ async def get_my_learning_history(
             QuizAttemptSummaryItem(
                 attempt_id=str(a.attempt_id),
                 quiz_id=str(a.quiz_id),
-                document_id=str(a.document_id),
+                document_id=str(a.document_id) if a.document_id else None,
                 score=a.score,
                 total_points=a.total_points,
                 completed_at=a.completed_at,
@@ -70,7 +70,7 @@ async def get_my_learning_history(
         tutor_interactions=[
             TutorInteractionSummaryItem(
                 id=str(i.id),
-                document_id=str(i.document_id),
+                document_id=str(i.document_id) if i.document_id else None,
                 question=i.question,
                 answer=i.answer,
                 asked_at=i.asked_at,

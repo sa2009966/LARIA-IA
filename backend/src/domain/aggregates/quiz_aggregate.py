@@ -32,7 +32,15 @@ class QuizGrade:
 @dataclass
 class QuizAggregate:
     id: UUID = field(default_factory=uuid4)
-    document_id: UUID = field(default_factory=uuid4)
+    # Opcional desde el ADR-016: un diagnóstico de entrada nace de un TEMA, no
+    # de material subido. Quien lo consuma debe tratarlo como ausente de verdad,
+    # no sustituirlo por un id inventado.
+    document_id: UUID | None = None
+    topic: str | None = None
+    #: Ronda de nivelación que representa este quiz, si lo es (ADR-017).
+    #: Sin esto el projector no puede distinguir un intento de nivelación
+    #: de un quiz normal, y no sabría qué veredicto escribir.
+    placement_round: str | None = None
     owner_id: UUID = field(default_factory=uuid4)
     questions: list[QuizQuestion] = field(default_factory=list)
     created_at: datetime = field(default_factory=_utc_now)
@@ -40,9 +48,11 @@ class QuizAggregate:
 
     @staticmethod
     def create(
-        document_id: UUID,
+        document_id: UUID | None,
         owner_id: UUID,
         questions: list[QuizQuestion],
+        topic: str | None = None,
+        placement_round: str | None = None,
     ) -> "QuizAggregate":
         if not questions:
             raise ValueError("Un quiz debe tener al menos una pregunta")
@@ -58,8 +68,12 @@ class QuizAggregate:
                     concept_tags=tuple(tags),
                 )
             )
+        if document_id is None and not (topic or "").strip():
+            raise ValueError("Un quiz necesita documento o tema: sin ninguno no se sabe qué evalúa.")
         quiz = QuizAggregate(
             document_id=document_id,
+            topic=(topic or "").strip() or None,
+            placement_round=placement_round,
             owner_id=owner_id,
             questions=normalized,
         )

@@ -5,7 +5,8 @@ from src.interfaces.schemas.quiz_schemas import QuizPublicResponse, QuizQuestion
 def quiz_to_public_response(quiz) -> QuizPublicResponse:
     return QuizPublicResponse(
         id=str(quiz.id),
-        document_id=str(quiz.document_id),
+        document_id=str(quiz.document_id) if quiz.document_id else None,
+        topic=getattr(quiz, "topic", None),
         questions=[
             QuizQuestionPublicItem(
                 index=q.index,

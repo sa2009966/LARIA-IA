@@ -264,8 +264,22 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         text = context if context is not None else document.content
         prompt = self._policy.generate_quiz(text, num_questions, decision)
         raw = await self._chat(prompt.system, prompt.user, model=model)
-        data = self._extract_json(raw)
+        return self._quiz_desde_json(raw)
 
+    async def generate_diagnostic(self, plan, *, model: str | None = None) -> Quiz:
+        """Diagnóstico de entrada a partir de un tema, sin documento (ADR-016).
+
+        Comparte contrato JSON y parseo con `generate_quiz`: lo que cambia es el
+        prompt —una escalera de dificultad que el dominio ya decidió— y que aquí
+        no hay contenido del que partir, solo un tema.
+        """
+        prompt = self._policy.generate_diagnostic(plan)
+        raw = await self._chat(prompt.system, prompt.user, model=model or self.model)
+        return self._quiz_desde_json(raw)
+
+    def _quiz_desde_json(self, raw: str) -> Quiz:
+        """Contrato de ítems compartido por el quiz normal y el diagnóstico."""
+        data = self._extract_json(raw)
         try:
             questions = []
             for q in data.get("questions", []):

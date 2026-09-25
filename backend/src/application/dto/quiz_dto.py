@@ -14,10 +14,14 @@ class QuizQuestionPublicDTO:
 @dataclass
 class QuizPublicDTO:
     id: UUID
-    document_id: UUID
+    # Ausente en un diagnóstico de entrada, que nace de un tema (ADR-016).
+    document_id: UUID | None
     questions: list[QuizQuestionPublicDTO]
     total_points: int
     created_at: datetime
+    #: El tema diagnosticado. Va al final y con default para no obligar a
+    #: reescribir a todo el que ya construía este DTO con material.
+    topic: str | None = None
 
 
 @dataclass
@@ -30,21 +34,34 @@ class AttemptQuestionResultDTO:
 
 
 @dataclass
+class PlacementResultDTO:
+    """Veredicto de una ronda de nivelación (ADR-017)."""
+
+    topic: str
+    round: str
+    level: str
+    passed: bool
+    has_next_round: bool
+
+
+@dataclass
 class QuizAttemptResultDTO:
     attempt_id: UUID
     quiz_id: UUID
-    document_id: UUID
+    document_id: UUID | None
     score: int
     total_points: int
     questions: list[AttemptQuestionResultDTO]
     completed_at: datetime
+    #: Presente solo si el quiz era una ronda de nivelación.
+    placement: PlacementResultDTO | None = None
 
 
 @dataclass
 class QuizAttemptSummaryDTO:
     attempt_id: UUID
     quiz_id: UUID
-    document_id: UUID
+    document_id: UUID | None
     score: int
     total_points: int
     completed_at: datetime
@@ -53,7 +70,7 @@ class QuizAttemptSummaryDTO:
 @dataclass
 class TutorInteractionSummaryDTO:
     id: UUID
-    document_id: UUID
+    document_id: UUID | None
     question: str
     answer: str
     asked_at: datetime

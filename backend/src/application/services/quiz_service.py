@@ -3,12 +3,15 @@ from uuid import UUID
 
 from src.application.concurrency import with_concurrency_retry
 from src.application.dto.quiz_dto import (
+    PlacementResultDTO,
     AttemptQuestionResultDTO,
     QuizAttemptResultDTO,
     QuizPublicDTO,
     QuizQuestionPublicDTO,
 )
 from src.domain.aggregates.quiz_aggregate import QuizAggregate
+from src.domain.catalog.prerequisite_seeds import build_seeded_graph
+from src.domain.concept_identity import canonicalize_concept
 from src.domain.aggregates.quiz_attempt_aggregate import QuizAttemptAggregate
 from src.domain.aggregates.tutor_session import TutorSession
 from src.domain.ports.event_bus import EventBus
@@ -25,6 +28,15 @@ from src.domain.ports.repositories import (
 from src.application.services.llm_gate import LlmGate
 from src.domain.services.concept_tagger import ConceptTagger
 from src.domain.services.context_selector import ContextSelector
+from src.domain.services.diagnostic_planner import (
+    PASSING_RATIO,
+    PlacementLevel,
+    PlacementRound,
+    has_next_round,
+    plan_diagnostic,
+    resolve_placement,
+    round_for,
+)
 from src.domain.services.pedagogical_engine import PedagogicalEngine, TutorIntent
 from src.domain.services.quiz_quality import ensure_quiz_quality
 from src.domain.value_objects.question import Difficulty
@@ -35,6 +47,7 @@ class QuizService:
     _MSG_QUIZ_NO_ENCONTRADO = "Quiz no encontrado"
     _MSG_DOC_NO_ENCONTRADO = "Documento no encontrado"
     _MSG_DOC_PERMISO = "No tienes permiso para operar sobre este documento"
+    _MSG_TEMA_VACIO = "Dime qué tema quieres aprender para poder evaluarte."
 
     def __init__(
         self,
@@ -128,6 +141,60 @@ class QuizService:
 
         return self._to_public_dto(quiz)
 
+    async def generate_diagnostic(self, topic: str, user_id: UUID) -> QuizPublicDTO:
+        """Diagnóstico de entrada sobre un tema, sin material (ADR-016).
+
+        Lo que el estudiante pide diciendo "quiero aprender ecuaciones": una
+        escalera de ítems fáciles, medios y difíciles que mide qué sabe ya —del
+        tema y de su base— para que el motor deje de estar ciego desde el primer
+        turno en vez de desde el quinto.
+        """
+        if not (topic or "").strip():
+            raise ValueError(self._MSG_TEMA_VACIO)
+        if self._ia_analyst is None:
+            raise ValueError("IA Analyst not configured")
+
+        graph = None
+        if self._graph_repo is not None:
+            graph = await self._graph_repo.find_by_id(self._graph_id)
+        if graph is None:
+            graph = build_seeded_graph(self._graph_id)
+
+        # La ronda no la manda el cliente: sale del nivel que el estudiante ya
+        # tenga en ese tema. Así el cliente no lleva estado (ADR-017, decisión 4).
+        #
+        # El nivel se busca por el tema CANÓNICO, que es con el que se guardó. El
+        # alumno escribe "ecuaciones" y el currículum lo resuelve a "ecuaciones
+        # lineales": buscando por lo escrito no se encontraba nunca, y el
+        # estudiante recibía la ronda básica una y otra vez sin avanzar jamás.
+        tema = graph.canonicalize(canonicalize_concept(topic))
+        nivel = None
+        if self._profile_repo is not None:
+            perfil = await self._profile_repo.find_by_student(user_id)
+            if perfil is not None:
+                guardado = perfil.level_for_topic(tema)
+                nivel = PlacementLevel(guardado) if guardado else None
+        ronda = round_for(nivel)
+
+        plan = plan_diagnostic(topic, graph, ronda)
+        generated = await self._ia_analyst.generate_diagnostic(plan)
+
+        questions = ensure_quiz_quality(list(generated.questions))
+        # Red de seguridad: el prompt pide concept_tags, pero si el modelo los
+        # omite la evidencia se perdería sin que nadie lo note.
+        questions = self._tagger.tag_questions(questions, plan.concepts)
+        quiz = QuizAggregate.create(
+            None, user_id, questions, topic=plan.topic, placement_round=ronda.value
+        )
+        await self._quiz_repo.save(quiz)
+
+        if self._event_bus:
+            for event in quiz.events:
+                await self._event_bus.publish(event)
+        quiz.clear_events()
+
+        return self._to_public_dto(quiz)
+
     async def get_quiz(self, quiz_id: UUID, user_id: UUID) -> QuizPublicDTO:
         quiz = await self._get_quiz_if_owner(quiz_id, user_id)
         return self._to_public_dto(quiz)
@@ -154,8 +221,12 @@ class QuizService:
                 await self._event_bus.publish(event)
         attempt.clear_events()
 
-        if self._session_repo is not None:
-            ratio = (attempt.score / attempt.total_points) if attempt.total_points else 0.0
+        ratio = (attempt.score / attempt.total_points) if attempt.total_points else 0.0
+
+        # Una sesión de tutoría es por (estudiante, documento): sin documento no
+        # hay sesión que actualizar. Sin esta guarda, una ronda de nivelación
+        # buscaba la sesión de `None` y rompía en producción.
+        if self._session_repo is not None and quiz.document_id is not None:
 
             async def _persist_session():
                 session = await self._session_repo.find_by_student_document(
@@ -173,6 +244,7 @@ class QuizService:
             attempt_id=attempt.id,
             quiz_id=quiz.id,
             document_id=quiz.document_id,
+            placement=await self._veredicto(quiz, user_id, ratio),
             score=attempt.score,
             total_points=attempt.total_points,
             questions=[
@@ -202,10 +274,38 @@ class QuizService:
             return value.value
         return str(value)
 
+    async def _veredicto(
+        self, quiz: QuizAggregate, user_id: UUID, ratio: float
+    ) -> PlacementResultDTO | None:
+        """Veredicto de la ronda, para que el cliente sepa si queda otra.
+
+        Calcula lo mismo que el projector escribirá en el perfil, con la misma
+        función pura. No lo escribe: el perfil tiene un único escritor
+        (invariante 1) y el evento ya va de camino.
+        """
+        if not quiz.topic or not quiz.placement_round:
+            return None
+        ronda = PlacementRound(quiz.placement_round)
+        previo = None
+        if self._profile_repo is not None:
+            perfil = await self._profile_repo.find_by_student(user_id)
+            if perfil is not None:
+                guardado = perfil.level_for_topic(quiz.topic)
+                previo = PlacementLevel(guardado) if guardado else None
+        nivel = resolve_placement(ronda, ratio, previo)
+        return PlacementResultDTO(
+            topic=quiz.topic,
+            round=ronda.value,
+            level=nivel.value,
+            passed=ratio >= PASSING_RATIO,
+            has_next_round=has_next_round(ronda, nivel),
+        )
+
     def _to_public_dto(self, quiz: QuizAggregate) -> QuizPublicDTO:
         return QuizPublicDTO(
             id=quiz.id,
             document_id=quiz.document_id,
+            topic=quiz.topic,
             questions=[
                 QuizQuestionPublicDTO(
                     index=i,

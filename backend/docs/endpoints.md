@@ -95,6 +95,7 @@ El envelope es determinista: lo decide el dominio, no el modelo.
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
+| `POST` | `/api/v1/quizzes/diagnostic` | **Diagnóstico de entrada sobre un tema, sin material.** Body `{ "topic": "ecuaciones" }`. Devuelve una escalera de 6 ítems **fácil→media→difícil** sobre el tema y sus prerrequisitos, con `document_id: null` y `topic` canónico. Se responde en `/quizzes/{id}/attempts` como cualquier quiz ([ADR-016](adr/ADR-016-diagnostico-de-entrada.md)) |
 | `GET` | `/api/v1/quizzes/{quiz_id}` | Quiz propio sin respuestas correctas |
 | `POST` | `/api/v1/quizzes/{quiz_id}/attempts` | Enviar intento `{ "answers": { "0": "A", "1": "C" } }`; califica en servidor y revela correctas |
 

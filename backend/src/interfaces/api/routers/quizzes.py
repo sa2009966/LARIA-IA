@@ -16,6 +16,8 @@ from src.interfaces.api.openapi_responses import (
 from src.interfaces.api.quiz_mappers import quiz_to_public_response
 from src.interfaces.schemas.quiz_schemas import (
     AttemptQuestionResultItem,
+    DiagnosticRequest,
+    PlacementResult,
     QuizAttemptRequest,
     QuizAttemptResponse,
     QuizPublicResponse,
@@ -24,6 +26,45 @@ from src.interfaces.schemas.quiz_schemas import (
 router = APIRouter(prefix="/quizzes", tags=["Cuestionarios"])
 
 _MSG_NO_ENCONTRADO = "Recurso no encontrado"
+
+
+@router.post(
+    "/diagnostic",
+    response_model=QuizPublicResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Diagnóstico de entrada sobre un tema (sin material)",
+    description=(
+        "Lo que responde a \"quiero aprender X\": genera una escalera de ítems "
+        "**fácil → media → difícil** sobre el tema y sus prerrequisitos, para medir "
+        "qué sabe ya el estudiante antes de explicarle nada.\n\n"
+        "No necesita documento: `document_id` viene `null` y `topic` trae el tema "
+        "canónico. Se responde con `POST /quizzes/{id}/attempts` como cualquier quiz, "
+        "y la evidencia cuenta **igual que la de un quiz sobre material**: son ítems "
+        "calificados en el servidor, no auto-reporte.\n\n"
+        "El cliente debe **ofrecerlo, no imponerlo**: un estudiante que solo quiere "
+        "una respuesta rápida no tiene por qué pasar un diagnóstico para obtenerla."
+    ),
+    responses={
+        **RESP_401_UNAUTHORIZED,
+        **RESP_422_VALIDATION,
+        **RESP_429_RATE_LIMIT,
+        **RESP_502_BAD_GATEWAY,
+    },
+)
+async def generate_diagnostic(
+    body: DiagnosticRequest,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[QuizService, Depends(get_quiz_service)],
+):
+    try:
+        quiz = await service.generate_diagnostic(body.topic, UUID(current_user_id))
+    except IAAnalysisError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        )
+    return quiz_to_public_response(quiz)
 
 
 @router.get(
@@ -99,7 +140,8 @@ async def submit_attempt(
     return QuizAttemptResponse(
         attempt_id=str(result.attempt_id),
         quiz_id=str(result.quiz_id),
-        document_id=str(result.document_id),
+        # `str(None)` mandaría la cadena "None" al cliente.
+        document_id=str(result.document_id) if result.document_id else None,
         score=result.score,
         total_points=result.total_points,
         questions=[
@@ -113,4 +155,7 @@ async def submit_attempt(
             for q in result.questions
         ],
         completed_at=result.completed_at,
+        placement=(
+            PlacementResult(**vars(result.placement)) if result.placement else None
+        ),
     )

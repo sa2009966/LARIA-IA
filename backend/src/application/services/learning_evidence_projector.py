@@ -12,6 +12,11 @@ from src.domain.ports.repositories import (
 )
 from src.domain.adaptive_signals import SignalKind
 from src.domain.services.concept_tagger import ConceptTagger
+from src.domain.services.diagnostic_planner import (
+    PlacementLevel,
+    PlacementRound,
+    resolve_placement,
+)
 from src.domain.services.learning_signal_detector import LearningSignalKind
 import logging
 
@@ -203,8 +208,13 @@ class LearningEvidenceProjector:
 
         etiquetados = 0
         sin_etiquetar = 0
+        tema_nivelacion: str | None = None
+        ronda_nivelacion: str | None = None
         if self._quiz_repo is not None and self._attempt_repo is not None:
             quiz = await self._quiz_repo.find_by_id(event.quiz_id)
+            if quiz is not None:
+                tema_nivelacion = quiz.topic
+                ronda_nivelacion = quiz.placement_round
             attempt = await self._attempt_repo.find_by_id(event.aggregate_id)
             if quiz is not None and attempt is not None:
                 for i, question in enumerate(quiz.questions):
@@ -239,12 +249,32 @@ class LearningEvidenceProjector:
             # ya aplicado y se contaría el intento dos veces.
             if profile.was_event_applied(event.event_id):
                 return profile
-            profile.record_quiz_result(
-                document_id=event.document_id,
-                score_ratio=ratio,
-                missed_concepts=missed_t,
-                concept_results=results_t,
-            )
+            if event.document_id is None:
+                # Diagnóstico de entrada: ítems calificados sobre conceptos, sin
+                # documento cuyo mastery mover (ADR-016). Inventar un id aquí lo
+                # acabaría sacando `weakest_documents` en las recomendaciones,
+                # apuntando a un documento que no existe.
+                profile.record_diagnostic_result(
+                    concept_results=results_t, missed_concepts=missed_t
+                )
+                if tema_nivelacion and ronda_nivelacion:
+                    # El veredicto se escribe aquí y solo aquí: el servicio lo
+                    # calcula para contestar al cliente, pero el perfil tiene un
+                    # único escritor (ADR-017, invariante 1).
+                    guardado = profile.level_for_topic(tema_nivelacion)
+                    nivel = resolve_placement(
+                        PlacementRound(ronda_nivelacion),
+                        ratio,
+                        PlacementLevel(guardado) if guardado else None,
+                    )
+                    profile.record_placement(tema_nivelacion, nivel.value)
+            else:
+                profile.record_quiz_result(
+                    document_id=event.document_id,
+                    score_ratio=ratio,
+                    missed_concepts=missed_t,
+                    concept_results=results_t,
+                )
             profile.mark_event_applied(event.event_id)
             await self._profile_repo.save(profile)
             if self._metrics:

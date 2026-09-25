@@ -3,7 +3,7 @@
 El modelo de IA solo genera lenguaje; LARIA decide modo, dificultad y restricciones.
 """
 from dataclasses import dataclass
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from src.domain.ports.chat_title_generator import TitleMessage
 from src.domain.services.adaptive_policy import PromptShapingParameters
@@ -11,6 +11,9 @@ from src.domain.services.cognitive_style import CognitiveStyle
 from src.domain.services.pedagogical_engine import PedagogicalDecision, PedagogicalMode
 from src.domain.services.prerequisite_graph import GateAction
 from src.domain.value_objects.question import Difficulty
+
+if TYPE_CHECKING:  # pragma: no cover - solo para tipos
+    from src.domain.services.diagnostic_planner import DiagnosticPlan
 
 
 @dataclass(frozen=True)
@@ -163,6 +166,37 @@ class TutorPolicy:
         return ChatPrompt(
             system=system,
             user=f"Contexto:\n{context}\n\nPregunta: {question}",
+        )
+
+    def generate_diagnostic(self, plan: "DiagnosticPlan") -> ChatPrompt:
+        """Prompt del diagnóstico de entrada (ADR-016).
+
+        A diferencia de `generate_quiz`, no parte de un contenido: parte de un
+        **tema**. El modelo no resume material, escribe una escalera de ítems
+        cuyo reparto por dificultad y concepto ya decidió el dominio.
+        """
+        peldanos = " ".join(
+            f"{r.items} de dificultad '{r.difficulty.value}' sobre "
+            f"{', '.join(r.concepts)}."
+            for r in plan.rungs
+        )
+        return ChatPrompt(
+            system=(
+                "Eres un experto en evaluación diagnóstica. Genera exactamente "
+                f"{plan.total_items} preguntas de opción múltiple en JSON: "
+                '{"questions": [{"text": "...", "options": {"A": "...", "B": "...", '
+                '"C": "...", "D": "..."}, "correct_answer": "A", "difficulty": '
+                '"easy", "concept_tags": ["concepto"]}, ...]}. '
+                f"Reparto obligatorio: {peldanos} "
+                "El campo difficulty de cada ítem DEBE coincidir con el peldaño "
+                "al que pertenece, y concept_tags DEBE contener el concepto que "
+                "ese ítem mide, escrito igual que aquí. "
+                "El objetivo es medir qué sabe ya el estudiante, no enseñarle: "
+                "no incluyas explicaciones ni pistas en los enunciados. "
+                "IMPORTANTE: reparte correct_answer entre A, B, C y D de forma "
+                "equilibrada (no pongas casi todas en A). Sin texto adicional."
+            ),
+            user=f"Tema a diagnosticar: {plan.topic}",
         )
 
     def generate_quiz(

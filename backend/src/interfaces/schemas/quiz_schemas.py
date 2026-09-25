@@ -13,10 +13,26 @@ class QuizQuestionPublicItem(BaseModel):
 
 class QuizPublicResponse(BaseModel):
     id: str
-    document_id: str
+    #: `null` en un diagnóstico de entrada: no nace de material (ADR-016).
+    document_id: str | None = None
+    #: El tema diagnosticado. `null` en un quiz sobre material.
+    topic: str | None = None
     questions: list[QuizQuestionPublicItem]
     total_points: int
     created_at: datetime
+
+
+class DiagnosticRequest(BaseModel):
+    """"Quiero aprender X": el tema que el estudiante quiere que se le evalúe."""
+
+    topic: Annotated[
+        str,
+        Field(
+            min_length=2,
+            max_length=120,
+            description="Tema a diagnosticar, p. ej. 'ecuaciones lineales'",
+        ),
+    ]
 
 
 class QuizAttemptRequest(BaseModel):
@@ -37,20 +53,37 @@ class AttemptQuestionResultItem(BaseModel):
     is_correct: bool
 
 
+class PlacementResult(BaseModel):
+    """Veredicto de una ronda de nivelación (ADR-017)."""
+
+    topic: str
+    round: str = Field(description="`base` o `avanzada`")
+    level: str = Field(description="`basico`, `intermedio` o `avanzado`")
+    passed: bool
+    has_next_round: bool = Field(
+        description="Si hay otra ronda que ofrecer: pedirla con el mismo tema en "
+        "`POST /quizzes/diagnostic`, el backend sabe cuál toca."
+    )
+
+
 class QuizAttemptResponse(BaseModel):
     attempt_id: str
     quiz_id: str
-    document_id: str
+    #: `null` en una ronda de nivelación, que no nace de material.
+    document_id: str | None = None
     score: int
     total_points: int
     questions: list[AttemptQuestionResultItem]
     completed_at: datetime
+    #: Solo en rondas de nivelación. `null` en un quiz sobre material.
+    placement: PlacementResult | None = None
 
 
 class QuizAttemptSummaryItem(BaseModel):
     attempt_id: str
     quiz_id: str
-    document_id: str
+    #: `null` en una ronda de nivelación (ADR-017).
+    document_id: str | None = None
     score: int
     total_points: int
     completed_at: datetime
@@ -58,7 +91,8 @@ class QuizAttemptSummaryItem(BaseModel):
 
 class TutorInteractionSummaryItem(BaseModel):
     id: str
-    document_id: str
+    #: `null` si la interacción no nace de material (ADR-016).
+    document_id: str | None = None
     question: str
     answer: str
     asked_at: datetime
