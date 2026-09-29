@@ -6,9 +6,9 @@
 
 Una cookie es un pequeño archivo que un sitio web guarda en tu navegador. El **almacenamiento local** (*localStorage*) es parecido: también guarda datos en tu navegador. Las normas sobre cookies tratan ambos igual, así que aquí explicamos los dos.
 
-## Lo que usa LARIA
+## Lo que usa Plenum
 
-**LARIA no usa cookies**, ni en el servidor ni en la aplicación web. Lo poco que guarda en tu navegador va en el almacenamiento local, y es esto:
+**Plenum no usa cookies**, ni en el servidor ni en la aplicación web. Lo poco que guarda en tu navegador va en el almacenamiento local, y es esto:
 
 | Qué | Para qué | Cuánto dura |
 |---|---|---|

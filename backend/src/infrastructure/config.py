@@ -103,7 +103,7 @@ class Settings(BaseSettings):
 
     # Aplicación
     APP_ENV: str = "development"  # development | production
-    APP_TITLE: str = "LARIA – Sistema Inteligente de Asistencia Educativa"
+    APP_TITLE: str = "Plenum – API de LARIA, el tutor adaptativo"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
     ENABLE_DOCS: bool = False

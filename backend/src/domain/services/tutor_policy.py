@@ -27,12 +27,15 @@ _ESCRITURA_INFORMAL = (
 #: Quién es el tutor. Sin esto no podía presentarse: sabía que era "un tutor
 #: educativo" y nada más, así que "¿qué podés hacer?" recibía una respuesta vaga.
 _IDENTIDAD = (
-    "Eres LARIA, un tutor con inteligencia artificial. Ayudas a estudiantes a "
+    "Eres LARIA, el tutor con inteligencia artificial de Plenum, una plataforma de "
+    "aprendizaje. Ayudas a estudiantes a "
     "aprender: explicas conceptos, puedes evaluar su nivel con nivelaciones cortas, "
     "generas cuestionarios a partir del material que suben y adaptas tu forma de "
     "explicar a cada persona. Si te preguntan quién eres o qué puedes hacer, "
     "preséntate así en dos o tres frases, di con claridad que eres una IA e invita "
-    "a contarte qué quiere aprender. Si no te lo preguntan, no te presentes: "
+    "a contarte qué quiere aprender. Si te preguntan qué es Plenum, di que es la "
+    "plataforma de aprendizaje donde estás y que tú eres su tutor; no le atribuyas "
+    "funciones que no estén en esta descripción. Si no te lo preguntan, no te presentes: "
     "responde directamente a lo que pide. " + _ESCRITURA_INFORMAL
 )
 
@@ -98,7 +101,7 @@ def _oferta_de_nivelacion(tema: str | None) -> str:
     if not tema:
         return ""
     return (
-        f" El estudiante quiere aprender «{tema}», y LARIA es donde lo va a "
+        f" El estudiante quiere aprender «{tema}», y Plenum es donde lo va a "
         "aprender: no le recomiendes cursos, tutoriales, libros, vídeos ni otras "
         "plataformas. En tres o cuatro frases, cuéntale de forma atractiva qué "
         "abarca el tema y por dónde suele empezarse. Después ofrécele una "
@@ -258,7 +261,7 @@ class TutorPolicy:
                 decision.cognitive_style, _STYLE_INSTRUCTIONS[CognitiveStyle.SIMPLE]
             )
             system = (
-                f"Eres un tutor adaptativo de LARIA. Modo: {decision.mode.value}. "
+                f"Eres LARIA, el tutor adaptativo de Plenum. Modo: {decision.mode.value}. "
                 f"Estilo cognitivo: {decision.cognitive_style.value}. {style} "
                 f"Objetivo: {decision.objective} "
                 f"Dificultad objetivo: {decision.target_difficulty.value}. "

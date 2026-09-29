@@ -66,6 +66,7 @@ def test_sin_libro_el_tutor_sabe_quien_es():
     s = TutorPolicy().answer_question("", "qn sos", None).system
 
     assert "Eres LARIA" in s
+    assert "el tutor con inteligencia artificial de Plenum" in s, "LARIA es el agente; Plenum, la plataforma"
     assert "eres una IA" in s, "debe decir con claridad que es una IA"
 
 
@@ -106,3 +107,11 @@ async def test_con_libro_una_pregunta_sobre_el_tutor_no_pasa_por_el_motor():
     motor.prepare_pedagogy.assert_not_awaited()
     assert r.envelope.payload["intent"] == "about"
     assert r.envelope.payload["grounded"] is False
+
+
+@pytest.mark.parametrize("frase", ["que es plenum?", "¿Qué es Plenum?", "como funciona plenum", "para que sirve plenum"])
+def test_preguntar_por_la_plataforma_es_preguntar_por_el_producto(frase):
+    """Contra el modelo real, "que es plenum?" caía en `learn` y el tutor le
+    inventaba funciones a la plataforma ("interacción con tutores", "entorno
+    colaborativo"). Como pregunta sobre el producto, responde con lo que hace."""
+    assert IntentDetector().detect(frase).intent == TutorIntent.ABOUT
