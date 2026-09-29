@@ -99,6 +99,7 @@ frontend/.pnpm-store/
 node_modules/
 
 # ─── Artefactos de agente / notebooks locales ───────────────────────────────
+CLAUDE.md
 *.canvas.data.json
 .ipynb_checkpoints/
 .pnpm-store/

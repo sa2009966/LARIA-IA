@@ -73,3 +73,40 @@ class ChatAggregate:
     def link_document(self, document_id: UUID) -> None:
         self.document_id = document_id
         self.updated_at = _utc_now()
+
+
+#: Mensajes recientes que ve el tutor, y cuánto texto como máximo. Tres o cuatro
+#: intercambios bastan para la continuidad —a qué se refiere "las guerras", cómo
+#: se llama el estudiante— sin que un chat largo se coma el presupuesto de tokens
+#: de cada turno.
+HISTORY_MAX_MESSAGES = 8
+HISTORY_MAX_CHARS = 4000
+_HISTORY_MAX_PER_MESSAGE = 700
+
+
+def recent_history(
+    messages: list[ChatMessage],
+    max_messages: int = HISTORY_MAX_MESSAGES,
+    max_chars: int = HISTORY_MAX_CHARS,
+) -> tuple[tuple[str, str], ...]:
+    """La conversación reciente, de más antigua a más reciente: `(rol, texto)`.
+
+    Solo cuenta lo que dijeron el estudiante y el tutor. Los mensajes `system`
+    —notas como "📎 Subí el archivo" o avisos de error— no son diálogo, y un
+    "no pude generar una respuesta" en la memoria solo confundiría al modelo.
+
+    Si no cabe todo, se sacrifica lo más antiguo: para dar continuidad importa lo
+    último que se dijo.
+    """
+    dialogo = [m for m in messages if m.role in ("user", "assistant") and m.content.strip()]
+    elegidos: list[tuple[str, str]] = []
+    total = 0
+    for m in reversed(dialogo[-max_messages:]):
+        texto = " ".join(m.content.split())
+        if len(texto) > _HISTORY_MAX_PER_MESSAGE:
+            texto = texto[:_HISTORY_MAX_PER_MESSAGE].rsplit(" ", 1)[0] + " […]"
+        if total + len(texto) > max_chars:
+            break
+        elegidos.append((m.role, texto))
+        total += len(texto)
+    return tuple(reversed(elegidos))

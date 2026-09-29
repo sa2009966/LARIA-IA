@@ -10,17 +10,17 @@
 > | # | Debilidad | Estado |
 > |---|-----------|--------|
 > | W1 | Perfil reactivo (lag del outbox) | Abierto — R1 sin implementar |
-> | W2 | Dedup con techo de 256 `applied_event_ids` | Abierto |
+> | W2 | Dedup con techo de 256 `applied_event_ids` | **Sin efecto** — la reclamación del outbox eliminó el escenario de re-entrega masiva ([ADR-010](adr/ADR-010-entrega-del-outbox-con-lease.md)) |
 > | W3 | Alpha dinámico sin plató | Abierto |
 > | W4 | "Nunca visto" vs "olvidado" | Parcial — separado para decidir ([ADR-006](adr/ADR-006-oferta-vs-bloqueo.md), [ADR-007](adr/ADR-007-evidencia-ponderada-por-calidad.md)); `RecommendationEngine` sigue igual |
 > | W5 | Dificultad con `min()` sin ponderación | Parcial — sin contaminación entre documentos y solo conceptos con evidencia ([ADR-009](adr/ADR-009-contabilidad-y-canal-positivo.md)); sigue siendo `min` |
 > | W6 | Grafo estático sin retroalimentación | Parcial — agregado curado + sugerencias `INFERRED` ([ADR-005](adr/ADR-005-grafo-prerrequisitos-curado.md)); falta curación docente y detector estadístico |
-> | W7 | Señales por regex frágil | Abierto — y además colisiona entre materias (`desigualdades` ⇒ `desigualdad social`) |
+> | W7 | Señales por regex frágil | **Parcial** — normalización, cobertura ampliada y patrones acotados por materia ([ADR-011](adr/ADR-011-calidad-de-la-evidencia.md)); sigue siendo regex, no semántica |
 > | W8 | `answer_stream` ignora el motor | **Resuelto** — mismo `PedagogyPlan` en ambos paths ([ADR-004](adr/ADR-004-adaptacion-por-senales.md), Decisión 3) |
 > | W9 | Sin detección de abandono ni monotonía | Parcial — `last_interaction_at` e `interaction_gap_ms` existen; no hay recomendación de re-engagement |
 > | W10 | `DocumentMastery.error_streak`/`help_requests` no persisten | **Sin efecto** — esos campos no existen en el agregado; `incorrect_streak` y `struggle_signals` sí se persisten |
 > | W11 | `DocumentMastery` sin decaimiento | Abierto |
-> | W12 | Concurrencia optimista sin backoff | Parcial — `with_concurrency_retry` acota a 3 intentos; sin backoff exponencial |
+> | W12 | Concurrencia optimista sin backoff | **Resuelto** — backoff exponencial con jitter, acotado (ADR-010) |
 > | W13 | `LearningPath` como segunda verdad | **Resuelto** para el mastery ([ADR-008](adr/ADR-008-progreso-derivado-no-declarado.md)); las aristas siguen duplicadas |
 >
 > Hallazgos posteriores a esta auditoría (y su cierre): ADR-007 (auto-reporte contado como medición,

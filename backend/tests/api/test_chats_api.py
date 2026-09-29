@@ -129,7 +129,7 @@ class TestChatsAPI:
         created = client.post("/api/v1/chats/", headers=headers, json={"title": "Chat"}).json()
 
         class FakeTutor:
-            async def answer(self, document_id, question, student_id):
+            async def answer(self, document_id, question, student_id, history=()):
                 return TutorResponse(
                     content="Respuesta del tutor: " + question,
                     envelope=ResponseEnvelope(
@@ -170,6 +170,30 @@ class TestChatsAPI:
         )
         assert r.status_code == 200
         assert r.json()["messages"][0]["metadata"] == {"source": "tutor"}
+
+    def test_un_mensaje_que_no_es_del_usuario_no_dispara_turno(self, client):
+        """`role` decide si hay turno, no solo cómo se pinta el mensaje.
+
+        Un cliente que deja una nota ("📎 Subí el archivo") con `role="user"`
+        paga una llamada al modelo, recibe una respuesta fantasma y **escribe
+        evidencia en el perfil del estudiante**, reiniciando además su reloj de
+        interacción. Con `role="system"` se guarda y no pasa nada más. Esto está
+        documentado en `docs/frontend-integration.md`; el test lo hace exigible.
+        """
+        token = _register_and_token(client, "chat")
+        headers = {"Authorization": "Bearer " + token}
+        created = client.post("/api/v1/chats/", headers=headers, json={}).json()
+
+        r = client.post(
+            "/api/v1/chats/" + created["id"] + "/messages",
+            headers=headers,
+            json={"role": "system", "content": "📎 Subí el archivo algebra.pdf"},
+        )
+
+        assert r.status_code == 200
+        mensajes = r.json()["messages"]
+        assert len(mensajes) == 1, "el tutor respondió a una nota que no le preguntaba nada"
+        assert mensajes[0]["role"] == "system"
 
     def test_add_message_empty_422(self, client):
         token = _register_and_token(client, "chat")
@@ -256,7 +280,7 @@ class TestChatsAPI:
 
         # Simular que el tutor falla totalmente.
         class FailingTutor:
-            async def answer(self, document_id, question, student_id):
+            async def answer(self, document_id, question, student_id, history=()):
                 raise RuntimeError("boom")
 
         from src.interfaces.api import dependencies
@@ -273,7 +297,11 @@ class TestChatsAPI:
         assert len(messages) == 2
         assert messages[0]["role"] == "user"
         assert messages[1]["role"] == "system"
-        assert messages[1]["metadata"]["source"] == "error"
+        # Un fallo también es un envelope: misma forma que cualquier turno, para
+        # que la UI no tenga que conocer dos contratos.
+        assert messages[1]["metadata"]["type"] == "error"
+        assert messages[1]["metadata"]["emotion"]
+        assert "content" in messages[1]["metadata"]["payload"]
         assert messages[1]["metadata"]["type"] == "error"
 
     def test_add_message_user_with_document_passes_doc_id(self, client):
@@ -287,7 +315,7 @@ class TestChatsAPI:
         captured = {}
 
         class CapturingTutor:
-            async def answer(self, document_id, question, student_id):
+            async def answer(self, document_id, question, student_id, history=()):
                 captured["document_id"] = document_id
                 captured["question"] = question
                 captured["student_id"] = student_id
@@ -324,7 +352,7 @@ class TestChatsStreaming:
         chat_id = created["id"]
 
         class FakeTutor:
-            async def answer_stream(self, document_id, question, student_id):
+            async def answer_stream(self, document_id, question, student_id, history=()):
                 yield "Hola", None
                 yield " mundo", None
 
@@ -374,3 +402,67 @@ class TestChatsStreaming:
             json={"role": "assistant", "content": "x"},
         )
         assert r.status_code == 422
+
+
+class TestChatTitleAPI:
+    def test_generate_title(self, client, monkeypatch):
+        token = _register_and_token(client, "title")
+        headers = {"Authorization": "Bearer " + token}
+        captured = {}
+
+        class FakeGenerator:
+            async def generate_chat_title(self, messages):
+                captured["messages"] = messages
+                return "Fotosíntesis vegetal"
+
+        from src.interfaces.api import dependencies
+
+        monkeypatch.setitem(
+            app.dependency_overrides,
+            dependencies.get_chat_title_generator,
+            lambda: FakeGenerator(),
+        )
+        response = client.post(
+            "/api/v1/chats/generate-title",
+            headers=headers,
+            json={"messages": [{"role": "user", "content": "¿Qué es la fotosíntesis?"}]},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json() == {"title": "Fotosíntesis vegetal"}
+        assert captured["messages"][0].role == "user"
+        assert captured["messages"][0].content == "¿Qué es la fotosíntesis?"
+
+    def test_generate_title_rejects_empty_messages(self, client):
+        token = _register_and_token(client, "title")
+        response = client.post(
+            "/api/v1/chats/generate-title",
+            headers={"Authorization": "Bearer " + token},
+            json={"messages": []},
+        )
+
+        assert response.status_code == 422
+
+    def test_generate_title_maps_provider_failure_to_502(self, client, monkeypatch):
+        token = _register_and_token(client, "title")
+
+        class FailingGenerator:
+            async def generate_chat_title(self, messages):
+                from src.domain.ports.ia_analyst import IAAnalysisError
+
+                raise IAAnalysisError("El servicio de IA no está disponible en este momento.")
+
+        from src.interfaces.api import dependencies
+
+        monkeypatch.setitem(
+            app.dependency_overrides,
+            dependencies.get_chat_title_generator,
+            lambda: FailingGenerator(),
+        )
+        response = client.post(
+            "/api/v1/chats/generate-title",
+            headers={"Authorization": "Bearer " + token},
+            json={"messages": [{"role": "user", "content": "Hola"}]},
+        )
+
+        assert response.status_code == 502

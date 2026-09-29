@@ -63,6 +63,54 @@ _PLAIN_CODE_EXTENSIONS = {
 }
 _BINARY_SUFFIXES = {".pdf", ".docx", ".xlsx", ".pptx"}
 
+#: Tipo MIME del archivo **original**, para servirlo tal cual se subió. Lo sabe
+#: este módulo porque es el que ya conoce los formatos; el router solo transporta.
+_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".md": "text/markdown; charset=utf-8",
+    ".markdown": "text/markdown; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
+    ".xml": "text/xml; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".htm": "text/html; charset=utf-8",
+}
+
+
+def content_type_for(filename: str) -> str:
+    """MIME con el que devolver el archivo original.
+
+    El código y los textos planos salen como `text/plain`: se muestran en el
+    navegador y no se descargan como binario opaco.
+    """
+    ext = "." + extension_of(filename)
+    if ext in _CONTENT_TYPES:
+        return _CONTENT_TYPES[ext]
+    if ext in _TEXT_SUFFIXES or ext in _PLAIN_CODE_EXTENSIONS:
+        return "text/plain; charset=utf-8"
+    return "application/octet-stream"
+
+
+#: Tipos que el navegador **ejecuta** si se sirven inline. El endpoint de
+#: contenido responde desde el dominio de la API: un `.html` subido con un
+#: `<script>` correría con el origen del backend (XSS almacenado). Se sirven como
+#: texto: el visor los muestra igual y no se ejecuta nada.
+_ACTIVE_TYPES = ("text/html", "application/xhtml+xml", "image/svg+xml", "text/xml",
+                 "application/xml", "text/javascript", "application/javascript")
+
+
+def inline_safe_type(content_type: str | None) -> str:
+    """Tipo con el que servir un archivo inline sin que el navegador lo ejecute."""
+    tipo = (content_type or "").split(";")[0].strip().lower()
+    if not tipo:
+        return "application/octet-stream"
+    if tipo in _ACTIVE_TYPES:
+        return "text/plain; charset=utf-8"
+    return content_type
+
 
 def _input_key_factory() -> re.Pattern:
     return re.compile(r".+\.\w+$")

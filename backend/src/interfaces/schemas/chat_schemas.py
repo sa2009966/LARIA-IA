@@ -16,6 +16,19 @@ class ChatAddMessageRequest(BaseModel):
     metadata: Optional[dict] = None
 
 
+class TitleMessageRequest(BaseModel):
+    role: Literal["user", "assistant", "system"]
+    content: Annotated[str, Field(min_length=1, max_length=2_000)]
+
+
+class GenerateTitleRequest(BaseModel):
+    messages: Annotated[list[TitleMessageRequest], Field(min_length=1, max_length=5)]
+
+
+class TitleResponse(BaseModel):
+    title: Annotated[str, Field(min_length=2, max_length=120)]
+
+
 class ChatMessageResponse(BaseModel):
     id: str
     role: str

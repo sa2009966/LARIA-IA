@@ -7,8 +7,13 @@
 | [backend.md](backend.md) | Overview del servicio, stack, arranque, ramas, checklist pre-merge |
 | [architecture.md](architecture.md) | Arquitectura hexagonal / DDD, capas y flujos |
 | [endpoints.md](endpoints.md) | Catálogo REST `/api/v1` |
+| [frontend-integration.md](frontend-integration.md) | Guía para el cliente web: flujo correcto, envelope, errores |
+| [envelope-contract.md](envelope-contract.md) | Contrato del envelope del tutor, con un ejemplo real por tipo |
+| [api-contracts.md](api-contracts.md) | Contratos de `/learning/paths` y `/quizzes`, con payloads reales |
 | [mongodb-schema.md](mongodb-schema.md) | Colecciones MongoDB, campos, índices y diagramas ER |
 | [mongodb-viewer.md](mongodb-viewer.md) | Cómo visualizar la BD (extensión Cursor / Compass / mongosh) |
+| [4_PLAN_CORRECCION.md](4_PLAN_CORRECCION.md) | Plan de corrección por fases: despliegue, lazo de evidencia, endurecimiento, calidad y medición |
+| [5_PLAN_MOTOR_ADAPTATIVO.md](5_PLAN_MOTOR_ADAPTATIVO.md) | Plan por fases: arbitraje, explicabilidad, encender la adaptación y hacerla visible |
 | [gantt-compliance.md](gantt-compliance.md) | Evaluación backend vs diagrama de Gantt del proyecto |
 | [deploy-render.md](deploy-render.md) | Despliegue en Render (Blueprint + variables) |
 | [adr/ADR-001-openai-hexagonal-tutor.md](adr/ADR-001-openai-hexagonal-tutor.md) | ADR-1: decisiones fundacionales |
@@ -20,6 +25,10 @@
 | [adr/ADR-007-evidencia-ponderada-por-calidad.md](adr/ADR-007-evidencia-ponderada-por-calidad.md) | ADR-7: la evidencia se pesa por su calidad |
 | [adr/ADR-008-progreso-derivado-no-declarado.md](adr/ADR-008-progreso-derivado-no-declarado.md) | ADR-8: el progreso se deriva de la evidencia, nadie lo declara |
 | [adr/ADR-009-contabilidad-y-canal-positivo.md](adr/ADR-009-contabilidad-y-canal-positivo.md) | ADR-9: una observación por turno, y el logro se le dice al estudiante |
+| [adr/ADR-010-entrega-del-outbox-con-lease.md](adr/ADR-010-entrega-del-outbox-con-lease.md) | ADR-10: el outbox reclama con lease; un evento, un dueño |
+| [adr/ADR-011-calidad-de-la-evidencia.md](adr/ADR-011-calidad-de-la-evidencia.md) | ADR-11: la evidencia sabe de qué concepto habla |
+| [adr/ADR-012-texto-y-original.md](adr/ADR-012-texto-y-original.md) | ADR-12: el tutor lee texto; el alumno descarga su archivo |
+| [adr/ADR-013-decir-por-que.md](adr/ADR-013-decir-por-que.md) | ADR-13: la adaptación se explica o no existe |
 
 Swagger interactivo (solo con `ENABLE_DOCS=true`): `/docs`.
 

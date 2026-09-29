@@ -77,7 +77,7 @@ async def test_middleware_returns_429_when_blocked(monkeypatch):
     monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", True)
     counter = SlidingWindowCounter()
     for _ in range(8):
-        counter.allow("1.1.1.1:ia:analyze", 8, 60.0)
+        await counter.allow("1.1.1.1:ia:analyze", 8, 60.0)
 
     async def app(scope, receive, send):
         resp = Response("ok")
@@ -142,31 +142,46 @@ async def test_middleware_allows_when_under_limit(monkeypatch):
     assert resp.status_code == 200
 
 
-def test_sliding_window_evicts_expired_hits(monkeypatch):
+@pytest.mark.asyncio
+async def test_sliding_window_evicts_expired_hits():
+    """El reloj se parchea DENTRO del test, no con `monkeypatch`.
+
+    `rate_limit.time` es el módulo `time` real: dejar el parche vivo hasta el
+    teardown se lo aplica también al event loop, que agota el iterador.
+    """
+    from unittest.mock import patch
+
     from src.infrastructure.rate_limit import SlidingWindowCounter
 
-    now = 1000.0
-    times = iter([now, now + 70.0, now + 70.0])
-    monkeypatch.setattr("src.infrastructure.rate_limit.time.monotonic", lambda: next(times))
     counter = SlidingWindowCounter()
-    assert counter.allow("k", 1, 60.0) is True
-    assert counter.allow("k", 1, 60.0) is True
+    with patch(
+        "src.infrastructure.rate_limit.time.monotonic",
+        side_effect=[1000.0, 1070.0, 1070.0],
+    ):
+        assert await counter.allow("k", 1, 60.0) is True
+        assert await counter.allow("k", 1, 60.0) is True
 
 
-def test_build_rate_limit_counter_redis_ping_failure(monkeypatch):
-    from src.infrastructure.config import settings
-    from src.infrastructure.rate_limit import SlidingWindowCounter, build_rate_limit_counter
+@pytest.mark.asyncio
+async def test_redis_caido_degrada_al_contador_local(monkeypatch):
+    """Un limitador caído no puede tumbar el borde.
 
-    mock_client = MagicMock()
-    mock_client.ping.side_effect = ConnectionError("redis down")
-    mock_redis_mod = MagicMock()
-    mock_redis_mod.Redis.from_url.return_value = mock_client
-    monkeypatch.setattr(settings, "RATE_LIMIT_BACKEND", "redis")
-    monkeypatch.setattr(settings, "REDIS_URL", "redis://localhost:6379/0")
-    monkeypatch.setitem(__import__("sys").modules, "redis", mock_redis_mod)
+    Antes `build_rate_limit_counter()` hacía `ping()` al construir —bloqueante y
+    dentro del event loop— y propagaba el fallo como 500 en la ruta. Ahora la
+    conexión es perezosa y el error degrada a conteo por proceso.
+    """
+    from src.infrastructure.rate_limit import RedisSlidingWindow, SlidingWindowCounter
 
-    with pytest.raises(ConnectionError):
-        build_rate_limit_counter()
+    class ClienteCaido:
+        def pipeline(self):
+            raise ConnectionError("redis down")
+
+    fallback = SlidingWindowCounter()
+    counter = RedisSlidingWindow(ClienteCaido(), fallback=fallback)
+
+    assert await counter.allow("k", 1, 60.0) is True
+    # El plan B cuenta de verdad: la segunda pasada ya bloquea.
+    assert await counter.allow("k", 1, 60.0) is False
 
 
 @pytest.mark.asyncio

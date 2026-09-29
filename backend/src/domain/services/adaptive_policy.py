@@ -54,6 +54,10 @@ class PromptShapingParameters:
     examples_per_explanation: int = 1
     socratic_question_rate: str = "low"  # low | medium | high
     prefers_analogy: bool = False
+    # Ofrecer práctica es forma, no orquestación: ver ADR-015. Forzar un turno
+    # de práctica antes de avanzar sería bloquear, y el ADR-006 ya decidió que
+    # este sistema ofrece y no bloquea.
+    practice_before_advance: bool = False
 
     def to_prompt_fragment(self) -> str:
         """Fragmento aditivo para el system prompt. Único punto de efecto."""
@@ -77,14 +81,24 @@ class PromptShapingParameters:
             if self.prefers_analogy
             else ""
         )
-        return f"Adaptación al estudiante: {length} {examples} {socratic}{analogy}"
+        practice = (
+            " Cierra ofreciendo un ejercicio breve para practicar antes de avanzar."
+            if self.practice_before_advance
+            else ""
+        )
+        return f"Adaptación al estudiante: {length} {examples} {socratic}{analogy}{practice}"
 
 
 @dataclass(frozen=True)
 class ControlFlowParameters:
-    """Familia control-flow: orquestación alrededor de la generación, no prompt."""
+    """Familia control-flow: lo que solo el cliente puede aplicar.
 
-    practice_before_advance: bool = False
+    Queda un único parámetro, y es correcto: trocear una explicación es una
+    decisión de **render**, no de generación. El backend no puede trocear lo
+    que ya escribió; el que pinta, sí. Viaja en el envelope como pista para el
+    cliente (ADR-015).
+    """
+
     chunk_explanation: bool = False
 
 
@@ -126,11 +140,11 @@ class AdaptivePolicy:
                 examples_per_explanation=self._resolve_examples(usable),
                 socratic_question_rate=self._resolve_socratic_rate(usable),
                 prefers_analogy=self._over(usable, SignalKind.ANALOGY_AFFINITY, self._cut.preference),
-            ),
-            control_flow=ControlFlowParameters(
                 practice_before_advance=self._over(
                     usable, SignalKind.PRACTICE_SEEKING, self._cut.preference
                 ),
+            ),
+            control_flow=ControlFlowParameters(
                 chunk_explanation=self._over(
                     usable, SignalKind.RESPONSE_LATENCY, self._cut.band_high
                 ),

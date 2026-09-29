@@ -24,7 +24,7 @@ class TestUserAggregate:
             UserAggregate.register("ana", "invalido", "SecurePass1x")
 
     def test_register_weak_password(self):
-        with pytest.raises(ValueError, match="at least 8"):
+        with pytest.raises(ValueError, match="at least 12"):
             UserAggregate.register("ana", "ana@example.com", "Ab1")
 
     def test_deactivate_active_user(self):

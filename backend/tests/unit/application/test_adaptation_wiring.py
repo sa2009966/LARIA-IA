@@ -146,7 +146,7 @@ async def test_streaming_con_documento_usa_decision_pedagogica():
     assert envelope.payload["mode"]
     assert "chunk_explanation" in envelope.payload
     # Antes el streaming mandaba context="" y decision=None al LLM.
-    assert "tutor adaptativo de LARIA" in analyst.system_prompts[0]
+    assert "tutor adaptativo de Plenum" in analyst.system_prompts[0]
     assert "Una variable representa un valor." in analyst.user_prompts[0]
 
 

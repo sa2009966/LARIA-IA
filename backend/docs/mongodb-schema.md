@@ -132,7 +132,7 @@ Nombres reales en Mongo: `users`, `documents`, `quizzes`, `quiz_attempts`, `tuto
 
 ### GridFS (`fs.files` / `fs.chunks`)
 
-Cuerpo del material (hasta `DOCUMENT_MAX_UPLOAD_BYTES`, 200 MiB por defecto). Evita el límite BSON de 16 MB en `documents`.
+Cuerpo del material (hasta `DOCUMENT_MAX_UPLOAD_BYTES`, 25 MiB por defecto). Evita el límite BSON de 16 MB en `documents`. Guarda el **texto extraído** (`content_blob_id`) y, si `ORIGINAL_STORAGE=blob`, también el archivo original (`original_blob_id`); con `ORIGINAL_STORAGE=r2` el original vive en Cloudflare R2 ([ADR-012](adr/ADR-012-texto-y-original.md)).
 
 **`analysis_result` embebido:**
 

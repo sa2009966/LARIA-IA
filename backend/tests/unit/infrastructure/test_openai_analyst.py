@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from src.domain.aggregates.document_aggregate import DocumentAggregate
+from src.domain.ports.chat_title_generator import TitleMessage
+from src.domain.ports.ia_analyst import IAAnalysisError
 from src.domain.value_objects.analysis_result import AnalysisResult
 from src.domain.value_objects.question import Quiz
 from src.infrastructure.openai.openai_ia_analyst import OpenAIAnalyst
@@ -91,3 +93,52 @@ async def test_generate_quiz_con_valores_por_defecto(analyst: OpenAIAnalyst):
         quiz = await analyst.generate_quiz(doc)
 
     assert quiz.questions[0].difficulty == "medium"
+
+
+@pytest.mark.asyncio
+async def test_generate_chat_title_limpia_etiqueta_y_limita_tokens(analyst: OpenAIAnalyst):
+    messages = [TitleMessage(role="user", content="¿Qué es la fotosíntesis?")]
+
+    with patch.object(analyst, "_chat", AsyncMock(return_value="Título: Fotosíntesis vegetal")) as chat:
+        title = await analyst.generate_chat_title(messages)
+
+    assert title == "Fotosíntesis vegetal"
+    # 20 cortaba títulos a media palabra; siete palabras no caben en 20 tokens.
+    assert chat.await_args.kwargs["max_tokens"] == 32
+    assert chat.await_args.kwargs["task"] == "title"
+
+
+@pytest.mark.asyncio
+async def test_un_titulo_de_una_palabra_es_un_titulo_valido(analyst: OpenAIAnalyst):
+    """El 502 que veía el cliente: se exigían 2 palabras como mínimo.
+
+    El modelo responde a menudo con una sola palabra —"Álgebra",
+    "Agradecimiento"— y son títulos perfectamente buenos. Devolver un error de
+    proveedor por eso confunde un título corto con una respuesta rota.
+    """
+    messages = [TitleMessage(role="user", content="Explícame álgebra")]
+
+    with patch.object(analyst, "_chat", AsyncMock(return_value="Álgebra")):
+        assert await analyst.generate_chat_title(messages) == "Álgebra"
+
+
+@pytest.mark.asyncio
+async def test_un_titulo_largo_se_recorta_en_vez_de_rechazarse(analyst: OpenAIAnalyst):
+    """Largo de más sigue siendo usable: el modelo dio contenido, no basura."""
+    messages = [TitleMessage(role="user", content="cuéntame algo")]
+    largo = "Uno dos tres cuatro cinco seis siete ocho nueve diez"
+
+    with patch.object(analyst, "_chat", AsyncMock(return_value=largo)):
+        title = await analyst.generate_chat_title(messages)
+
+    assert title == "Uno dos tres cuatro cinco seis siete"
+    assert len(title.split()) == 7
+
+
+@pytest.mark.asyncio
+async def test_solo_una_respuesta_vacia_es_un_fallo_del_proveedor(analyst: OpenAIAnalyst):
+    messages = [TitleMessage(role="user", content="hola")]
+
+    with patch.object(analyst, "_chat", AsyncMock(return_value="   \n  ")):
+        with pytest.raises(IAAnalysisError):
+            await analyst.generate_chat_title(messages)

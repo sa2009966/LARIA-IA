@@ -27,3 +27,9 @@ class InMemoryQuizAttemptRepository(QuizAttemptRepository):
         for aid in to_delete:
             del self._attempts[aid]
         return len(to_delete)
+
+    async def delete_by_student(self, student_id: UUID) -> int:
+        borrar = [aid for aid, a in self._attempts.items() if a.student_id == student_id]
+        for aid in borrar:
+            del self._attempts[aid]
+        return len(borrar)

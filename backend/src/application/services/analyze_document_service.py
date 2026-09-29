@@ -44,8 +44,11 @@ from src.domain.services.learning_signal_detector import (
 from src.domain.services.pedagogical_engine import (
     PedagogicalDecision,
     PedagogicalEngine,
+    PedagogicalMode,
     TutorIntent,
 )
+from src.domain.services.adaptation_explainer import explain_adaptation
+from src.domain.services.plan_composer import Override, compose_plan
 from src.domain.value_objects.analysis_result import AnalysisResult
 
 logger = logging.getLogger(__name__)
@@ -73,6 +76,20 @@ class PedagogyPlan:
     help_level: float = 0.0
     observations: dict[SignalKind, float] = field(default_factory=dict)
     started: float = 0.0
+    #: Conversación reciente del chat, para dar continuidad al lenguaje. NO
+    #: alimenta la decisión pedagógica: esa sale de la evidencia. Si entrara en
+    #: la pregunta, un "no entiendo" de hace tres turnos se volvería a contar
+    #: como señal en cada turno (invariante 4: un turno es una observación).
+    history: tuple = ()
+    #: Pidió un cuestionario: "" sin tema, el tema, o None. El tutor lo anuncia en
+    #: vez de escribirlo (lo presenta la plataforma, interactivo).
+    quiz_request: str | None = None
+    # Qué pidió la política y no sobrevivió al fondo pedagógico (ADR-004,
+    # Decisión 5). Se conserva para depurar y para explicárselo al estudiante.
+    overrides: tuple[Override, ...] = ()
+    # Por qué el tutor habla así, en lenguaje natural. Vacío si no hubo nada
+    # que adaptar, o si la adaptación no se está aplicando (modo sombra).
+    explanation: str = ""
 
     @property
     def prompt_shaping(self) -> PromptShapingParameters:
@@ -213,12 +230,17 @@ class AnalyzeDocumentService:
                 decision=plan.decision,
                 struggle_signals=plan.struggle_signals,
                 adaptation=self.prompt_shaping_for(plan),
+                history=plan.history,
+                quiz_request=plan.quiz_request,
             )
         return await self._ia_analyst.answer_question(
             context=plan.context,
             question=plan.question,
             decision=plan.decision,
             adaptation=self.prompt_shaping_for(plan),
+            # Solo si hay: un analista que no lo declare sigue funcionando.
+            **({"history": plan.history} if plan.history else {}),
+            **({"quiz_request": plan.quiz_request} if plan.quiz_request is not None else {}),
         )
 
     async def stream_from_plan(self, plan: PedagogyPlan):
@@ -236,11 +258,19 @@ class AnalyzeDocumentService:
             decision=plan.decision,
             struggle_signals=plan.struggle_signals,
             adaptation=self.prompt_shaping_for(plan),
+            history=plan.history,
+            quiz_request=plan.quiz_request,
         ):
             yield token
 
     async def prepare_pedagogy(
-        self, document_id: UUID, question: str, requesting_user_id: UUID
+        self,
+        document_id: UUID,
+        question: str,
+        requesting_user_id: UUID,
+        *,
+        history: tuple = (),
+        quiz_request: str | None = None,
     ) -> PedagogyPlan:
         """Decide todo lo pedagógico **antes** de generar lenguaje.
 
@@ -255,7 +285,9 @@ class AnalyzeDocumentService:
             raise ValueError("Repositorio de interacciones no configurado")
 
         started = time.monotonic()
-        signal = self._signals.detect(question)
+        # La materia acota las heurísticas de concepto: `desigualdad` no
+        # significa lo mismo en Matemática que en Historia (ADR-011).
+        signal = self._signals.detect(question, subject=document.subject)
         help_level = 0.5 if signal.kind == LearningSignalKind.HELP else 0.0
         profile = None
         observations: dict[SignalKind, float] = {}
@@ -302,13 +334,38 @@ class AnalyzeDocumentService:
             question=question,
             graph=graph,
         )
-        adaptation = self._adaptive.decide(
+        # La política propone la forma; el arbitraje la recorta cuando
+        # contradice el fondo. Aquí, y no en el prompt, para que streaming y
+        # no-streaming consuman exactamente lo mismo (ADR-004, Decisiones 3 y 5).
+        propuesta = self._adaptive.decide(
             profile.signals_for_policy() if profile else {}
         )
+        compuesto = compose_plan(decision, propuesta)
+        adaptation = compuesto.adaptation
+        if compuesto.overrides:
+            logger.info(
+                "plan_arbitrado mode=%s vetos=%s",
+                decision.mode.value,
+                [o.parameter for o in compuesto.overrides],
+            )
+
+        # Solo se le explica al estudiante lo que de verdad se le aplicó: en
+        # modo sombra la adaptación no llega al prompt, así que contarla sería
+        # mentir. Se registra igualmente, que para eso sirve como depurador.
+        porque = explain_adaptation(
+            compuesto.prompt_shaping,
+            compuesto.control_flow,
+            profile.signals_for_policy() if profile else {},
+            compuesto.overrides,
+        )
+        if porque:
+            logger.info("adaptacion_explicada aplicada=%s texto=%s", self._adaptation_enabled, porque)
         return PedagogyPlan(
             document_id=document_id,
             student_id=requesting_user_id,
             question=question,
+            history=history,
+            quiz_request=quiz_request,
             context=self._context.select(document, decision.focus_concepts),
             decision=decision,
             adaptation=adaptation,
@@ -319,6 +376,8 @@ class AnalyzeDocumentService:
             help_level=help_level,
             observations=observations,
             started=started,
+            overrides=compuesto.overrides,
+            explanation=porque if self._adaptation_enabled else "",
         )
 
     async def _load_graph(self, concepts: tuple[str, ...]) -> ConceptGraph | None:
@@ -374,7 +433,16 @@ class AnalyzeDocumentService:
                 )
                 if s is None:
                     s = TutorSession.start(plan.student_id, plan.document_id)
-                hint = answer[:160].replace("\n", " ")
+                # Solo cuenta como pista si el turno ANDAMIÓ. Antes se guardaba
+                # la respuesta en todos los turnos, y el motor andamia cuando hay
+                # pistas dadas: desde el segundo mensaje de un chat con libro,
+                # todo salía en modo andamiaje y dificultad fácil, sin evidencia
+                # alguna. Eso rompe la invariante 3.
+                hint = (
+                    answer[:160].replace("\n", " ")
+                    if plan.decision.mode == PedagogicalMode.SCAFFOLD
+                    else ""
+                )
                 s.record_ask(hint_summary=hint, focus=plan.decision.focus_concepts)
                 s.objective = plan.decision.objective
                 await self._session_repo.save(s)

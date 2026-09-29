@@ -67,6 +67,26 @@ class ResponseEnvelope:
         }
 
 
+def plain_envelope(
+    envelope_type: EnvelopeType,
+    content: str = "",
+    *,
+    grounded: bool = False,
+    emotion: AffectState = AffectState.ENCOURAGING,
+) -> ResponseEnvelope:
+    """Envelope sin decisión pedagógica detrás (fallo, o turno sin motor).
+
+    Existe para que el cliente **nunca** reciba dos formas distintas: un error
+    traía `{"source": "error", "type": "error"}`, sin `emotion` ni `payload`,
+    así que la UI tenía que saber de dos contratos para pintar una respuesta.
+    """
+    return ResponseEnvelope(
+        type=envelope_type,
+        emotion=emotion,
+        payload={"content": content, "grounded": grounded},
+    )
+
+
 def envelope_type_for_mode(mode: PedagogicalMode | None) -> EnvelopeType:
     """Mapea el modo pedagógico a un tipo de envelope para el cliente."""
     if mode is None:

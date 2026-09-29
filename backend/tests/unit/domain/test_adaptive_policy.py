@@ -121,13 +121,19 @@ def test_socratic_rate_por_banda(value, expected):
 
 
 def test_control_flow_se_deriva_de_sus_senales():
+    """`practice_before_advance` pasó a prompt-shaping en el ADR-015.
+
+    La señal que lo gobierna y el umbral no cambian: lo que cambia es dónde se
+    aplica. Ofrecer práctica es texto del prompt; trocear la explicación solo lo
+    puede hacer quien pinta, y por eso sigue siendo control-flow.
+    """
     params = AdaptivePolicy().decide(
         profile(
             signal(SignalKind.PRACTICE_SEEKING, 0.8),
             signal(SignalKind.RESPONSE_LATENCY, 0.9),
         )
     )
-    assert params.control_flow.practice_before_advance is True
+    assert params.prompt_shaping.practice_before_advance is True
     assert params.control_flow.chunk_explanation is True
 
 

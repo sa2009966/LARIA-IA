@@ -12,6 +12,11 @@ from src.domain.ports.repositories import (
 )
 from src.domain.adaptive_signals import SignalKind
 from src.domain.services.concept_tagger import ConceptTagger
+from src.domain.services.diagnostic_planner import (
+    PlacementLevel,
+    PlacementRound,
+    resolve_placement,
+)
 from src.domain.services.learning_signal_detector import LearningSignalKind
 import logging
 
@@ -201,8 +206,17 @@ class LearningEvidenceProjector:
         missed: list[str] = []
         concept_results: list[tuple[str, float]] = []
 
+        etiquetados = 0
+        sin_etiquetar = 0
+        tema_nivelacion: str | None = None
+        ronda_nivelacion: str | None = None
+        etiqueta_nivelacion: str | None = None
         if self._quiz_repo is not None and self._attempt_repo is not None:
             quiz = await self._quiz_repo.find_by_id(event.quiz_id)
+            if quiz is not None:
+                tema_nivelacion = quiz.topic
+                ronda_nivelacion = quiz.placement_round
+                etiqueta_nivelacion = quiz.topic_label
             attempt = await self._attempt_repo.find_by_id(event.aggregate_id)
             if quiz is not None and attempt is not None:
                 for i, question in enumerate(quiz.questions):
@@ -213,8 +227,14 @@ class LearningEvidenceProjector:
                         else False
                     )
                     item_ratio = 1.0 if ok else 0.0
-                    tags = tagged.concept_tags or ("general",)
-                    for tag in tags:
+                    if not tagged.concept_tags:
+                        # Ítem sin concepto conocido: cuenta para el mastery del
+                        # documento, pero no se le inventa un concepto al que
+                        # atribuirle evidencia (ADR-011).
+                        sin_etiquetar += 1
+                        continue
+                    etiquetados += 1
+                    for tag in tagged.concept_tags:
                         concept_results.append((tag, item_ratio))
                         if not ok:
                             missed.append(tag)
@@ -231,17 +251,45 @@ class LearningEvidenceProjector:
             # ya aplicado y se contaría el intento dos veces.
             if profile.was_event_applied(event.event_id):
                 return profile
-            profile.record_quiz_result(
-                document_id=event.document_id,
-                score_ratio=ratio,
-                missed_concepts=missed_t,
-                concept_results=results_t,
-            )
+            if event.document_id is None:
+                # Diagnóstico de entrada: ítems calificados sobre conceptos, sin
+                # documento cuyo mastery mover (ADR-016). Inventar un id aquí lo
+                # acabaría sacando `weakest_documents` en las recomendaciones,
+                # apuntando a un documento que no existe.
+                profile.record_diagnostic_result(
+                    concept_results=results_t, missed_concepts=missed_t
+                )
+                if tema_nivelacion and ronda_nivelacion:
+                    # El veredicto se escribe aquí y solo aquí: el servicio lo
+                    # calcula para contestar al cliente, pero el perfil tiene un
+                    # único escritor (ADR-017, invariante 1).
+                    guardado = profile.level_for_topic(tema_nivelacion)
+                    nivel = resolve_placement(
+                        PlacementRound(ronda_nivelacion),
+                        ratio,
+                        PlacementLevel(guardado) if guardado else None,
+                    )
+                    profile.record_placement(
+                        tema_nivelacion, nivel.value, etiqueta_nivelacion
+                    )
+            else:
+                profile.record_quiz_result(
+                    document_id=event.document_id,
+                    score_ratio=ratio,
+                    missed_concepts=missed_t,
+                    concept_results=results_t,
+                )
             profile.mark_event_applied(event.event_id)
             await self._profile_repo.save(profile)
             if self._metrics:
                 self._metrics.incr("profile_updates", source="quiz")
                 self._metrics.incr("laria_quiz_attempts")
+                # Cobertura de etiquetado: qué parte de la evidencia sabe a qué
+                # concepto pertenece. Si esto cae, el perfil se vuelve ciego.
+                if etiquetados:
+                    self._metrics.incr("laria_quiz_items", etiquetados, tagged="yes")
+                if sin_etiquetar:
+                    self._metrics.incr("laria_quiz_items", sin_etiquetar, tagged="no")
                 self._metrics.observe("laria_quiz_score_ratio", ratio)
                 weak = len(profile.weakest_concepts(limit=20, use_effective=True))
                 mastered = len(profile.mastered_concepts(limit=50))

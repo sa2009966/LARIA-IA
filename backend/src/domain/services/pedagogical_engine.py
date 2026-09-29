@@ -82,6 +82,26 @@ class PedagogicalEngine:
         return min(profile.effective_concept_mastery(c) for c in measured), measured
 
     @staticmethod
+    def _asked_concepts(
+        question: str,
+        document_concepts: tuple[str, ...],
+        focus: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """Conceptos del material que la pregunta nombra, en orden del material.
+
+        Solo cuentan conceptos que el documento ya declara: no se inventa nada
+        desde el texto libre. Si la pregunta no nombra ninguno, el foco lo
+        siguen decidiendo las debilidades.
+        """
+        if not question:
+            return ()
+        texto = canonicalize_concept(question)
+        if not texto:
+            return ()
+        candidatos = tuple(dict.fromkeys(document_concepts + focus))
+        return tuple(c for c in candidatos if c and c in texto)
+
+    @staticmethod
     def _return_promise(
         asked_focus: tuple[str, ...], remediation: tuple[str, ...]
     ) -> str:
@@ -151,6 +171,17 @@ class PedagogicalEngine:
                 if c not in merged:
                     merged.append(c)
             focus = tuple(merged[:5])
+
+        # La pregunta lidera el foco (ADR-011). Hasta aquí la precedencia era
+        # misconceptions → errores → débiles → conceptos del documento, y el
+        # tema preguntado solo elegía el estilo: el prompt podía decir "foco:
+        # funciones" mientras el alumno preguntaba por derivadas, y la
+        # remediación nombraba un concepto sin evidencia mientras el hueco
+        # medido no se mencionaba. Las debilidades siguen en el foco, detrás.
+        asked = self._asked_concepts(question, doc_focus, focus)
+        if asked:
+            focus = asked + tuple(c for c in focus if c not in asked)
+            focus = focus[:5]
 
         # Gate de prerrequisitos sobre el foco principal (ADR-006): la fuerza
         # de la intervención escala con la evidencia. El foco solo se lidera

@@ -27,7 +27,7 @@ mongodb://USER:PASSWORD@localhost:27017/?authSource=admin
 
 Usa `MONGO_USERNAME` / `MONGO_PASSWORD` de tu `.env`. Base: `laria_db`.
 
-4. Explora colecciones: `users`, `documents`, `quizzes`, `quiz_attempts`, `tutor_interactions`, `tutor_sessions`, `student_profiles`, `event_outbox`, y GridFS `fs.files` / `fs.chunks` (cuerpo de materiales hasta `DOCUMENT_MAX_UPLOAD_BYTES`, 200 MiB por defecto).
+4. Explora colecciones: `users`, `documents`, `quizzes`, `quiz_attempts`, `tutor_interactions`, `tutor_sessions`, `student_profiles`, `event_outbox`, y GridFS `fs.files` / `fs.chunks` (cuerpo de materiales hasta `DOCUMENT_MAX_UPLOAD_BYTES`, 25 MiB por defecto).
 
 Si el comando `mdb.addConnection` falla: **Developer: Reload Window** y asegúrate de que Mongo escucha en `27017` (override `docker-compose.dev-ports.yml`). La extensión debe estar instalada (`mongodb.mongodb-vscode`); el fallo suele ser activación o puerto cerrado, no falta de Atlas.
 

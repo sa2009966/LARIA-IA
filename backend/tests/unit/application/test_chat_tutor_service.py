@@ -72,7 +72,7 @@ class TestChatTutorService:
         captured = {}
 
         class FakeAnalyze(FakeAnalyzeBase):
-            async def prepare_pedagogy(self, document_id, question, student_id):
+            async def prepare_pedagogy(self, document_id, question, student_id, history=(), **_):
                 captured["document_id"] = document_id
                 captured["question"] = question
                 captured["student_id"] = student_id
@@ -89,6 +89,33 @@ class TestChatTutorService:
         assert result.envelope.type in ("answer", "hint", "quiz", "explanation")
         assert captured["document_id"] == doc_id
         assert captured["student_id"] == student_id
+
+    @pytest.mark.asyncio
+    async def test_el_envelope_dice_si_el_turno_esta_grounded(self):
+        """La tutoría exige material; el chat libre no debe aparentar tutoría.
+
+        Sin `grounded` la UI no puede distinguir un turno del motor pedagógico
+        de una conversación suelta, y las promete iguales (fase 2).
+        """
+
+        class FakeAnalyze(FakeAnalyzeBase):
+            async def prepare_pedagogy(self, document_id, question, student_id, history=(), **_):
+                return make_plan(document_id, student_id, question)
+
+            async def answer_from_plan(self, plan):
+                return "con material"
+
+        class FakeLlmGate:
+            async def answer_question(self, context, question, decision=None, **kw):
+                return "sin material"
+
+        svc = ChatTutorService(analyze_service=FakeAnalyze(), llm_gate=FakeLlmGate())
+
+        con_doc = await svc.answer(uuid4(), "q", uuid4())
+        sin_doc = await svc.answer(None, "q", uuid4())
+
+        assert con_doc.envelope.payload["grounded"] is True
+        assert sin_doc.envelope.payload["grounded"] is False
 
     @pytest.mark.asyncio
     async def test_modo_documento_sin_analyze_raises(self):
