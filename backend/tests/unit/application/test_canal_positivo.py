@@ -63,7 +63,7 @@ class FakeAnalyze:
         self._decision = decision_
         self.finalized: list[tuple] = []
 
-    async def prepare_pedagogy(self, document_id, question, student_id):
+    async def prepare_pedagogy(self, document_id, question, student_id, history=(), **_):
         return PedagogyPlan(
             document_id=document_id,
             student_id=student_id,

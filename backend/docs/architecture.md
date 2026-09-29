@@ -144,8 +144,10 @@ Reglas de contabilidad de esa evidencia (ADR-007 a ADR-009):
   ruta de aprendizaje se proyecta del perfil en cada lectura.
 - **El canal positivo está cableado:** un concepto que cruza a dominado se reconoce una vez
   (`celebrated_concepts`, envelope `celebration`, afecto `CELEBRATORY`).
-- **En modo sombra:** las señales del ADR-004 se computan y persisten, pero `ADAPT_SHADOW_MODE=true`
-  impide que el fragmento prompt-shaping llegue al modelo.
+- **La adaptación está encendida:** desde la fase D (`ADAPT_SHADOW_MODE=False` por defecto) el
+  fragmento prompt-shaping llega al modelo y `payload.explanation` le dice al estudiante por qué se
+  le habla así. Poner la variable a `true` vuelve al modo sombra —señales computadas, prompt
+  intacto— sin desplegar: es el interruptor de emergencia, y hay un test que lo protege.
 
 APIs:
 

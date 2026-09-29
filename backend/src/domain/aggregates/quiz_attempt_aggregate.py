@@ -14,7 +14,7 @@ def _utc_now() -> datetime:
 class QuizAttemptAggregate:
     id: UUID = field(default_factory=uuid4)
     quiz_id: UUID = field(default_factory=uuid4)
-    document_id: UUID = field(default_factory=uuid4)
+    document_id: UUID | None = None
     student_id: UUID = field(default_factory=uuid4)
     answers: dict[int, str] = field(default_factory=dict)
     per_question_correct: list[bool] = field(default_factory=list)
@@ -26,7 +26,7 @@ class QuizAttemptAggregate:
     @staticmethod
     def create(
         quiz_id: UUID,
-        document_id: UUID,
+        document_id: UUID | None,
         student_id: UUID,
         answers: dict[int, str],
         grade: QuizGrade,

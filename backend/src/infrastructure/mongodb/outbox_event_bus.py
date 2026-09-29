@@ -267,3 +267,18 @@ class MongoOutboxEventBus(EventBus):
             pending = await self.count_pending()
             self._metrics.gauge("outbox_pending", float(pending))
         return processed
+
+
+async def purge_personal_events(user_id) -> int:
+    """Borra del outbox los eventos de una persona (borrado de cuenta, ADR-019).
+
+    Los eventos de tutoría llevan en el payload la pregunta del estudiante y la
+    respuesta; los de registro, su id como agregado. Producción usa hoy el bus en
+    memoria, pero en la base quedan eventos antiguos de cuando se usó el outbox.
+    """
+    db = await get_database()
+    clave = str(user_id)
+    resultado = await db.event_outbox.delete_many(
+        {"$or": [{"payload.student_id": clave}, {"aggregate_id": clave}]}
+    )
+    return int(resultado.deleted_count)

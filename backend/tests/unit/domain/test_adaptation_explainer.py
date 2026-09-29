@@ -80,10 +80,19 @@ def test_cada_parametro_tiene_su_motivo(parametros, sus_senales, fragmento):
 
 def test_el_control_de_flujo_tambien_se_explica():
     texto = explain_adaptation(
-        forma(), flujo(practice_before_advance=True), senales(practice_seeking=0.9)
+        forma(), flujo(chunk_explanation=True), senales(response_latency=0.9)
     )
 
-    assert "practicar antes de avanzar" in texto
+    assert "por partes" in texto
+
+
+def test_ofrecer_practica_se_explica_como_forma():
+    """Desde el ADR-015 la práctica se ofrece en el prompt, no se orquesta."""
+    texto = explain_adaptation(
+        forma(practice_before_advance=True), flujo(), senales(practice_seeking=0.9)
+    )
+
+    assert "ejercicio antes de seguir" in texto
 
 
 # --- Los vetos del arbitraje son la mitad interesante -------------------------------
@@ -109,8 +118,14 @@ def test_se_explica_lo_que_NO_se_hizo_y_por_que():
 def test_como_mucho_dos_motivos():
     """Explicar, no rendir cuentas: una lista de cinco razones es ruido."""
     texto = explain_adaptation(
-        forma(explanation_length="short", socratic_question_rate="high", examples_per_explanation=3, prefers_analogy=True),
-        flujo(practice_before_advance=True, chunk_explanation=True),
+        forma(
+            explanation_length="short",
+            socratic_question_rate="high",
+            examples_per_explanation=3,
+            prefers_analogy=True,
+            practice_before_advance=True,
+        ),
+        flujo(chunk_explanation=True),
         senales(
             long_explanation_abandonment=0.9,
             self_correction=0.9,

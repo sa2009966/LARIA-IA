@@ -94,6 +94,24 @@ def content_type_for(filename: str) -> str:
     return "application/octet-stream"
 
 
+#: Tipos que el navegador **ejecuta** si se sirven inline. El endpoint de
+#: contenido responde desde el dominio de la API: un `.html` subido con un
+#: `<script>` correría con el origen del backend (XSS almacenado). Se sirven como
+#: texto: el visor los muestra igual y no se ejecuta nada.
+_ACTIVE_TYPES = ("text/html", "application/xhtml+xml", "image/svg+xml", "text/xml",
+                 "application/xml", "text/javascript", "application/javascript")
+
+
+def inline_safe_type(content_type: str | None) -> str:
+    """Tipo con el que servir un archivo inline sin que el navegador lo ejecute."""
+    tipo = (content_type or "").split(";")[0].strip().lower()
+    if not tipo:
+        return "application/octet-stream"
+    if tipo in _ACTIVE_TYPES:
+        return "text/plain; charset=utf-8"
+    return content_type
+
+
 def _input_key_factory() -> re.Pattern:
     return re.compile(r".+\.\w+$")
 

@@ -67,14 +67,15 @@ _MOTIVOS_PROMPT: list[tuple[str, object, SignalKind, str]] = [
         SignalKind.ANALOGY_AFFINITY,
         "empiezo con una analogía porque contigo funcionan",
     ),
+    (
+        "practice_before_advance",
+        True,
+        SignalKind.PRACTICE_SEEKING,
+        "te propongo un ejercicio antes de seguir porque es lo que sueles pedir",
+    ),
 ]
 
 _MOTIVOS_FLUJO: list[tuple[str, SignalKind, str]] = [
-    (
-        "practice_before_advance",
-        SignalKind.PRACTICE_SEEKING,
-        "te propongo practicar antes de avanzar porque es lo que sueles pedir",
-    ),
     (
         "chunk_explanation",
         SignalKind.RESPONSE_LATENCY,
@@ -90,6 +91,7 @@ _MOTIVOS_VETO: dict[str, str] = {
     "examples_per_explanation": "incluyo un ejemplo porque es la forma del andamiaje",
     "prefers_analogy": "no repito la analogía porque ya está en el estilo de la explicación",
     "chunk_explanation": "no troceo una respuesta que ya es breve",
+    "practice_before_advance": "no te propongo otro ejercicio porque este turno ya es práctica",
 }
 
 

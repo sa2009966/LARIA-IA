@@ -1,4 +1,5 @@
 from typing import Annotated, Optional
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import (
@@ -8,12 +9,13 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Response,
     UploadFile,
     status,
 )
 
 from src.application.dto.document_dto import UploadDocumentDTO
-from src.application.file_parser import is_supported
+from src.application.file_parser import inline_safe_type, is_supported
 from src.application.services.analyze_document_service import AnalyzeDocumentService
 from src.application.services.document_service import (
     DocumentService,
@@ -237,6 +239,62 @@ async def get_document(
     except (ValueError, PermissionError) as exc:
         raise _http_not_found(exc)
     return _map(doc)
+
+
+def _content_disposition(filename: str) -> str:
+    """`inline` con el nombre original, sin romper la cabecera.
+
+    El nombre lo escribe el usuario: meterlo crudo entre comillas deja pasar
+    comillas y saltos de línea a la cabecera, y los nombres con tilde —en español,
+    casi todos— no son ASCII. Va un respaldo ASCII y el nombre real en RFC 5987.
+    """
+    nombre = (filename or "documento").replace("\r", " ").replace("\n", " ")
+    ascii_ = nombre.encode("ascii", "replace").decode("ascii").replace('"', "'").replace("?", "_")
+    return f"inline; filename=\"{ascii_}\"; filename*=UTF-8''{quote(nombre, safe='')}"
+
+
+@router.get(
+    "/{document_id}/content",
+    summary="Contenido original del documento",
+    description=(
+        "El archivo tal como se subió, para previsualizarlo o descargarlo. Solo el "
+        "propietario: cualquier otro recibe **404**, no 403, para no confirmar qué "
+        "documentos existen.\n\n"
+        "Los documentos sin original guardado (anteriores al ADR-012 o creados "
+        "enviando texto) devuelven su texto extraído como `text/plain`.\n\n"
+        "**Requiere `Authorization: Bearer`.** Un `<img src>` o `<iframe src>` no "
+        "manda esa cabecera: descarga con `fetch` y muestra el resultado con "
+        "`URL.createObjectURL`."
+    ),
+    responses={
+        200: {"description": "Bytes del archivo con su Content-Type"},
+        **RESP_401_UNAUTHORIZED,
+        **RESP_404_NOT_FOUND,
+    },
+)
+async def get_document_content(
+    document_id: UUID,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[DocumentService, Depends(get_document_service)],
+):
+    try:
+        archivo = await service.get_original(document_id, UUID(current_user_id))
+    except (ValueError, PermissionError) as exc:
+        raise _http_not_found(exc)
+
+    tipo = inline_safe_type(archivo.content_type)
+    cabeceras = {
+        "Content-Disposition": _content_disposition(archivo.filename),
+        "Cache-Control": "private, max-age=3600",
+        # Sin esto el navegador podría "adivinar" que un texto es HTML y
+        # ejecutarlo, deshaciendo lo que hace `inline_safe_type`.
+        "X-Content-Type-Options": "nosniff",
+    }
+    if not tipo.startswith("application/pdf"):
+        # Defensa en profundidad para todo lo demás. El PDF queda fuera porque el
+        # visor de PDF de Chromium no renderiza dentro de un documento sandbox.
+        cabeceras["Content-Security-Policy"] = "sandbox"
+    return Response(content=archivo.data, media_type=tipo, headers=cabeceras)
 
 
 @router.delete(

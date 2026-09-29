@@ -44,6 +44,7 @@ from src.domain.services.learning_signal_detector import (
 from src.domain.services.pedagogical_engine import (
     PedagogicalDecision,
     PedagogicalEngine,
+    PedagogicalMode,
     TutorIntent,
 )
 from src.domain.services.adaptation_explainer import explain_adaptation
@@ -75,6 +76,14 @@ class PedagogyPlan:
     help_level: float = 0.0
     observations: dict[SignalKind, float] = field(default_factory=dict)
     started: float = 0.0
+    #: Conversación reciente del chat, para dar continuidad al lenguaje. NO
+    #: alimenta la decisión pedagógica: esa sale de la evidencia. Si entrara en
+    #: la pregunta, un "no entiendo" de hace tres turnos se volvería a contar
+    #: como señal en cada turno (invariante 4: un turno es una observación).
+    history: tuple = ()
+    #: Pidió un cuestionario: "" sin tema, el tema, o None. El tutor lo anuncia en
+    #: vez de escribirlo (lo presenta la plataforma, interactivo).
+    quiz_request: str | None = None
     # Qué pidió la política y no sobrevivió al fondo pedagógico (ADR-004,
     # Decisión 5). Se conserva para depurar y para explicárselo al estudiante.
     overrides: tuple[Override, ...] = ()
@@ -221,12 +230,17 @@ class AnalyzeDocumentService:
                 decision=plan.decision,
                 struggle_signals=plan.struggle_signals,
                 adaptation=self.prompt_shaping_for(plan),
+                history=plan.history,
+                quiz_request=plan.quiz_request,
             )
         return await self._ia_analyst.answer_question(
             context=plan.context,
             question=plan.question,
             decision=plan.decision,
             adaptation=self.prompt_shaping_for(plan),
+            # Solo si hay: un analista que no lo declare sigue funcionando.
+            **({"history": plan.history} if plan.history else {}),
+            **({"quiz_request": plan.quiz_request} if plan.quiz_request is not None else {}),
         )
 
     async def stream_from_plan(self, plan: PedagogyPlan):
@@ -244,11 +258,19 @@ class AnalyzeDocumentService:
             decision=plan.decision,
             struggle_signals=plan.struggle_signals,
             adaptation=self.prompt_shaping_for(plan),
+            history=plan.history,
+            quiz_request=plan.quiz_request,
         ):
             yield token
 
     async def prepare_pedagogy(
-        self, document_id: UUID, question: str, requesting_user_id: UUID
+        self,
+        document_id: UUID,
+        question: str,
+        requesting_user_id: UUID,
+        *,
+        history: tuple = (),
+        quiz_request: str | None = None,
     ) -> PedagogyPlan:
         """Decide todo lo pedagógico **antes** de generar lenguaje.
 
@@ -342,6 +364,8 @@ class AnalyzeDocumentService:
             document_id=document_id,
             student_id=requesting_user_id,
             question=question,
+            history=history,
+            quiz_request=quiz_request,
             context=self._context.select(document, decision.focus_concepts),
             decision=decision,
             adaptation=adaptation,
@@ -409,7 +433,16 @@ class AnalyzeDocumentService:
                 )
                 if s is None:
                     s = TutorSession.start(plan.student_id, plan.document_id)
-                hint = answer[:160].replace("\n", " ")
+                # Solo cuenta como pista si el turno ANDAMIÓ. Antes se guardaba
+                # la respuesta en todos los turnos, y el motor andamia cuando hay
+                # pistas dadas: desde el segundo mensaje de un chat con libro,
+                # todo salía en modo andamiaje y dificultad fácil, sin evidencia
+                # alguna. Eso rompe la invariante 3.
+                hint = (
+                    answer[:160].replace("\n", " ")
+                    if plan.decision.mode == PedagogicalMode.SCAFFOLD
+                    else ""
+                )
                 s.record_ask(hint_summary=hint, focus=plan.decision.focus_concepts)
                 s.objective = plan.decision.objective
                 await self._session_repo.save(s)

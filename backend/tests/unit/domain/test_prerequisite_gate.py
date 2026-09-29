@@ -39,7 +39,10 @@ def test_perfil_vacio_no_bloquea_e_integra():
     assert result.action == GateAction.INTEGRATE
     assert result.blocked is False
     assert result.measured_gaps == ()
-    assert result.remediation_focus == ("variable",)
+    # La raíz del currículum, no el primer hueco del recorrido. Con el grafo
+    # enriquecido esa raíz es `número entero`; lo que el test protege no es la
+    # etiqueta sino que sin evidencia se apoye en la base y no bloquee.
+    assert result.remediation_focus == ("numero entero",)
 
 
 def test_perfil_nuevo_tampoco_bloquea():
@@ -101,19 +104,41 @@ def test_la_raiz_avanza_a_medida_que_se_domina_la_base():
 
 
 def test_sin_prerrequisitos_procede():
+    """El ejemplo es `número entero` porque es la única raíz del currículum.
+
+    Antes se usaba `variable`, que dejó de ser raíz al enriquecer el grafo: una
+    variable representa un número, así que tiene base. La regla que se protege
+    —un concepto sin prerrequisitos no tiene nada que gatear— no cambia.
+    """
     gate = PrerequisiteGate(build_seeded_graph())
-    result = gate.evaluate("variable", profile_que_domina())
+    result = gate.evaluate("número entero", profile_que_domina())
     assert result.action == GateAction.PROCEED
     assert result.remediation_focus == ()
 
 
 def test_dominar_toda_la_cadena_procede():
-    gate = PrerequisiteGate(build_seeded_graph())
-    profile = profile_que_domina(
-        "variable", "expresión algebraica", "ecuación", "ecuaciones lineales", "sistemas"
-    )
+    """La cadena se mide entera: basta un eslabón sin dominar para no proceder.
+
+    Con el grafo enriquecido la cadena de `matrices` pasó de 5 conceptos a 13,
+    y por eso la lista es larga: el test seguiría pasando en verde con una
+    cadena corta sin probar nada. Se construye desde el grafo, no a mano, para
+    que siga siendo cierto cuando el currículum crezca otra vez.
+    """
+    graph = build_seeded_graph()
+    gate = PrerequisiteGate(graph)
+    profile = profile_que_domina(*graph.all_prerequisites("matrices"))
 
     assert gate.evaluate("matrices", profile).action == GateAction.PROCEED
+
+
+def test_dominar_casi_toda_la_cadena_no_procede():
+    """El complemento del anterior: sin él, dominar de más pasaría por dominar."""
+    graph = build_seeded_graph()
+    gate = PrerequisiteGate(graph)
+    cadena = graph.all_prerequisites("matrices")
+    profile = profile_que_domina(*cadena[1:])  # falta justo la raíz
+
+    assert gate.evaluate("matrices", profile).action != GateAction.PROCEED
 
 
 # --- Procedencia y grafo ------------------------------------------------------------

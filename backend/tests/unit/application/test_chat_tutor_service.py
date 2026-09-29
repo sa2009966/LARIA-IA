@@ -72,7 +72,7 @@ class TestChatTutorService:
         captured = {}
 
         class FakeAnalyze(FakeAnalyzeBase):
-            async def prepare_pedagogy(self, document_id, question, student_id):
+            async def prepare_pedagogy(self, document_id, question, student_id, history=(), **_):
                 captured["document_id"] = document_id
                 captured["question"] = question
                 captured["student_id"] = student_id
@@ -99,7 +99,7 @@ class TestChatTutorService:
         """
 
         class FakeAnalyze(FakeAnalyzeBase):
-            async def prepare_pedagogy(self, document_id, question, student_id):
+            async def prepare_pedagogy(self, document_id, question, student_id, history=(), **_):
                 return make_plan(document_id, student_id, question)
 
             async def answer_from_plan(self, plan):

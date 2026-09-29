@@ -43,6 +43,7 @@ Todos requieren JWT. Solo el **propietario** opera sobre el recurso. Ajeno/inexi
 | `POST` | `/api/v1/documents/upload` | Subir archivo multipart (`file`, `subject`, `filename` opcional; hasta 25 MiB). Formatos: texto (`.txt`, `.md`, `.csv`, `.json`, `.log`), código, PDF, `.docx`, `.xlsx`, `.pptx`. Formato no soportado → **422** |
 | `GET` | `/api/v1/documents/` | Listar mis documentos |
 | `GET` | `/api/v1/documents/{document_id}` | Obtener uno propio |
+| `GET` | `/api/v1/documents/{document_id}/content` | **El archivo original**, con su `Content-Type`, para previsualizar o descargar. Solo el dueño; ajeno o inexistente → `404` (no `403`, para no confirmar que existe). Sin original guardado → su texto extraído como `text/plain`. `.html`/`.xml` se sirven como `text/plain` (servirlos inline desde la API sería XSS). Requiere `Authorization: Bearer`: usar `fetch` + `URL.createObjectURL`, porque `<img src>`/`<iframe src>` no mandan la cabecera |
 | `DELETE` | `/api/v1/documents/{document_id}` | Eliminar (`204`) |
 | `POST` | `/api/v1/documents/{document_id}/analyze` | Análisis IA (cachea resultado; `force_refresh=true` opcional) |
 | `POST` | `/api/v1/documents/{document_id}/ask` | Pregunta tutor sobre el documento (registra evidencia) |
@@ -71,10 +72,10 @@ turno es conversación libre y no sustituye al tutor grounded.
 |--------|------|-------------|
 | `GET` | `/api/v1/chats/` | Listar mis chats |
 | `POST` | `/api/v1/chats/` | Crear chat (`title`, `document_id` opcional) |
-| `POST` | `/api/v1/chats/generate-title` | Generar un título breve desde 1–5 mensajes; no modifica ningún chat |
+| `POST` | `/api/v1/chats/generate-title` | Generar un título breve desde 1–5 mensajes; no modifica ningún chat. De 1 a 7 palabras: más largo se recorta, y solo una respuesta vacía del proveedor da error |
 | `GET` | `/api/v1/chats/{chat_id}` | Chat con sus mensajes |
 | `PUT` | `/api/v1/chats/{chat_id}` | Renombrar o vincular documento |
-| `POST` | `/api/v1/chats/{chat_id}/messages` | Añadir mensaje. Si `role="user"`, **el tutor responde en la misma llamada** y su mensaje queda persistido con el envelope en `metadata` |
+| `POST` | `/api/v1/chats/{chat_id}/messages` | Añadir mensaje. Si `role="user"`, **el tutor responde en la misma llamada**, el turno cuenta como evidencia y su mensaje queda persistido con el envelope en `metadata`. Para una nota que no debe disparar turno, usa `role="system"` |
 | `POST` | `/api/v1/chats/{chat_id}/stream` | Igual, en SSE: `thinking` → `token`(s) → `envelope` → `done` |
 | `POST` | `/api/v1/chats/{chat_id}/quiz` | Cuestionario sobre el **material vinculado al chat** (`num_questions` 1–20). Sin material → `422`. No incluye `correct_answer`: el intento se envía a `POST /quizzes/{id}/attempts` y se califica en servidor |
 | `DELETE` | `/api/v1/chats/{chat_id}` | Eliminar (`204`) |
@@ -91,10 +92,20 @@ El envelope es determinista: lo decide el dominio, no el modelo.
 
 ---
 
+## Cuenta y textos legales
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `DELETE` | `/api/v1/users/me` | **Borra la cuenta y todos sus datos**, sin vuelta atrás. Body `{ "password": "…" }`: contraseña incorrecta → `403`; después el token da `401`. Límite 5/min ([ADR-019](adr/ADR-019-borrar-la-cuenta-y-textos-legales.md)) |
+| `GET` | `/api/v1/legal` | Lista de textos legales: `slug`, `title`, `version`. Público |
+| `GET` | `/api/v1/legal/{slug}` | `terminos`, `privacidad` o `cookies`: `markdown`, `version`, y `completo`/`pendiente` mientras queden huecos sin rellenar. Público |
+
 ## Cuestionarios — `/quizzes`
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
+| `POST` | `/api/v1/quizzes/diagnostic` | **Diagnóstico de entrada sobre un tema, sin material.** Body `{ "topic": "ecuaciones" }`. Devuelve una escalera de 6 ítems **fácil→media→difícil** sobre el tema y sus prerrequisitos, con `document_id: null` y `topic` canónico. Se responde en `/quizzes/{id}/attempts` como cualquier quiz ([ADR-016](adr/ADR-016-diagnostico-de-entrada.md)) |
+| `POST` | `/api/v1/quizzes/practice` | **Práctica sobre un tema, sin material y sin tocar el nivel.** Body `{ "topic": "fracciones", "num_questions": 5 }` (1–20, por defecto 5). La dificultad sigue al nivel guardado del tema. El intento trae `placement: null` y deja evidencia por concepto, pero no cambia `level_by_topic`. 422 fuera de rango, 502 si falla el modelo ([ADR-020](adr/ADR-020-pedir-un-cuestionario.md)) |
 | `GET` | `/api/v1/quizzes/{quiz_id}` | Quiz propio sin respuestas correctas |
 | `POST` | `/api/v1/quizzes/{quiz_id}/attempts` | Enviar intento `{ "answers": { "0": "A", "1": "C" } }`; califica en servidor y revela correctas |
 

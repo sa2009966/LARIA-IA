@@ -15,7 +15,9 @@ class TutorInteractionAggregate:
 
     id: UUID = field(default_factory=uuid4)
     student_id: UUID = field(default_factory=uuid4)
-    document_id: UUID = field(default_factory=uuid4)
+    # None cuando la interacción no nace de material: un diagnóstico por
+    # tema deja rastro igual, pero no pertenece a ningún documento (ADR-016).
+    document_id: UUID | None = None
     question: str = ""
     answer: str = ""
     asked_at: datetime = field(default_factory=_utc_now)
@@ -24,7 +26,7 @@ class TutorInteractionAggregate:
     @staticmethod
     def create(
         student_id: UUID,
-        document_id: UUID,
+        document_id: UUID | None,
         question: str,
         answer: str,
     ) -> "TutorInteractionAggregate":

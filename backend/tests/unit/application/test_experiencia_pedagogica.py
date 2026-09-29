@@ -218,7 +218,12 @@ def test_el_chat_desbloquea_lo_que_el_chat_bloqueo():
             profile, evento_con_autocorreccion(profile.student_id, doc)
         )
 
-    assert gate.evaluate("expresión algebraica", profile).action == GateAction.PROCEED
+    # Deja de liderar con la base y `variable` deja de ser un hueco medido. No
+    # se exige PROCEED: con el grafo enriquecido quedan prerrequisitos que
+    # nadie ha medido todavía, y "no medido" no es un hueco (ADR-006).
+    despues = gate.evaluate("expresión algebraica", profile)
+    assert despues.blocked is False
+    assert "variable" not in despues.measured_gaps
 
 
 # --- Fase 2: la memoria pedagógica significa lo que dice ---------------------------

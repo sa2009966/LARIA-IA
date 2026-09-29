@@ -357,6 +357,12 @@ class StudentProfile:
     last_interaction_at: datetime | None = None
     last_answer_length: int = 0
     adaptive_signals: dict[str, Signal] = field(default_factory=dict)
+    # Veredicto de nivelación por tema (ADR-017). Resume, no sustituye: si
+    # alguna vez discrepa del mastery manda el mastery, que se mide de forma
+    # continua. Este se recalcula en la siguiente nivelación.
+    level_by_topic: dict[str, str] = field(default_factory=dict)
+    #: Cómo mostrar cada tema de `level_by_topic` (mismas claves).
+    topic_labels: dict[str, str] = field(default_factory=dict)
     updated_at: datetime = field(default_factory=_utc_now)
     version: int = 0
 
@@ -464,6 +470,56 @@ class StudentProfile:
         before = entry.mastery
         entry.apply_result(score_ratio)
         self.total_attempts += 1
+        deltas = self._apply_graded_items(
+            concept_results,
+            document_id=document_id,
+            latency_ms=latency_ms,
+            help_level=help_level,
+        )
+        # Sin conceptos etiquetados, el intento habla por el documento.
+        self._track_batch_velocity(deltas, fallback=entry.mastery - before)
+        self._cerrar_lote(missed_concepts)
+
+    def level_for_topic(self, topic: str) -> str | None:
+        """Nivel alcanzado en un tema, o None si nunca se niveló."""
+        return self.level_by_topic.get(_norm_concept(topic))
+
+    def record_placement(self, topic: str, level: str, label: str | None = None) -> None:
+        """Guarda el veredicto de una ronda de nivelación (ADR-017)."""
+        clave = _norm_concept(topic)
+        if not clave or not level:
+            return
+        self.level_by_topic[clave] = level
+        if label:
+            self.topic_labels[clave] = label
+        self.updated_at = _utc_now()
+
+    def record_diagnostic_result(
+        self,
+        concept_results: tuple[tuple[str, float], ...] = (),
+        missed_concepts: tuple[str, ...] = (),
+    ) -> None:
+        """Ítems calificados de un diagnóstico de entrada, sin documento (ADR-016).
+
+        Misma evidencia que un quiz —son ítems corregidos en servidor, no
+        auto-reporte— pero no hay documento cuyo mastery mover. Sin esto, un
+        diagnóstico por tema tendría que inventarse un `document_id`, y ese id
+        acabaría saliendo en las recomendaciones apuntando a nada.
+        """
+        self.total_attempts += 1
+        deltas = self._apply_graded_items(concept_results, document_id=None)
+        self._track_batch_velocity(deltas)
+        self._cerrar_lote(missed_concepts)
+
+    def _apply_graded_items(
+        self,
+        concept_results: tuple[tuple[str, float], ...],
+        *,
+        document_id: UUID | None,
+        latency_ms: float | None = None,
+        help_level: float = 0.0,
+    ) -> list[float]:
+        """Aplica ítems calificados a sus conceptos y devuelve los deltas."""
         deltas: list[float] = []
         for concept, ratio in concept_results:
             kind = EvidenceKind.QUIZ_ITEM
@@ -483,8 +539,10 @@ class StudentProfile:
             )
             if delta is not None:
                 deltas.append(delta)
-        # Sin conceptos etiquetados, el intento habla por el documento.
-        self._track_batch_velocity(deltas, fallback=entry.mastery - before)
+        return deltas
+
+    def _cerrar_lote(self, missed_concepts: tuple[str, ...]) -> None:
+        """Errores, memoria de malentendidos y ritmo: común a quiz y diagnóstico."""
         self._push_errors(missed_concepts)
         for m in missed_concepts:
             self.pedagogical_memory.remember_misconception(m)

@@ -59,3 +59,9 @@ class InMemoryTutorSessionRepository(TutorSessionRepository):
         for k in keys:
             del self._sessions[k]
         return len(keys)
+
+    async def delete_by_student(self, student_id: UUID) -> int:
+        claves = [k for k in self._sessions if k[0] == student_id]
+        for k in claves:
+            del self._sessions[k]
+        return len(claves)

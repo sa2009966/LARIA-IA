@@ -75,6 +75,8 @@ def _clone_profile(profile: StudentProfile, version: int | None = None) -> Stude
         last_answer_length=profile.last_answer_length,
         # Signal es frozen: copiar el dict basta para aislar el agregado.
         adaptive_signals=dict(profile.adaptive_signals),
+        level_by_topic=dict(profile.level_by_topic),
+        topic_labels=dict(profile.topic_labels),
         updated_at=profile.updated_at,
         version=profile.version if version is None else version,
     )
@@ -102,3 +104,6 @@ class InMemoryStudentProfileRepository(StudentProfileRepository):
         stored = _clone_profile(profile, version=new_version)
         self._profiles[profile.student_id] = stored
         profile.version = new_version
+
+    async def delete(self, student_id: UUID) -> None:
+        self._profiles.pop(student_id, None)
