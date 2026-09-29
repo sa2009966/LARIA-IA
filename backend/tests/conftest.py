@@ -28,6 +28,9 @@ os.environ["EMBODIMENT_ENABLED"] = "false"
 # hacía que los tests salieran a la red de verdad —y pasaran por eso— y que
 # `/ready` devolviera 503 en cualquier entorno sin boto3.
 os.environ["ORIGINAL_STORAGE"] = "blob"
+# Un patrón de CORS del .env del desarrollador no debe cambiar qué orígenes
+# acepta la suite (misma lección que ORIGINAL_STORAGE: ver test_entorno_de_pruebas).
+os.environ["CORS_ORIGIN_REGEX"] = ""
 for _r2 in ("R2_ENDPOINT_URL", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"):
     os.environ[_r2] = ""
 

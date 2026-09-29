@@ -42,6 +42,7 @@ outbox necesita el claim atómico de la fase 3 para ser seguro con más de una r
 | `CACHE_BACKEND` | `redis` | recupera la economía de tokens de `LlmGate` entre reinicios |
 | `REDIS_URL` | `rediss://…` | secreto |
 | `CORS_ORIGINS` | `["https://laria-frontend.vercel.app"]` | orígenes exactos, sin barra final |
+| `CORS_ORIGIN_REGEX` | `^https://laria-[a-z0-9-]+-ricardoalfredoaguilar1-gmailcoms-projects\.vercel\.app$` | vistas previas de Vercel de cada PR. Anclado con `^…$`; si deja pasar orígenes ajenos, la app no arranca |
 
 El resto (`APP_ENV`, `ENABLE_DOCS`, `EVENT_BUS_BACKEND`) **no se toca todavía**.
 

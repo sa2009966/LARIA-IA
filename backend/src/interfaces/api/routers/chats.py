@@ -7,7 +7,7 @@ import json
 
 from src.application.services.chat_tutor_service import ChatTutorService
 from src.application.services.quiz_service import QuizService
-from src.domain.aggregates.chat import ChatAggregate
+from src.domain.aggregates.chat import ChatAggregate, recent_history
 from src.domain.ports.chat_title_generator import ChatTitleGenerator, TitleMessage
 from src.domain.ports.ia_analyst import IAAnalysisError
 from src.domain.ports.repositories import ChatRepository
@@ -176,6 +176,9 @@ async def add_message(
     chat = await repo.find_by_id(chat_id)
     if chat is None or str(chat.owner_id) != current_user_id:
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    # Antes de añadir el mensaje actual: el historial es lo que se dijo ANTES.
+    # Los mensajes ya estaban guardados; lo que faltaba es que el tutor los leyera.
+    historial = recent_history(chat.messages)
     try:
         chat.add_message(role=body.role, content=body.content, metadata=body.metadata)
     except ValueError as exc:
@@ -187,6 +190,7 @@ async def add_message(
                 document_id=chat.document_id,
                 question=body.content,
                 student_id=UUID(current_user_id),
+                history=historial,
             )
             chat.add_message(
                 role="assistant",
@@ -230,6 +234,7 @@ async def stream_message(
     chat = await repo.find_by_id(chat_id)
     if chat is None or str(chat.owner_id) != current_user_id:
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    historial = recent_history(chat.messages)
     try:
         chat.add_message(role="user", content=body.content, metadata=body.metadata)
     except ValueError as exc:
@@ -250,6 +255,7 @@ async def stream_message(
                 document_id=chat.document_id,
                 question=question,
                 student_id=UUID(current_user_id),
+                history=historial,
             ):
                 if env is not None:
                     envelope = env

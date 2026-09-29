@@ -17,6 +17,7 @@ from src.interfaces.api.quiz_mappers import quiz_to_public_response
 from src.interfaces.schemas.quiz_schemas import (
     AttemptQuestionResultItem,
     DiagnosticRequest,
+    PracticeRequest,
     PlacementResult,
     QuizAttemptRequest,
     QuizAttemptResponse,
@@ -58,6 +59,45 @@ async def generate_diagnostic(
 ):
     try:
         quiz = await service.generate_diagnostic(body.topic, UUID(current_user_id))
+    except IAAnalysisError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        )
+    return quiz_to_public_response(quiz)
+
+
+@router.post(
+    "/practice",
+    response_model=QuizPublicResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Cuestionario de práctica sobre un tema (sin material)",
+    description=(
+        "Lo que responde a \"ponme un quiz de X\" en un chat sin documento. "
+        "`num_questions` de 1 a 20 (5 por defecto). La dificultad se ajusta al nivel "
+        "que el estudiante ya tenga en el tema.\n\n"
+        "Se responde con `POST /quizzes/{id}/attempts` y la evidencia cuenta como la "
+        "de cualquier quiz, pero **no cambia el nivel guardado**: practicar no es "
+        "nivelarse (para eso está `/quizzes/diagnostic`). El intento no trae "
+        "`placement`."
+    ),
+    responses={
+        **RESP_401_UNAUTHORIZED,
+        **RESP_422_VALIDATION,
+        **RESP_429_RATE_LIMIT,
+        **RESP_502_BAD_GATEWAY,
+    },
+)
+async def generate_practice(
+    body: PracticeRequest,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[QuizService, Depends(get_quiz_service)],
+):
+    try:
+        quiz = await service.generate_practice(
+            body.topic, UUID(current_user_id), body.num_questions
+        )
     except IAAnalysisError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
     except ValueError as exc:

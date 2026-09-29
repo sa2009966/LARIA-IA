@@ -22,7 +22,7 @@ from src.infrastructure.config import (
 from src.infrastructure.logging_setup import configure_logging
 from src.infrastructure.rate_limit import RateLimitMiddleware
 from src.infrastructure.request_logging import RequestLoggingMiddleware
-from src.interfaces.api.routers import auth, chats, documents, learning, quizzes, users
+from src.interfaces.api.routers import auth, chats, documents, learning, legal, quizzes, users
 from src.interfaces.schemas.http_errors import HTTPErrorBody
 
 configure_logging(level=settings.LOG_LEVEL, fmt=settings.LOG_FORMAT)
@@ -200,6 +200,8 @@ app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    # Vistas previas de Vercel de los PRs; validado al arrancar.
+    allow_origin_regex=(settings.CORS_ORIGIN_REGEX or "").strip() or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -242,6 +244,7 @@ app.include_router(documents.router, prefix=PREFIX)
 app.include_router(quizzes.router, prefix=PREFIX)
 app.include_router(learning.router, prefix=PREFIX)
 app.include_router(chats.router, prefix=PREFIX)
+app.include_router(legal.router, prefix=PREFIX)
 
 
 @app.get("/", include_in_schema=False)

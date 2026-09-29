@@ -66,7 +66,9 @@ class DiagnosticPlan:
     """Qué medir y cómo, antes de generar una sola pregunta."""
 
     topic: str
-    round: PlacementRound
+    #: Ronda de nivelación, o None si es un cuestionario de PRÁCTICA: mismo plan
+    #: de ítems, pero no escribe nivel (practicar no es nivelarse).
+    round: PlacementRound | None
     concepts: tuple[str, ...]
     rungs: tuple[DiagnosticRung, ...]
     #: Cómo mostrárselo al estudiante. `topic` es la clave —sin tildes, para que
@@ -140,6 +142,62 @@ _REPARTO: dict[PlacementRound, tuple[tuple[Difficulty, int], ...]] = {
     PlacementRound.BASE: ((Difficulty.EASY, 4), (Difficulty.MEDIUM, 2)),
     PlacementRound.AVANZADA: ((Difficulty.MEDIUM, 3), (Difficulty.HARD, 5)),
 }
+
+
+#: Reparto de un cuestionario de práctica según el nivel que ya tenga el
+#: estudiante en el tema. Sin nivel se practica como un básico: ante la duda, la
+#: práctica debe poder hacerse, no frustrar.
+_PRACTICA: dict[PlacementLevel | None, tuple[tuple[Difficulty, float], ...]] = {
+    None: ((Difficulty.EASY, 0.6), (Difficulty.MEDIUM, 0.4)),
+    PlacementLevel.BASICO: ((Difficulty.EASY, 0.6), (Difficulty.MEDIUM, 0.4)),
+    PlacementLevel.INTERMEDIO: (
+        (Difficulty.EASY, 0.2), (Difficulty.MEDIUM, 0.6), (Difficulty.HARD, 0.2),
+    ),
+    PlacementLevel.AVANZADO: ((Difficulty.MEDIUM, 0.4), (Difficulty.HARD, 0.6)),
+}
+MAX_PRACTICE_ITEMS = 20
+
+
+def _repartir(total: int, pesos: tuple[tuple[Difficulty, float], ...]) -> list[tuple[Difficulty, int]]:
+    """Reparte `total` ítems según los pesos (mayor resto), sin peldaños vacíos."""
+    brutos = [(d, total * p) for d, p in pesos]
+    enteros = [[d, int(x)] for d, x in brutos]
+    sobran = total - sum(n for _, n in enteros)
+    for i in sorted(range(len(brutos)), key=lambda i: brutos[i][1] - int(brutos[i][1]), reverse=True)[:sobran]:
+        enteros[i][1] += 1
+    return [(d, n) for d, n in enteros if n > 0]
+
+
+def plan_practice(
+    topic: str,
+    graph: ConceptGraph | None = None,
+    level: PlacementLevel | None = None,
+    items: int = 5,
+) -> DiagnosticPlan:
+    """Plan de un cuestionario de práctica sobre un tema, sin material.
+
+    Como la nivelación, lo fácil prueba la base y lo demás el tema. A diferencia
+    de ella, la dificultad sale del nivel que ya tenga el estudiante, y no deja
+    veredicto: practicar no cambia el nivel guardado.
+    """
+    items = max(1, min(MAX_PRACTICE_ITEMS, int(items)))
+    base_plan = plan_diagnostic(topic, graph, PlacementRound.BASE)
+    base = base_plan.prerequisites or (base_plan.topic,)
+    rungs = tuple(
+        DiagnosticRung(
+            difficulty=dificultad,
+            items=n,
+            concepts=base if dificultad == Difficulty.EASY else (base_plan.topic,),
+        )
+        for dificultad, n in _repartir(items, _PRACTICA[level])
+    )
+    return DiagnosticPlan(
+        topic=base_plan.topic,
+        round=None,
+        concepts=base_plan.concepts,
+        rungs=rungs,
+        label=base_plan.label,
+    )
 
 
 def plan_diagnostic(

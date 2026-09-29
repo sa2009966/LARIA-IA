@@ -86,6 +86,11 @@ class QuizRepository(ABC):
     async def delete_by_document(self, document_id: UUID) -> int:
         ...
 
+    @abstractmethod
+    async def delete_by_owner(self, owner_id: UUID) -> int:
+        """Borrado de cuenta: todo lo de esa persona, tenga documento o no."""
+        ...
+
 
 class QuizAttemptRepository(ABC):
     @abstractmethod
@@ -106,6 +111,11 @@ class QuizAttemptRepository(ABC):
 
     @abstractmethod
     async def delete_by_document(self, document_id: UUID) -> int:
+        ...
+
+    @abstractmethod
+    async def delete_by_student(self, student_id: UUID) -> int:
+        """Borrado de cuenta: todo lo de esa persona, tenga documento o no."""
         ...
 
 
@@ -130,6 +140,11 @@ class TutorInteractionRepository(ABC):
     async def delete_by_document(self, document_id: UUID) -> int:
         ...
 
+    @abstractmethod
+    async def delete_by_student(self, student_id: UUID) -> int:
+        """Borrado de cuenta: todo lo de esa persona, tenga documento o no."""
+        ...
+
 
 class StudentProfileRepository(ABC):
     @abstractmethod
@@ -138,6 +153,11 @@ class StudentProfileRepository(ABC):
 
     @abstractmethod
     async def save(self, profile: StudentProfile) -> None:
+        ...
+
+    @abstractmethod
+    async def delete(self, student_id: UUID) -> None:
+        """Borrado de cuenta: todo lo de esa persona, tenga documento o no."""
         ...
 
 
@@ -166,6 +186,11 @@ class TutorSessionRepository(ABC):
 
     @abstractmethod
     async def delete_by_document(self, document_id: UUID) -> int:
+        ...
+
+    @abstractmethod
+    async def delete_by_student(self, student_id: UUID) -> int:
+        """Borrado de cuenta: todo lo de esa persona, tenga documento o no."""
         ...
 
 

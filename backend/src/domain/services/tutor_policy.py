@@ -16,6 +16,74 @@ if TYPE_CHECKING:  # pragma: no cover - solo para tipos
     from src.domain.services.diagnostic_planner import DiagnosticPlan
 
 
+#: Cómo leer al estudiante. Sin esto el modelo contestaba "parece que preguntas
+#: '¿quién sos?' en un contexto informal": comentaba cómo escribe en vez de
+#: responderle, que además suena a corrección.
+_ESCRITURA_INFORMAL = (
+    "El estudiante puede escribir abreviado (qn, q, xq, tmb) o con voseo (sos, "
+    "podés, tenés): entiéndelo con naturalidad y nunca comentes su forma de escribir."
+)
+
+#: Quién es el tutor. Sin esto no podía presentarse: sabía que era "un tutor
+#: educativo" y nada más, así que "¿qué podés hacer?" recibía una respuesta vaga.
+_IDENTIDAD = (
+    "Eres LARIA, un tutor con inteligencia artificial. Ayudas a estudiantes a "
+    "aprender: explicas conceptos, puedes evaluar su nivel con nivelaciones cortas, "
+    "generas cuestionarios a partir del material que suben y adaptas tu forma de "
+    "explicar a cada persona. Si te preguntan quién eres o qué puedes hacer, "
+    "preséntate así en dos o tres frases, di con claridad que eres una IA e invita "
+    "a contarte qué quiere aprender. Si no te lo preguntan, no te presentes: "
+    "responde directamente a lo que pide. " + _ESCRITURA_INFORMAL
+)
+
+
+def _bloque_conversacion(history: tuple[tuple[str, str], ...]) -> str:
+    """La conversación reciente, antes del contexto y la pregunta actual.
+
+    Va en el mensaje del usuario y marcada como transcripción: es lo que se dijo,
+    no instrucciones. El mensaje actual sigue siendo la "Pregunta", así que el
+    modelo no confunde qué tiene que responder.
+    """
+    if not history:
+        return ""
+    quien = {"user": "Estudiante", "assistant": "Tutor"}
+    lineas = "\n".join(f"{quien.get(rol, rol)}: {texto}" for rol, texto in history)
+    return f"Conversación reciente (de la más antigua a la más reciente):\n{lineas}\n\n"
+
+
+def _oferta_de_cuestionario(pedido: str | None, *, con_material: bool) -> str:
+    """Cuando el estudiante pide un cuestionario, el tutor NO lo escribe.
+
+    Lo escribía como texto en el chat ("1. ¿Cuál es la fracción equivalente a
+    1/2? a) 2/4 b) 3/6…"): no se corregía en el servidor, no dejaba evidencia y el
+    estudiante lo contestaba en texto libre. El cuestionario lo presenta la
+    plataforma, interactivo; el tutor solo lo anuncia.
+
+    `pedido`: None si no pidió cuestionario; "" si lo pidió sin decir de qué; el
+    tema en otro caso.
+    """
+    if pedido is None:
+        return ""
+    no_escribas = (
+        " No escribas preguntas, opciones ni ejercicios en este mensaje: la "
+        "plataforma le presenta un cuestionario interactivo que se corrige solo."
+    )
+    if con_material:
+        return (
+            f" El estudiante pide un cuestionario.{no_escribas} En una o dos frases, "
+            "confírmale que se lo preparas a partir de su material."
+        )
+    if pedido:
+        return (
+            f" El estudiante pide practicar «{pedido}».{no_escribas} En una o dos "
+            "frases, confírmale que se lo preparas."
+        )
+    return (
+        " El estudiante pide un cuestionario pero no dijo de qué. No escribas "
+        "preguntas ni ejercicios: pregúntale sobre qué tema quiere practicar."
+    )
+
+
 def _oferta_de_nivelacion(tema: str | None) -> str:
     """Qué hace el tutor cuando le piden aprender un tema sin material.
 
@@ -150,6 +218,8 @@ class TutorPolicy:
         adaptation: PromptShapingParameters | None = None,
         *,
         learning_topic: str | None = None,
+        history: tuple[tuple[str, str], ...] = (),
+        quiz_request: str | None = None,
     ) -> ChatPrompt:
         """Único punto de inyección de la familia prompt-shaping.
 
@@ -170,7 +240,7 @@ class TutorPolicy:
                 "rigor y sin inventar datos. "
             )
             system = (
-                "Eres un tutor educativo de LARIA. "
+                f"{_IDENTIDAD} "
                 f"{fuente}"
                 "Sé claro y conciso. "
                 "Si el estudiante muestra confusión, aclara con un ejemplo breve sin "
@@ -197,16 +267,24 @@ class TutorPolicy:
                 f"{_prerequisite_instruction(decision)}"
                 f"{anti}"
                 "Basa la respuesta únicamente en el contexto proporcionado. "
+                f"{_ESCRITURA_INFORMAL} "
                 "Nunca digas ni insinúes que al estudiante le falta nivel, base o "
                 "requisitos: habla del tema, no de sus carencias. "
                 "Verifica comprensión con una pregunta breve antes de dar por "
                 "consolidado un concepto."
             )
+        system += _oferta_de_cuestionario(quiz_request, con_material=decision is not None)
         if adaptation is not None:
             system = f"{system} {adaptation.to_prompt_fragment()}"
+        if history:
+            system = (
+                f"{system} Tienes la conversación reciente: úsala para dar "
+                "continuidad —a qué se refiere el estudiante, cómo se llama, qué ya "
+                "le explicaste— sin repetir lo que ya dijiste."
+            )
         return ChatPrompt(
             system=system,
-            user=f"Contexto:\n{context}\n\nPregunta: {question}",
+            user=f"{_bloque_conversacion(history)}Contexto:\n{context}\n\nPregunta: {question}",
         )
 
     def generate_diagnostic(self, plan: "DiagnosticPlan") -> ChatPrompt:
@@ -221,9 +299,18 @@ class TutorPolicy:
             f"{', '.join(r.concepts)}."
             for r in plan.rungs
         )
+        practica = plan.round is None
+        proposito = (
+            "El objetivo es que el estudiante practique y consolide: enunciados "
+            "claros, sin explicaciones ni pistas."
+            if practica
+            else "El objetivo es medir qué sabe ya el estudiante, no enseñarle: "
+            "no incluyas explicaciones ni pistas en los enunciados."
+        )
         return ChatPrompt(
             system=(
-                "Eres un experto en evaluación diagnóstica. Genera exactamente "
+                f"Eres un experto en {'ejercicios de práctica' if practica else 'evaluación diagnóstica'}. "
+                "Genera exactamente "
                 f"{plan.total_items} preguntas de opción múltiple en JSON: "
                 '{"questions": [{"text": "...", "options": {"A": "...", "B": "...", '
                 '"C": "...", "D": "..."}, "correct_answer": "A", "difficulty": '
@@ -232,12 +319,11 @@ class TutorPolicy:
                 "El campo difficulty de cada ítem DEBE coincidir con el peldaño "
                 "al que pertenece, y concept_tags DEBE contener el concepto que "
                 "ese ítem mide, escrito igual que aquí. "
-                "El objetivo es medir qué sabe ya el estudiante, no enseñarle: "
-                "no incluyas explicaciones ni pistas en los enunciados. "
+                f"{proposito} "
                 "IMPORTANTE: reparte correct_answer entre A, B, C y D de forma "
                 "equilibrada (no pongas casi todas en A). Sin texto adicional."
             ),
-            user=f"Tema a diagnosticar: {plan.topic}",
+            user=f"Tema {'para practicar' if practica else 'a diagnosticar'}: {plan.topic}",
         )
 
     def generate_quiz(

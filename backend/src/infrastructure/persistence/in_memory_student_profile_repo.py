@@ -104,3 +104,6 @@ class InMemoryStudentProfileRepository(StudentProfileRepository):
         stored = _clone_profile(profile, version=new_version)
         self._profiles[profile.student_id] = stored
         profile.version = new_version
+
+    async def delete(self, student_id: UUID) -> None:
+        self._profiles.pop(student_id, None)

@@ -129,7 +129,7 @@ class TestChatsAPI:
         created = client.post("/api/v1/chats/", headers=headers, json={"title": "Chat"}).json()
 
         class FakeTutor:
-            async def answer(self, document_id, question, student_id):
+            async def answer(self, document_id, question, student_id, history=()):
                 return TutorResponse(
                     content="Respuesta del tutor: " + question,
                     envelope=ResponseEnvelope(
@@ -280,7 +280,7 @@ class TestChatsAPI:
 
         # Simular que el tutor falla totalmente.
         class FailingTutor:
-            async def answer(self, document_id, question, student_id):
+            async def answer(self, document_id, question, student_id, history=()):
                 raise RuntimeError("boom")
 
         from src.interfaces.api import dependencies
@@ -315,7 +315,7 @@ class TestChatsAPI:
         captured = {}
 
         class CapturingTutor:
-            async def answer(self, document_id, question, student_id):
+            async def answer(self, document_id, question, student_id, history=()):
                 captured["document_id"] = document_id
                 captured["question"] = question
                 captured["student_id"] = student_id
@@ -352,7 +352,7 @@ class TestChatsStreaming:
         chat_id = created["id"]
 
         class FakeTutor:
-            async def answer_stream(self, document_id, question, student_id):
+            async def answer_stream(self, document_id, question, student_id, history=()):
                 yield "Hola", None
                 yield " mundo", None
 

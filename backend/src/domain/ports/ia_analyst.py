@@ -29,6 +29,8 @@ class IAAnalyst(ABC):
         adaptation: Optional[PromptShapingParameters] = None,
         *,
         learning_topic: Optional[str] = None,
+        history: tuple = (),
+        quiz_request: Optional[str] = None,
     ) -> str:
         """`learning_topic`: el estudiante pidió aprender ese tema (ADR-017).
 
@@ -63,5 +65,7 @@ class StreamingIAAnalyst(ABC):
         adaptation: Optional[PromptShapingParameters] = None,
         *,
         learning_topic: Optional[str] = None,
+        history: tuple = (),
+        quiz_request: Optional[str] = None,
     ) -> "AsyncIterator[str]":
         ...

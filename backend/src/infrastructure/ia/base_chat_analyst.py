@@ -170,7 +170,15 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         )
 
     async def answer_question(
-        self, context: str, question: str, decision=None, adaptation=None, *, learning_topic=None
+        self,
+        context: str,
+        question: str,
+        decision=None,
+        adaptation=None,
+        *,
+        learning_topic=None,
+        history=(),
+        quiz_request=None,
     ) -> str:
         return await self.answer_question_with_model(
             context,
@@ -179,6 +187,8 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
             model=self.model,
             adaptation=adaptation,
             learning_topic=learning_topic,
+            history=history,
+            quiz_request=quiz_request,
         )
 
     async def answer_question_with_model(
@@ -190,9 +200,17 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         model: str,
         adaptation=None,
         learning_topic=None,
+        history=(),
+        quiz_request=None,
     ) -> str:
         prompt = self._policy.answer_question(
-            context, question, decision, adaptation, learning_topic=learning_topic
+            context,
+            question,
+            decision,
+            adaptation,
+            learning_topic=learning_topic,
+            history=history,
+            quiz_request=quiz_request,
         )
         return await self._chat(prompt.system, prompt.user, model=model)
 
@@ -205,6 +223,8 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         adaptation=None,
         *,
         learning_topic=None,
+        history=(),
+        quiz_request=None,
     ):
         """Genera la respuesta del tutor en streaming (yield de tokens).
 
@@ -213,7 +233,13 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         configurado para streaming (no stream), se degrada a `answer_question`.
         """
         prompt = self._policy.answer_question(
-            context, question, decision, adaptation, learning_topic=learning_topic
+            context,
+            question,
+            decision,
+            adaptation,
+            learning_topic=learning_topic,
+            history=history,
+            quiz_request=quiz_request,
         )
         use_model = model or self.model
         payload = {

@@ -70,9 +70,10 @@ debe degradar con elegancia**: `payload.mode ?? null`, nunca `payload.mode.toUpp
 |-------|---------|--------|
 | `content` | sí | El texto a mostrar. Lo escribe el modelo |
 | `grounded` | sí | `true` = el turno pasó por el motor con material; `false` = conversación libre, **no prometas tutoría adaptativa** |
-| `intent` | sí | Intención detectada: `learn`, `quiz`, `hint`, `celebrate`, `general` |
+| `intent` | sí | Intención detectada: `learn`, `quiz`, `hint`, `celebrate`, `about` (preguntó quién es el tutor), `general`. Diagnóstico interno: para actuar, usa las señales de abajo |
 | `topic_hint` | cuando se detecta | Tema del mensaje. Si el estudiante pidió aprender uno, **tal como lo escribió** (con tildes): es lo que se le muestra |
 | `suggest_placement` | solo si `true` | El estudiante pidió aprender un **tema** ("quiero aprender X", "me enseñas X"), no preguntó un concepto. Es la señal para ofrecer nivelación con `POST /quizzes/diagnostic {topic: topic_hint}` ([ADR-017](adr/ADR-017-nivelacion-por-rondas.md)). **No uses `intent == "learn"` para eso**: salta también con "qué es" o "define". En un chat **sin material**, el propio texto del tutor ya ofrece la nivelación (sin hacer él las preguntas) en vez de recomendar recursos externos: tu botón y su frase dicen lo mismo |
+| `offer_quiz` | solo si `true` | El estudiante **pidió un cuestionario** ("ponme un quiz de X", "quiero practicar X", "dame ejercicios"). El tutor **no escribe las preguntas**: solo lo anuncia. Tú lo abres: sin material, `POST /quizzes/practice {topic: topic_hint}`; con material, `POST /chats/{id}/quiz`. Sin `topic_hint`, el tutor le pregunta el tema y el pedido llega en el siguiente mensaje ([ADR-020](adr/ADR-020-pedir-un-cuestionario.md)). `type: "quiz"` sigue sin emitirse |
 | `mode` | solo con material | `explain` · `socratic` · `scaffold` · `practice` |
 | `difficulty` | solo con material | `easy` · `medium` · `hard` |
 | `cognitive_style` | solo con material | `simple` · `technical` · `mathematical` · `analogy` · `visual` · `step_by_step` |

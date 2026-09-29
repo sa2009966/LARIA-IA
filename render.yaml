@@ -84,3 +84,7 @@ services:
         sync: false
       - key: CORS_ORIGINS
         value: '["https://laria-frontend.vercel.app","http://localhost:4321"]'
+      # Vistas previas de Vercel de los PRs del frontend: cada una tiene su URL.
+      # Se valida al arrancar; un patrón que deje pasar orígenes ajenos no arranca.
+      - key: CORS_ORIGIN_REGEX
+        value: '^https://laria-[a-z0-9-]+-ricardoalfredoaguilar1-gmailcoms-projects\.vercel\.app$'

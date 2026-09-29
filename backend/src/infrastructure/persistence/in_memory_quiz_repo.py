@@ -27,3 +27,9 @@ class InMemoryQuizRepository(QuizRepository):
         for qid in to_delete:
             del self._quizzes[qid]
         return len(to_delete)
+
+    async def delete_by_owner(self, owner_id: UUID) -> int:
+        borrar = [qid for qid, q in self._quizzes.items() if q.owner_id == owner_id]
+        for qid in borrar:
+            del self._quizzes[qid]
+        return len(borrar)

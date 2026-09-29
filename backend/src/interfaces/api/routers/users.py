@@ -10,8 +10,13 @@ from src.interfaces.api.openapi_responses import (
     RESP_403_FORBIDDEN,
     RESP_404_NOT_FOUND,
 )
-from src.interfaces.api.dependencies import get_current_user, get_user_service, require_admin
-from src.interfaces.schemas.user_schemas import UserResponse
+from src.interfaces.api.dependencies import (
+    get_account_service,
+    get_current_user,
+    get_user_service,
+    require_admin,
+)
+from src.interfaces.schemas.user_schemas import AccountDeletionRequest, UserResponse
 
 router = APIRouter(prefix="/users", tags=["Usuarios"])
 
@@ -63,6 +68,38 @@ async def list_users(
 ):
     users = await service.list_users()
     return [_map(u) for u in users]
+
+
+@router.delete(
+    "/me",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Borrar mi cuenta y todos mis datos",
+    description=(
+        "Borra **definitivamente** la cuenta del usuario autenticado y todo lo suyo: "
+        "documentos y sus archivos originales, chats, cuestionarios y nivelaciones, "
+        "intentos, interacciones con el tutor, sesiones, rutas de aprendizaje y "
+        "perfil de aprendizaje. No se puede deshacer.\n\n"
+        "Pide la contraseña actual en el cuerpo aunque la petición ya lleve token: "
+        "un token robado no debe bastar para destruir una cuenta. Contraseña "
+        "incorrecta → **403**. Tras borrarla, el token deja de servir (**401**)."
+    ),
+    responses={
+        status.HTTP_204_NO_CONTENT: {"description": "Cuenta y datos borrados."},
+        **RESP_401_UNAUTHORIZED,
+        **RESP_403_FORBIDDEN,
+    },
+)
+async def delete_my_account(
+    body: AccountDeletionRequest,
+    current_user: Annotated[UserAggregate, Depends(get_current_user)],
+    service=Depends(get_account_service),
+):
+    try:
+        await service.delete_account(current_user.id, body.password)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
 @router.delete(

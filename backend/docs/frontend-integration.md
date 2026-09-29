@@ -137,6 +137,29 @@ Cuatro cosas que respetar:
 **Por qué importa:** sin nivelar, el motor necesita cinco turnos para empezar a
 adaptarse y siete aciertos por concepto para dar algo por dominado.
 
+### 2.ter Práctica: "ponme un quiz de X"
+
+Cuando el estudiante pide un cuestionario, el envelope trae `payload.offer_quiz: true`
+y, si nombró el tema, `payload.topic_hint`. **El tutor no escribe las preguntas en el
+chat**, solo anuncia que se lo preparas. El quiz lo abres tú:
+
+```http
+POST /api/v1/quizzes/practice
+{ "topic": "fracciones", "num_questions": 5 }
+```
+
+- **Sin `topic_hint`** ("ponme un quiz"), el tutor pregunta el tema. No abras nada
+  todavía: el tema llega en el siguiente mensaje.
+- **En un chat con material**, usa `POST /chats/{id}/quiz`, que evalúa sobre el
+  documento.
+- Se responde en `/quizzes/{id}/attempts` como cualquier quiz. **`placement` viene
+  `null`**: practicar deja evidencia, pero no cambia el nivel. Para nivelarse, usa
+  `/diagnostic`.
+- La dificultad se ajusta sola al nivel que ya tenga en ese tema.
+
+Usa `offer_quiz` y no `intent == "quiz"`: `intent` es un diagnóstico interno.
+([ADR-020](adr/ADR-020-pedir-un-cuestionario.md))
+
 ### 3. Turno de tutoría
 
 ```http

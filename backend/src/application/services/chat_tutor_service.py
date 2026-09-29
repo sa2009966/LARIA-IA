@@ -45,6 +45,13 @@ def _tema_a_ofrecer(intention) -> str | None:
     return intention.topic_hint if intention.suggest_placement else None
 
 
+def _cuestionario_pedido(intention) -> str | None:
+    """Qué cuestionario pidió: None si ninguno, "" si no dijo de qué, o el tema.
+    Misma condición que `offer_quiz`: el texto del tutor y la tarjeta del
+    cliente no pueden decir cosas distintas."""
+    return (intention.topic_hint or "") if intention.offer_quiz else None
+
+
 def _intent_payload(intention) -> dict:
     """Intención del turno, y si el estudiante pidió aprender un tema.
 
@@ -58,6 +65,10 @@ def _intent_payload(intention) -> dict:
         carga["topic_hint"] = intention.topic_hint
     if intention.suggest_placement:
         carga["suggest_placement"] = True
+    # Pidió un cuestionario o practicar: el cliente abre uno interactivo, que se
+    # corrige en el servidor. Más estrecho que `intent == "quiz"` nunca fue.
+    if intention.offer_quiz:
+        carga["offer_quiz"] = True
     return carga
 
 
@@ -142,6 +153,7 @@ class ChatTutorService:
         document_id: Optional[UUID],
         question: str,
         student_id: UUID,
+        history: tuple = (),
     ) -> TutorResponse:
         """Devuelve la respuesta del tutor con su envelope de UI.
 
@@ -153,11 +165,17 @@ class ChatTutorService:
         if self._profile_repo is not None:
             profile = await self._profile_repo.find_by_student(student_id)
 
-        if document_id is not None:
+        # Una pregunta sobre el tutor no es una duda del material: sin este
+        # desvío recibía una clase y movía la sesión de tutoría.
+        if document_id is not None and intention.intent != TutorIntent.ABOUT:
             if self._analyze_service is None:
                 raise ValueError("Servicio de análisis no configurado para chats con documento")
             plan = await self._analyze_service.prepare_pedagogy(
-                document_id, question, student_id
+                document_id,
+                question,
+                student_id,
+                history=history,
+                quiz_request=_cuestionario_pedido(intention),
             )
             content = await self._analyze_service.answer_from_plan(plan)
             decision = plan.decision
@@ -198,6 +216,8 @@ class ChatTutorService:
             question=question,
             decision=None,
             learning_topic=_tema_a_ofrecer(intention),
+            history=history,
+            quiz_request=_cuestionario_pedido(intention),
         )
         affect = self._affect.select(profile, None)
         envelope = ResponseEnvelope.from_decision(
@@ -214,6 +234,7 @@ class ChatTutorService:
         document_id: Optional[UUID],
         question: str,
         student_id: UUID,
+        history: tuple = (),
     ):
         """Streaming de la respuesta del tutor (yield de trozos).
 
@@ -232,11 +253,17 @@ class ChatTutorService:
         if self._profile_repo is not None:
             profile = await self._profile_repo.find_by_student(student_id)
 
-        if document_id is not None:
+        # Una pregunta sobre el tutor no es una duda del material: sin este
+        # desvío recibía una clase y movía la sesión de tutoría.
+        if document_id is not None and intention.intent != TutorIntent.ABOUT:
             if self._analyze_service is None:
                 raise ValueError("Servicio de análisis no configurado para chats con documento")
             plan = await self._analyze_service.prepare_pedagogy(
-                document_id, question, student_id
+                document_id,
+                question,
+                student_id,
+                history=history,
+                quiz_request=_cuestionario_pedido(intention),
             )
             content = ""
             async for token in self._analyze_service.stream_from_plan(plan):
@@ -274,6 +301,8 @@ class ChatTutorService:
             question=question,
             decision=None,
             learning_topic=_tema_a_ofrecer(intention),
+            history=history,
+            quiz_request=_cuestionario_pedido(intention),
         ):
             content += token
             yield token, None

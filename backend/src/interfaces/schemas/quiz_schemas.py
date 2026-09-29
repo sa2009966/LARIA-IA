@@ -162,3 +162,10 @@ class StudentProfileResponse(BaseModel):
     level_by_topic: dict[str, str] = {}
     #: Cómo mostrar cada clave de `level_by_topic` (mismas claves, con tildes).
     topic_labels: dict[str, str] = {}
+
+
+class PracticeRequest(BaseModel):
+    """"Ponme un quiz de X": práctica sobre un tema, sin material."""
+
+    topic: Annotated[str, Field(min_length=2, max_length=120, description="Tema a practicar")]
+    num_questions: Annotated[int, Field(ge=1, le=20)] = 5

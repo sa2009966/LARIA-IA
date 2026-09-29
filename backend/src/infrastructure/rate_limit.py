@@ -93,6 +93,9 @@ def _match_rule(path: str, method: str) -> tuple[str, int, float] | None:
         return ("/api/v1/auth/register", 5, 60.0)
     if path.startswith("/api/v1/auth/token"):
         return ("/api/v1/auth/token", 10, 60.0)
+    # Pide la contraseña: sin límite serviría para adivinarla a fuerza bruta.
+    if method == "DELETE" and path.rstrip("/") == "/api/v1/users/me":
+        return ("/api/v1/users/me:delete", 5, 60.0)
     if method == "POST" and path.rstrip("/") == "/api/v1/chats/generate-title":
         return ("ia:title", 8, 60.0)
     if "/analyze" in path:

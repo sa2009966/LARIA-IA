@@ -58,6 +58,11 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://localhost:4321",
     ]
+    # Orígenes por patrón, para las vistas previas de Vercel: cada PR tiene una
+    # URL distinta y no caben en una lista. Vacío = desactivado. Tiene que ir
+    # anclado (^…$) y no puede dejar pasar orígenes ajenos: se comprueba al
+    # arrancar (`validate_security_settings`).
+    CORS_ORIGIN_REGEX: str = ""
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
@@ -133,11 +138,54 @@ def _is_wildcard_cors_origin(origin: str) -> bool:
     return token in {"*", "null"} or token.endswith("*")
 
 
+#: Orígenes que ningún patrón de CORS debe aceptar. Si el patrón deja pasar
+#: alguno, la app no arranca: mejor un despliegue fallido que uno abierto sin
+#: que nadie lo note.
+_ORIGENES_HOSTILES = (
+    "https://evil.example.com",
+    "https://vercel.app",
+    "https://attacker.vercel.app",
+    "https://laria-frontend.vercel.app.evil.com",
+    "http://laria-frontend.vercel.app",
+)
+
+
+def _validate_cors_regex(patron: str) -> None:
+    """Un patrón de CORS mal escrito abre la API sin avisar; aquí se para.
+
+    Límite honesto de lo que esto protege: Vercel da a cada proyecto el dominio
+    `<nombre>.vercel.app` si está libre, así que alguien podría llamar a su
+    proyecto como para que su URL encaje en el patrón. Aquí eso casi no importa,
+    porque la API no usa cookies: la sesión va en un token Bearer que una página
+    ajena no tiene, así que solo podría hacer peticiones anónimas, que puede
+    hacer igual desde un servidor. CORS no es la barrera de esta API; el token sí.
+    """
+    import re as _re
+
+    if not (patron.startswith("^") and patron.endswith("$")):
+        raise RuntimeError(
+            "CORS_ORIGIN_REGEX debe ir anclado con ^ y $: sin anclas, "
+            "'https://laria-frontend.vercel.app.evil.com' también encajaría."
+        )
+    try:
+        compilado = _re.compile(patron)
+    except _re.error as exc:
+        raise RuntimeError(f"CORS_ORIGIN_REGEX no es una expresión válida: {exc}") from exc
+    for origen in _ORIGENES_HOSTILES:
+        if compilado.fullmatch(origen):
+            raise RuntimeError(
+                f"CORS_ORIGIN_REGEX deja pasar {origen!r}: es demasiado amplio."
+            )
+
+
 def validate_security_settings(s: "Settings") -> None:
-    """Impide arrancar la API con una SECRET_KEY vacía o conocida.
+    """Impide arrancar la API con una SECRET_KEY vacía o conocida, o con un
+    patrón de CORS que abra la API a orígenes ajenos.
 
     Genera una clave segura con: openssl rand -hex 32
     """
+    if (s.CORS_ORIGIN_REGEX or "").strip():
+        _validate_cors_regex(s.CORS_ORIGIN_REGEX.strip())
     if s.SECRET_KEY in _INSECURE_SECRET_KEYS or len(s.SECRET_KEY) < 32:
         raise RuntimeError(
             "SECRET_KEY insegura o ausente: define una clave de al menos 32 caracteres "

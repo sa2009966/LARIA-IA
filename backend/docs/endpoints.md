@@ -92,11 +92,20 @@ El envelope es determinista: lo decide el dominio, no el modelo.
 
 ---
 
+## Cuenta y textos legales
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `DELETE` | `/api/v1/users/me` | **Borra la cuenta y todos sus datos**, sin vuelta atrás. Body `{ "password": "…" }`: contraseña incorrecta → `403`; después el token da `401`. Límite 5/min ([ADR-019](adr/ADR-019-borrar-la-cuenta-y-textos-legales.md)) |
+| `GET` | `/api/v1/legal` | Lista de textos legales: `slug`, `title`, `version`. Público |
+| `GET` | `/api/v1/legal/{slug}` | `terminos`, `privacidad` o `cookies`: `markdown`, `version`, y `completo`/`pendiente` mientras queden huecos sin rellenar. Público |
+
 ## Cuestionarios — `/quizzes`
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | `POST` | `/api/v1/quizzes/diagnostic` | **Diagnóstico de entrada sobre un tema, sin material.** Body `{ "topic": "ecuaciones" }`. Devuelve una escalera de 6 ítems **fácil→media→difícil** sobre el tema y sus prerrequisitos, con `document_id: null` y `topic` canónico. Se responde en `/quizzes/{id}/attempts` como cualquier quiz ([ADR-016](adr/ADR-016-diagnostico-de-entrada.md)) |
+| `POST` | `/api/v1/quizzes/practice` | **Práctica sobre un tema, sin material y sin tocar el nivel.** Body `{ "topic": "fracciones", "num_questions": 5 }` (1–20, por defecto 5). La dificultad sigue al nivel guardado del tema. El intento trae `placement: null` y deja evidencia por concepto, pero no cambia `level_by_topic`. 422 fuera de rango, 502 si falla el modelo ([ADR-020](adr/ADR-020-pedir-un-cuestionario.md)) |
 | `GET` | `/api/v1/quizzes/{quiz_id}` | Quiz propio sin respuestas correctas |
 | `POST` | `/api/v1/quizzes/{quiz_id}/attempts` | Enviar intento `{ "answers": { "0": "A", "1": "C" } }`; califica en servidor y revela correctas |
 

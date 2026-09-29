@@ -34,6 +34,7 @@ from src.domain.services.diagnostic_planner import (
     PlacementRound,
     has_next_round,
     plan_diagnostic,
+    plan_practice,
     resolve_placement,
     round_for,
 )
@@ -149,24 +150,44 @@ class QuizService:
         tema y de su base— para que el motor deje de estar ciego desde el primer
         turno en vez de desde el quinto.
         """
+        graph, nivel = await self._grafo_y_nivel(topic, user_id)
+        # La ronda no la manda el cliente: sale del nivel que el estudiante ya
+        # tenga en ese tema. Así el cliente no lleva estado (ADR-017, decisión 4).
+        ronda = round_for(nivel)
+        return await self._quiz_por_tema(plan_diagnostic(topic, graph, ronda), user_id)
+
+    async def generate_practice(
+        self, topic: str, user_id: UUID, num_questions: int = 5
+    ) -> QuizPublicDTO:
+        """Cuestionario de práctica sobre un tema, sin material.
+
+        Lo que el estudiante pide diciendo "ponme un quiz de fracciones". Antes el
+        tutor lo escribía como texto en el chat: no se corregía en el servidor ni
+        dejaba evidencia. Aquí se corrige como cualquier quiz y la evidencia cuenta,
+        pero NO cambia el nivel guardado: practicar no es nivelarse. La dificultad
+        se ajusta al nivel que ya tenga en el tema.
+        """
+        graph, nivel = await self._grafo_y_nivel(topic, user_id)
+        plan = plan_practice(topic, graph, nivel, num_questions)
+        return await self._quiz_por_tema(plan, user_id)
+
+    async def _grafo_y_nivel(self, topic: str, user_id: UUID):
+        """El currículum y el nivel que el estudiante ya tiene en ese tema.
+
+        El nivel se busca por el tema CANÓNICO, que es con el que se guardó. El
+        alumno escribe "ecuaciones" y el currículum lo resuelve a "ecuaciones
+        lineales": buscando por lo escrito no se encontraba nunca, y el
+        estudiante recibía la ronda básica una y otra vez sin avanzar jamás.
+        """
         if not (topic or "").strip():
             raise ValueError(self._MSG_TEMA_VACIO)
         if self._ia_analyst is None:
             raise ValueError("IA Analyst not configured")
-
         graph = None
         if self._graph_repo is not None:
             graph = await self._graph_repo.find_by_id(self._graph_id)
         if graph is None:
             graph = build_seeded_graph(self._graph_id)
-
-        # La ronda no la manda el cliente: sale del nivel que el estudiante ya
-        # tenga en ese tema. Así el cliente no lleva estado (ADR-017, decisión 4).
-        #
-        # El nivel se busca por el tema CANÓNICO, que es con el que se guardó. El
-        # alumno escribe "ecuaciones" y el currículum lo resuelve a "ecuaciones
-        # lineales": buscando por lo escrito no se encontraba nunca, y el
-        # estudiante recibía la ronda básica una y otra vez sin avanzar jamás.
         tema = graph.canonicalize(canonicalize_concept(topic))
         nivel = None
         if self._profile_repo is not None:
@@ -174,11 +195,12 @@ class QuizService:
             if perfil is not None:
                 guardado = perfil.level_for_topic(tema)
                 nivel = PlacementLevel(guardado) if guardado else None
-        ronda = round_for(nivel)
+        return graph, nivel
 
-        plan = plan_diagnostic(topic, graph, ronda)
+    async def _quiz_por_tema(self, plan, user_id: UUID) -> QuizPublicDTO:
+        """Genera, etiqueta y guarda un quiz sin documento. Nivelación o práctica:
+        lo distingue `plan.round` (None = práctica, que no escribe nivel)."""
         generated = await self._ia_analyst.generate_diagnostic(plan)
-
         questions = ensure_quiz_quality(list(generated.questions))
         # Red de seguridad: el prompt pide concept_tags, pero si el modelo los
         # omite la evidencia se perdería sin que nadie lo note.
@@ -188,7 +210,7 @@ class QuizService:
             user_id,
             questions,
             topic=plan.topic,
-            placement_round=ronda.value,
+            placement_round=plan.round.value if plan.round else None,
             topic_label=plan.label,
         )
         await self._quiz_repo.save(quiz)

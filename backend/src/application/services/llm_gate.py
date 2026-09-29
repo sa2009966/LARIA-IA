@@ -33,10 +33,21 @@ class LlmCallResult:
     tokens_completion: int = 0
 
 
-def _si_hay_tema(learning_topic: str | None) -> dict:
-    """El tema solo viaja si existe: así los analistas que no lo conocen —fakes
-    de test, proveedores futuros— siguen funcionando sin cambiar su firma."""
-    return {"learning_topic": learning_topic} if learning_topic else {}
+def _extras(
+    learning_topic: str | None, history: tuple = (), quiz_request: str | None = None
+) -> dict:
+    """Tema y conversación solo viajan si existen: así los analistas que no los
+    conocen —fakes de test, proveedores futuros— siguen funcionando sin cambiar
+    su firma."""
+    extra: dict = {}
+    if learning_topic:
+        extra["learning_topic"] = learning_topic
+    if history:
+        extra["history"] = history
+    # "" significa "pidió cuestionario sin tema": se distingue de None a propósito.
+    if quiz_request is not None:
+        extra["quiz_request"] = quiz_request
+    return extra
 
 
 class LlmGate:
@@ -133,15 +144,24 @@ class LlmGate:
         struggle_signals: int = 0,
         adaptation: PromptShapingParameters | None = None,
         learning_topic: str | None = None,
+        history: tuple = (),
+        quiz_request: str | None = None,
     ) -> str:
         choice = self._router.select(
             LlmTask.ASK, decision, struggle_signals=struggle_signals
         )
         policy = TutorPolicy()
-        # El tema entra en el prompt y por tanto en la clave de caché: sin eso,
-        # "quiero aprender X" recibiría la respuesta cacheada sin la oferta.
+        # Tema y conversación entran en el prompt y por tanto en la clave de
+        # caché. Sin eso, "las guerras" en dos chats distintos devolvería la misma
+        # respuesta cacheada, aunque en uno se hable de Roma y en otro de Grecia.
         prompt = policy.answer_question(
-            context, question, decision, adaptation, learning_topic=learning_topic
+            context,
+            question,
+            decision,
+            adaptation,
+            learning_topic=learning_topic,
+            history=history,
+            quiz_request=quiz_request,
         )
         cache_key = f"prompt_resp:{self._hash(prompt.system, prompt.user, choice.model)}"
 
@@ -155,7 +175,7 @@ class LlmGate:
         logger.info("ask cache=miss model=%s reason=%s", choice.model, choice.reason)
         started = time.perf_counter()
         answer = await self._call_answer(
-            context, question, decision, choice.model, adaptation, learning_topic
+            context, question, decision, choice.model, adaptation, learning_topic, history, quiz_request
         )
         self._observe_ms("laria_llm_latency_ms", started, task="ask", model=choice.model)
         if self._cache is not None:
@@ -172,6 +192,8 @@ class LlmGate:
         struggle_signals: int = 0,
         adaptation: PromptShapingParameters | None = None,
         learning_topic: str | None = None,
+        history: tuple = (),
+        quiz_request: str | None = None,
     ):
         """Streaming de la respuesta del tutor (yield de trozos de texto).
 
@@ -183,10 +205,17 @@ class LlmGate:
             LlmTask.ASK, decision, struggle_signals=struggle_signals
         )
         policy = TutorPolicy()
-        # El tema entra en el prompt y por tanto en la clave de caché: sin eso,
-        # "quiero aprender X" recibiría la respuesta cacheada sin la oferta.
+        # Tema y conversación entran en el prompt y por tanto en la clave de
+        # caché. Sin eso, "las guerras" en dos chats distintos devolvería la misma
+        # respuesta cacheada, aunque en uno se hable de Roma y en otro de Grecia.
         prompt = policy.answer_question(
-            context, question, decision, adaptation, learning_topic=learning_topic
+            context,
+            question,
+            decision,
+            adaptation,
+            learning_topic=learning_topic,
+            history=history,
+            quiz_request=quiz_request,
         )
         cache_key = f"prompt_resp:{self._hash(prompt.system, prompt.user, choice.model)}"
 
@@ -207,13 +236,13 @@ class LlmGate:
                 decision,
                 model=choice.model,
                 adaptation=adaptation,
-                **_si_hay_tema(learning_topic),
+                **_extras(learning_topic, history, quiz_request),
             ):
                 full.append(token)
                 yield token
         else:
             text = await self._call_answer(
-                context, question, decision, choice.model, adaptation, learning_topic
+                context, question, decision, choice.model, adaptation, learning_topic, history, quiz_request
             )
             full.append(text)
             yield text
@@ -311,8 +340,10 @@ class LlmGate:
         model: str,
         adaptation: PromptShapingParameters | None = None,
         learning_topic: str | None = None,
+        history: tuple = (),
+        quiz_request: str | None = None,
     ) -> str:
-        extra = _si_hay_tema(learning_topic)
+        extra = _extras(learning_topic, history, quiz_request)
         fn = getattr(self._ia, "answer_question_with_model", None)
         if callable(fn):
             return await fn(

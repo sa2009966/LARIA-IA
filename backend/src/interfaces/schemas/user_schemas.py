@@ -44,3 +44,13 @@ class UserResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AccountDeletionRequest(BaseModel):
+    """Confirmación para borrar la cuenta: la contraseña actual.
+
+    Se pide aunque la petición ya vaya autenticada: un token robado no debe
+    bastar para destruir la cuenta de alguien.
+    """
+
+    password: Annotated[str, Field(min_length=1, max_length=256)]

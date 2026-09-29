@@ -90,3 +90,8 @@ class MongoDBQuizRepository(QuizRepository):
         db = await self._get_db()
         result = await db.quizzes.delete_many({"document_id": str(document_id)})
         return int(result.deleted_count)
+
+    async def delete_by_owner(self, owner_id: UUID) -> int:
+        db = await self._get_db()
+        result = await db.quizzes.delete_many({"owner_id": str(owner_id)})
+        return int(result.deleted_count)

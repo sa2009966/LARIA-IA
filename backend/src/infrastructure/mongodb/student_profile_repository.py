@@ -196,3 +196,7 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             if result.matched_count == 0:
                 raise ConcurrencyError("StudentProfile concurrent update")
         profile.version = new_version
+
+    async def delete(self, student_id: UUID) -> None:
+        db = await self._get_db()
+        await db.student_profiles.delete_one({"_id": str(student_id)})

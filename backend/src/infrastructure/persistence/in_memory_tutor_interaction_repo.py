@@ -29,3 +29,9 @@ class InMemoryTutorInteractionRepository(TutorInteractionRepository):
         for iid in to_delete:
             del self._interactions[iid]
         return len(to_delete)
+
+    async def delete_by_student(self, student_id: UUID) -> int:
+        borrar = [iid for iid, i in self._interactions.items() if i.student_id == student_id]
+        for iid in borrar:
+            del self._interactions[iid]
+        return len(borrar)

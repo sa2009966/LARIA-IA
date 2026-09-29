@@ -295,6 +295,29 @@ def get_affect_policy() -> AffectPolicy:
     return AffectPolicy()
 
 
+def get_account_service() -> "AccountService":
+    from src.application.services.account_service import AccountService
+
+    purgas = []
+    if settings.DB_PROVIDER == "mongodb":
+        from src.infrastructure.mongodb.outbox_event_bus import purge_personal_events
+
+        purgas.append(purge_personal_events)
+    return AccountService(
+        user_repository=get_user_repo(),
+        document_repository=get_document_repo(),
+        document_service=get_document_service(),
+        quiz_repository=get_quiz_repo(),
+        attempt_repository=get_attempt_repo(),
+        interaction_repository=get_interaction_repo(),
+        session_repository=get_session_repo(),
+        profile_repository=get_profile_repo(),
+        chat_repository=get_chat_repo(),
+        learning_path_repository=get_learning_path_repo(),
+        extra_purges=purgas,
+    )
+
+
 def get_user_service() -> UserService:
     return UserService(get_user_repo(), event_bus=get_event_bus())
 
