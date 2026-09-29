@@ -1,8 +1,8 @@
-# LARIA — Backend
+# Plenum — backend de LARIA
 
 Ubicación en el monorepo: **`backend/`**.
 
-Tutor inteligente adaptativo. Backend **FastAPI** con **DDD / Clean Architecture**, persistencia **MongoDB** (o memoria en desarrollo), proveedor de IA **OpenAI** (`gpt-4o-mini` por defecto) y autenticación **JWT** con roles.
+LARIA es el tutor inteligente adaptativo de Plenum. Backend **FastAPI** con **DDD / Clean Architecture**, persistencia **MongoDB** (o memoria en desarrollo), proveedor de IA **OpenAI** (`gpt-4o-mini` por defecto) y autenticación **JWT** con roles.
 
 > LARIA no es un chatbot: el modelo solo genera lenguaje. La estrategia pedagógica vive en el dominio/aplicación (`TutorPolicy`, evidencia de aprendizaje).
 

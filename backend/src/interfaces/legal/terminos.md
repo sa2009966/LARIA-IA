@@ -1,17 +1,17 @@
 # Términos y condiciones
 
-**Versión 2026-09-28.** Al crear una cuenta en LARIA aceptas estas condiciones. Están escritas para que se entiendan: si algo no queda claro, escríbenos a **[[COMPLETAR: correo de contacto]]**.
+**Versión 2026-09-28.** Al crear una cuenta en Plenum aceptas estas condiciones. Están escritas para que se entiendan: si algo no queda claro, escríbenos a **[[COMPLETAR: correo de contacto]]**.
 
-## Qué es LARIA
+## Qué es Plenum
 
-LARIA es un tutor con **inteligencia artificial**. Puedes subir tu material de estudio o simplemente decirle qué quieres aprender. A partir de ahí te explica, te hace preguntas para conocer tu nivel, genera cuestionarios y adapta su forma de enseñarte según cómo aprendes.
+Plenum es una plataforma de aprendizaje. Dentro de ella, **LARIA** es el tutor con **inteligencia artificial**: puedes subir tu material de estudio o simplemente decirle qué quieres aprender. A partir de ahí te explica, te hace preguntas para conocer tu nivel, genera cuestionarios y adapta su forma de enseñarte según cómo aprendes.
 
-El servicio lo presta **[[COMPLETAR: nombre de la persona u organización responsable]]**.
+Plenum lo presta **[[COMPLETAR: nombre de la persona u organización responsable de Plenum]]**.
 
 ## Cómo funciona, sin letra pequeña
 
 - **Las respuestas las escribe un modelo de lenguaje** (de OpenAI). Qué enseñarte, con qué dificultad y qué repasar lo decide nuestro propio sistema a partir de tus respuestas; el modelo solo redacta.
-- **Aprende de lo que haces aquí.** Con tus respuestas y tu forma de usar la plataforma, LARIA construye un perfil de aprendizaje que le sirve para adaptarse a ti. Qué contiene ese perfil y cómo borrarlo está explicado en la **Política de privacidad**.
+- **Aprende de lo que haces aquí.** Con tus respuestas y tu forma de usar Plenum, LARIA construye un perfil de aprendizaje que le sirve para adaptarse a ti. Qué contiene ese perfil y cómo borrarlo está explicado en la **Política de privacidad**.
 - **Te dice por qué.** Cuando el tutor adapta su forma de explicarte, te cuenta el motivo.
 
 ## La IA se equivoca
@@ -34,14 +34,14 @@ Solo debes subir material que tengas derecho a usar.
 
 - Subir contenido ilegal, que infrinja derechos de otras personas o que contenga datos personales de terceros sin su permiso.
 - Intentar acceder a cuentas o datos ajenos, saltarse los límites del servicio o atacarlo.
-- Usar LARIA para generar contenido destinado a hacer trampa en evaluaciones en las que no esté permitido.
+- Usar Plenum para generar contenido destinado a hacer trampa en evaluaciones en las que no esté permitido.
 - Automatizar el uso del servicio de forma que lo sobrecargue.
 
 Si alguien incumple estas normas podemos suspender su cuenta.
 
 ## Disponibilidad
 
-LARIA está en desarrollo activo. Hacemos lo posible por que funcione bien, pero puede haber interrupciones, errores o cambios en sus funciones, y **no garantizamos que esté siempre disponible**. En los momentos de poco uso, la primera respuesta puede tardar unos segundos más de lo normal.
+Plenum está en desarrollo activo. Hacemos lo posible por que funcione bien, pero puede haber interrupciones, errores o cambios en sus funciones, y **no garantizamos que esté siempre disponible**. En los momentos de poco uso, la primera respuesta puede tardar unos segundos más de lo normal.
 
 ## Responsabilidad
 

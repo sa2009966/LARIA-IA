@@ -157,8 +157,8 @@ _ABOUT = re.compile(
     r"qui[eé]n\s+(?:sos|eres|es\s+laria)|qu[eé]\s+(?:sos|eres)|"
     r"c[oó]mo\s+te\s+llam(?:as|[aá]s)|"
     r"qu[eé]\s+(?:pod[eé]s|puedes|sab[eé]s|sabes)\s+hacer|"
-    r"para\s+qu[eé]\s+(?:serv[ií]s|sirves)|qu[eé]\s+es\s+laria|"
-    r"c[oó]mo\s+funcion(?:as|[aá]s)|"
+    r"para\s+qu[eé]\s+(?:serv[ií]s|sirves|sirve\s+plenum)|qu[eé]\s+es\s+(?:laria|plenum)|"
+    r"c[oó]mo\s+funcion(?:as|[aá]s|a\s+plenum)|"
     r"(?:sos|eres)\s+(?:un[ao]?\s+)?(?:bot|robot|ia|humano|persona|real|m[aá]quina)"
     r")\b\W*(?:\w+\W*){0,2}$",
     re.IGNORECASE,

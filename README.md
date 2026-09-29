@@ -1,6 +1,6 @@
-# LARIA-IA
+# Plenum
 
-LARIA es un **tutor inteligente adaptativo**: una API que usa evidencia de aprendizaje (perfil cognitivo, quizzes, interacciones) para decidir *cómo* enseñar, y un modelo de lenguaje solo para *decir* esa decisión. El objetivo no es responder preguntas; es que el estudiante aprenda.
+Plenum es una plataforma de aprendizaje. **LARIA** es su tutor inteligente adaptativo: una API que usa evidencia de aprendizaje (perfil cognitivo, quizzes, interacciones) para decidir *cómo* enseñar, y un modelo de lenguaje solo para *decir* esa decisión. El objetivo no es responder preguntas; es que el estudiante aprenda.
 
 No es un chatbot con historial. Responder bien no se toma como prueba de comprensión.
 
@@ -49,7 +49,7 @@ En este árbol (`backend/`) el producto es la **API FastAPI** del tutor:
 | Persistencia MongoDB o memoria; Docker Compose (app + Mongo + Redis) | En código |
 | Observabilidad de borde (`/health`, `/ready`, `/metrics`) | En código |
 
-Límites honestos: no hay embeddings, RAG ni scraping web; no hay LMS ni SSO de organización. Las rutas de aprendizaje existen pero son un plan de solo lectura, no un planner automático. La adaptación por señales del ADR-004 corre en **modo sombra** (`ADAPT_SHADOW_MODE=true`): se mide y se persiste, y todavía no moldea el prompt. El embodiment (voz/presencia) está detrás de puertos y **desactivado** por defecto. Un cliente web existe en la rama `feature/frontend` (Next.js); **no** está en este checkout, **no** está integrado en `develop`/`main` y hoy no consume el tutor (habla con OpenAI por su cuenta).
+Límites honestos: no hay embeddings, RAG ni scraping web; no hay LMS ni SSO de organización. Las rutas de aprendizaje existen pero son un plan de solo lectura, no un planner automático. La adaptación por señales del ADR-004 llega al turno; `ADAPT_SHADOW_MODE` queda como interruptor de emergencia y por defecto está apagado. El embodiment (voz/presencia) está detrás de puertos y **desactivado** por defecto. Un cliente web existe en la rama `feature/frontend` (Next.js); **no** está en este checkout, **no** está integrado en `develop`/`main` y hoy no consume el tutor (habla con OpenAI por su cuenta).
 
 Detalle de capas, agregados y contratos: [`backend/docs/architecture.md`](backend/docs/architecture.md) y [`backend/docs/endpoints.md`](backend/docs/endpoints.md).
 

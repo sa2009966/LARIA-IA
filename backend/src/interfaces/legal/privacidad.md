@@ -1,10 +1,10 @@
 # Política de privacidad
 
-**Versión 2026-09-28.** Esta página explica qué datos guarda LARIA, para qué, con quién los comparte y cómo puedes borrarlos. Está escrita a partir de lo que el sistema hace de verdad, no de una plantilla.
+**Versión 2026-09-28.** Esta página explica qué datos guarda Plenum, para qué, con quién los comparte y cómo puedes borrarlos. Está escrita a partir de lo que el sistema hace de verdad, no de una plantilla.
 
 ## Quién es responsable
 
-El responsable del tratamiento de tus datos es **[[COMPLETAR: nombre de la persona u organización responsable]]**, con domicilio en **[[COMPLETAR: país y ciudad]]**. Para cualquier cuestión sobre tus datos puedes escribir a **[[COMPLETAR: correo de contacto]]**.
+El responsable del tratamiento de tus datos es **[[COMPLETAR: nombre de la persona u organización responsable de Plenum]]**, con domicilio en **[[COMPLETAR: país y ciudad]]**. Para cualquier cuestión sobre tus datos puedes escribir a **[[COMPLETAR: correo de contacto]]**.
 
 ## Qué datos guardamos
 
@@ -37,7 +37,7 @@ El responsable del tratamiento de tus datos es **[[COMPLETAR: nombre de la perso
 
 ## Con quién los compartimos
 
-Para funcionar, LARIA se apoya en estos proveedores. Todos están en **Estados Unidos**, así que tus datos salen de tu país:
+Para funcionar, Plenum se apoya en estos proveedores. Todos están en **Estados Unidos**, así que tus datos salen de tu país:
 
 | Proveedor | Para qué | Qué datos recibe |
 |---|---|---|
@@ -66,7 +66,7 @@ Sobre OpenAI: según sus condiciones para la API, los datos enviados por esta v�
 
 ## Menores de edad
 
-**[[COMPLETAR: edad mínima para usar LARIA y cómo se obtiene el consentimiento de madres, padres o tutores legales. Hoy el registro no pide la edad.]]**
+**[[COMPLETAR: edad mínima para usar Plenum y cómo se obtiene el consentimiento de madres, padres o tutores legales. Hoy el registro no pide la edad.]]**
 
 ## Seguridad
 
