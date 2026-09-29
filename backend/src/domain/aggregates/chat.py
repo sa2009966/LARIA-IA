@@ -86,9 +86,21 @@ class ChatAggregate:
         mensaje, y resumir lo que aún está en la ventana sería repetirlo.
         """
         pendiente = _dialogo(self.messages)[self.summary_upto :]
-        if len(pendiente) < HISTORY_MAX_MESSAGES + SUMMARY_BATCH:
+        visibles = len(
+            recent_history(pendiente, max_messages=HISTORY_MAX_MESSAGES + SUMMARY_BATCH)
+        )
+        if visibles < len(pendiente):
+            # El tope de caracteres ya deja fuera mensajes que el resumen no
+            # cubre: sin esto quedaban en un hueco, ni en lo reciente ni en el
+            # resumen. Contra Render, con respuestas largas, "lo presento en la
+            # feria de ciencias" se perdió así a 12 mensajes de distancia. Se
+            # resume con margen (un lote más) para no llamar al modelo cada turno.
+            conservar = max(2, min(visibles, HISTORY_MAX_MESSAGES) - SUMMARY_BATCH)
+        elif len(pendiente) >= HISTORY_MAX_MESSAGES + SUMMARY_BATCH:
+            conservar = HISTORY_MAX_MESSAGES
+        else:
             return ()
-        viejos = pendiente[: len(pendiente) - HISTORY_MAX_MESSAGES]
+        viejos = pendiente[: len(pendiente) - conservar]
         return tuple((m.role, _compactar(m.content)) for m in viejos)
 
     def absorb_summary(self, summary: str, covered: int) -> None:
@@ -123,7 +135,10 @@ class ChatAggregate:
 #: estudiante lo vivía como "no se acuerda" (ADR-021). Veinte son diez
 #: intercambios; lo anterior no se pierde, se resume.
 HISTORY_MAX_MESSAGES = 20
-HISTORY_MAX_CHARS = 12000
+#: 12 000 se agotaba con ~10 respuestas largas del tutor (listas, esquemas),
+#: bastante antes de los 20 mensajes. ~6000 tokens por turno con el modelo
+#: barato sigue siendo un coste menor.
+HISTORY_MAX_CHARS = 24000
 _HISTORY_MAX_PER_MESSAGE = 1500
 
 #: Cuántos mensajes fuera de la ventana se juntan antes de resumir: una llamada

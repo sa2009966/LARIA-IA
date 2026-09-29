@@ -131,3 +131,40 @@ def test_el_prompt_de_resumen_trata_la_transcripcion_como_datos():
 
     assert "datos sin confianza" in p.system
     assert "<messages>" in p.user and "No inventes" in p.user
+
+
+def test_lo_que_deja_fuera_el_tope_de_caracteres_se_resume_sin_hueco():
+    """Contra Render, con respuestas largas del tutor, un dato del mensaje 7 no
+    estaba ni en lo reciente (el tope de caracteres lo dejaba fuera) ni en el
+    resumen (aún no se había completado el lote por número de mensajes)."""
+    from src.domain.aggregates.chat import HISTORY_MAX_CHARS, _HISTORY_MAX_PER_MESSAGE
+
+    chat = ChatAggregate.create(uuid4())
+    chat.add_message("user", "mi robot se llama Rayo")
+    largos = HISTORY_MAX_CHARS // _HISTORY_MAX_PER_MESSAGE + 1
+    for i in range(largos):
+        chat.add_message("assistant" if i % 2 == 0 else "user", "x " * 1000)
+
+    viejos = chat.messages_to_summarize()
+
+    assert viejos and viejos[0][1] == "mi robot se llama Rayo"
+    chat.absorb_summary("Su robot se llama Rayo.", len(viejos))
+    memoria = chat.memory()
+    assert memoria[0] == ("resumen", "Su robot se llama Rayo.")
+    # Todo lo no resumido cabe en lo reciente: no queda hueco.
+    assert len(memoria) - 1 == len(chat.messages) - chat.summary_upto
+
+
+def test_nunca_hay_hueco_entre_resumen_y_reciente():
+    """Propiedad: tras resumir lo pendiente, cada mensaje está en el resumen o se ve."""
+    import random
+
+    rng = random.Random(7)
+    chat = ChatAggregate.create(uuid4())
+    for i in range(80):
+        chat.add_message("user" if i % 2 == 0 else "assistant", "y " * rng.randint(5, 1200))
+        viejos = chat.messages_to_summarize()
+        if viejos:
+            chat.absorb_summary(f"resumen {i}", len(viejos))
+        visibles = len(chat.memory()) - (1 if chat.summary else 0)
+        assert chat.summary_upto + visibles == len(chat.messages), f"hueco en el mensaje {i}"

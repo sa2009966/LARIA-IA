@@ -196,6 +196,7 @@ def get_chat_tutor_service() -> "ChatTutorService":
         document_repository=get_document_repo(),
         profile_repository=get_profile_repo(),
         topic_catalog=TopicCatalog(get_concept_graph_repo()),
+        preferences=get_learning_preferences_service(),
     )
 
 

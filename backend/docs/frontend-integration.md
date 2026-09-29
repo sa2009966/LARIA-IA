@@ -179,6 +179,8 @@ PUT /api/v1/learning/me/preferences
 | Técnico y riguroso | `technical` |
 | Que lo decida LARIA | `null` |
 
+**También desde el chat** ([ADR-023](adr/ADR-023-preguntar-como-aprende-desde-el-chat.md)). Si el estudiante escribe "pregúntame cómo me gusta aprender", el tutor pregunta con estas mismas opciones numeradas y el envelope trae `ask_learning_style: true`: puedes mostrar la tarjeta. Si contesta en el chat ("la 4", "me siento más cómodo con esquemas"), el backend lo guarda y el envelope trae `explanation_style_chosen`.
+
 - Vale para **todos los temas** y para chats con y sin material.
 - Lo que pida en un mensaje concreto ("explícamelo paso a paso") gana en ese turno.
 - Para mostrar la elección actual: `GET /learning/me/preferences` o

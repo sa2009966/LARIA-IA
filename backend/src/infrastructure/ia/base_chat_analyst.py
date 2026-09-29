@@ -1,5 +1,6 @@
 """Adaptador HTTP de chat completions; los prompts vienen de TutorPolicy (aplicación)."""
 import json
+import logging
 import time
 from typing import Sequence
 
@@ -16,6 +17,8 @@ from src.domain.ports.metrics_port import MetricsPort
 from src.domain.services.tutor_policy import TutorPolicy
 from src.domain.value_objects.analysis_result import AnalysisResult
 from src.domain.value_objects.question import Quiz, QuizQuestion
+
+logger = logging.getLogger("laria.ia")
 
 _MSG_PROVEEDOR = "El servicio de IA no está disponible en este momento."
 _MSG_RESPUESTA = "El servicio de IA devolvió una respuesta inválida."
@@ -74,6 +77,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer):
         model: str | None = None,
         max_tokens: int | None = None,
         task: str = "chat",
+        json_mode: bool = False,
     ) -> str:
         use_model = model or self.model
         payload = {
@@ -86,6 +90,11 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer):
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        if json_mode:
+            # El proveedor garantiza JSON sintácticamente válido. Sin esto, cerca
+            # de 1 de cada 4 nivelaciones sobre "linux" llegaba con una llave de
+            # más ("…]}}]}") y el estudiante veía "respuesta inválida" (502).
+            payload["response_format"] = {"type": "json_object"}
         started = time.monotonic()
         try:
             client = await self._get_client()
@@ -161,6 +170,22 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer):
             raise IAAnalysisError(_MSG_RESPUESTA)
         return resumen
 
+    async def _chat_json(self, system_prompt: str, user_message: str, *, model: str | None) -> dict:
+        """Pide JSON y lo parsea. Si aun así llega roto, reintenta una vez.
+
+        Un solo reintento: dos fallos seguidos ya no son mala suerte, y el
+        estudiante está esperando. El error sigue siendo `IAAnalysisError` (502).
+        """
+        for intento in (1, 2):
+            raw = await self._chat(system_prompt, user_message, model=model, json_mode=True)
+            try:
+                return self._extract_json(raw)
+            except IAAnalysisError:
+                if intento == 2:
+                    raise
+                logger.warning("json_invalido_reintento model=%s", model or self.model)
+        raise IAAnalysisError(_MSG_RESPUESTA)  # inalcanzable; lo exige el tipo
+
     @staticmethod
     def _extract_json(raw: str) -> dict:
         start = raw.find("{")
@@ -183,8 +208,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer):
 
     async def analyze_with_model(self, document: DocumentAggregate, model: str) -> AnalysisResult:
         prompt = self._policy.analyze_document(document.content)
-        raw = await self._chat(prompt.system, prompt.user, model=model)
-        data = self._extract_json(raw)
+        data = await self._chat_json(prompt.system, prompt.user, model=model)
 
         return AnalysisResult(
             summary=data.get("summary", "") or "Sin resumen",
@@ -337,8 +361,8 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer):
     ) -> Quiz:
         text = context if context is not None else document.content
         prompt = self._policy.generate_quiz(text, num_questions, decision)
-        raw = await self._chat(prompt.system, prompt.user, model=model)
-        return self._quiz_desde_json(raw)
+        data = await self._chat_json(prompt.system, prompt.user, model=model)
+        return self._quiz_desde_json(data)
 
     async def generate_diagnostic(self, plan, *, model: str | None = None) -> Quiz:
         """Diagnóstico de entrada a partir de un tema, sin documento (ADR-016).
@@ -348,12 +372,13 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer):
         no hay contenido del que partir, solo un tema.
         """
         prompt = self._policy.generate_diagnostic(plan)
-        raw = await self._chat(prompt.system, prompt.user, model=model or self.model)
-        return self._quiz_desde_json(raw)
+        data = await self._chat_json(prompt.system, prompt.user, model=model or self.model)
+        return self._quiz_desde_json(data)
 
-    def _quiz_desde_json(self, raw: str) -> Quiz:
+    def _quiz_desde_json(self, data: dict | str) -> Quiz:
         """Contrato de ítems compartido por el quiz normal y el diagnóstico."""
-        data = self._extract_json(raw)
+        if isinstance(data, str):
+            data = self._extract_json(data)
         try:
             questions = []
             for q in data.get("questions", []):

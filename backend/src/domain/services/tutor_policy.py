@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Sequence
 from src.domain.ports.chat_title_generator import TitleMessage
 from src.domain.services.adaptive_policy import PromptShapingParameters
 from src.domain.services.cognitive_style import CognitiveStyle
-from src.domain.services.learner_context import LearnerContext
+from src.domain.services.learner_context import STYLE_OPTIONS, LearnerContext
 from src.domain.services.pedagogical_engine import PedagogicalDecision, PedagogicalMode
 from src.domain.services.prerequisite_graph import GateAction
 from src.domain.value_objects.question import Difficulty
@@ -164,11 +164,30 @@ def _clase_desde_nivel(tema: str, nivel: str) -> str:
     )
 
 
+def _pregunta_de_estilo() -> str:
+    """El estudiante pidió que se le pregunte cómo le gusta aprender (ADR-023)."""
+    opciones = " ".join(f"{i}. {etiqueta}." for i, (etiqueta, _) in enumerate(STYLE_OPTIONS, 1))
+    return (
+        " El estudiante te pide que le preguntes cómo prefiere aprender. Pregúntaselo "
+        "ahora, en una frase breve, y ofrécele estas opciones en una lista numerada, "
+        f"copiadas tal cual: {opciones} Dile que puede contestar con el número. No "
+        "expliques ningún tema en este mensaje."
+    )
+
+
 def _adaptacion_sin_material(learner: LearnerContext | None, tema: str | None) -> str:
     """Nivel y forma de explicar en el modo libre (ADR-022). Vacío si no hay nada."""
     if not learner:
         return _oferta_de_nivelacion(tema)
+    if learner.ask_style:
+        return _pregunta_de_estilo()
     partes = []
+    if learner.style_just_chosen:
+        partes.append(
+            " El estudiante acaba de decirte cómo prefiere aprender y ya quedó guardado: "
+            "confírmaselo en una frase y dile que puede cambiarlo cuando quiera. Si en "
+            "la conversación estaba aprendiendo algo, sigue con eso ya de esa forma."
+        )
     if learner.topic_level:
         partes.append(_clase_desde_nivel(*learner.topic_level))
     else:
