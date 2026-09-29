@@ -6,7 +6,11 @@ from typing import Sequence
 import httpx
 
 from src.domain.aggregates.document_aggregate import DocumentAggregate
-from src.domain.ports.chat_title_generator import ChatTitleGenerator, TitleMessage
+from src.domain.ports.chat_title_generator import (
+    ChatTitleGenerator,
+    ConversationSummarizer,
+    TitleMessage,
+)
 from src.domain.ports.ia_analyst import IAAnalysisError, IAAnalyst
 from src.domain.ports.metrics_port import MetricsPort
 from src.domain.services.tutor_policy import TutorPolicy
@@ -20,7 +24,7 @@ _MAX_TITLE_WORDS = 7
 _MAX_TITLE_CHARS = 120
 
 
-class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
+class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer):
     """Implementa analyze/answer_question/generate_quiz sobre un endpoint de chat.
 
     Las subclases solo definen `api_url`, `model` y `api_key`.
@@ -137,6 +141,26 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
             title = title[:_MAX_TITLE_CHARS].rsplit(" ", 1)[0].rstrip()
         return title
 
+    async def summarize_conversation(
+        self, previous: str, messages: Sequence[tuple[str, str]]
+    ) -> str:
+        prompt = self._policy.summarize_conversation(previous, messages)
+        raw = await self._chat(
+            prompt.system,
+            prompt.user,
+            # 150 palabras en español caben en ~250 tokens; el margen evita cortar
+            # el resumen a media frase.
+            max_tokens=320,
+            model=self.model,
+            task="summary",
+        )
+        resumen = " ".join(raw.strip().split())
+        if resumen.lower().startswith("resumen:"):
+            resumen = resumen.split(":", 1)[1].strip()
+        if not resumen:
+            raise IAAnalysisError(_MSG_RESPUESTA)
+        return resumen
+
     @staticmethod
     def _extract_json(raw: str) -> dict:
         start = raw.find("{")
@@ -179,6 +203,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         learning_topic=None,
         history=(),
         quiz_request=None,
+        learner=None,
     ) -> str:
         return await self.answer_question_with_model(
             context,
@@ -189,6 +214,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
             learning_topic=learning_topic,
             history=history,
             quiz_request=quiz_request,
+            learner=learner,
         )
 
     async def answer_question_with_model(
@@ -202,6 +228,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         learning_topic=None,
         history=(),
         quiz_request=None,
+        learner=None,
     ) -> str:
         prompt = self._policy.answer_question(
             context,
@@ -211,6 +238,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
             learning_topic=learning_topic,
             history=history,
             quiz_request=quiz_request,
+            learner=learner,
         )
         return await self._chat(prompt.system, prompt.user, model=model)
 
@@ -225,6 +253,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         learning_topic=None,
         history=(),
         quiz_request=None,
+        learner=None,
     ):
         """Genera la respuesta del tutor en streaming (yield de tokens).
 
@@ -240,6 +269,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
             learning_topic=learning_topic,
             history=history,
             quiz_request=quiz_request,
+            learner=learner,
         )
         use_model = model or self.model
         payload = {

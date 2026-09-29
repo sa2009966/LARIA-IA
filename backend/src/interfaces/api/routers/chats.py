@@ -5,15 +5,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 import json
 
+from src.application.services.conversation_memory import ConversationMemory
 from src.application.services.chat_tutor_service import ChatTutorService
 from src.application.services.quiz_service import QuizService
-from src.domain.aggregates.chat import ChatAggregate, recent_history
+from src.domain.aggregates.chat import ChatAggregate
 from src.domain.ports.chat_title_generator import ChatTitleGenerator, TitleMessage
 from src.domain.ports.ia_analyst import IAAnalysisError
 from src.domain.ports.repositories import ChatRepository
 from src.interfaces.api.dependencies import (
     get_chat_repo,
     get_chat_title_generator,
+    get_conversation_memory,
     get_chat_tutor_service,
     get_current_user_id,
     get_quiz_service,
@@ -172,13 +174,14 @@ async def add_message(
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     repo: Annotated[ChatRepository, Depends(get_chat_repo)],
     tutor: Annotated[ChatTutorService, Depends(get_chat_tutor_service)],
+    memory: Annotated[ConversationMemory, Depends(get_conversation_memory)],
 ):
     chat = await repo.find_by_id(chat_id)
     if chat is None or str(chat.owner_id) != current_user_id:
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
     # Antes de añadir el mensaje actual: el historial es lo que se dijo ANTES.
-    # Los mensajes ya estaban guardados; lo que faltaba es que el tutor los leyera.
-    historial = recent_history(chat.messages)
+    # Solo un turno la necesita: una nota `system` no gasta un resumen.
+    historial = await memory.recall(chat) if body.role == "user" else ()
     try:
         chat.add_message(role=body.role, content=body.content, metadata=body.metadata)
     except ValueError as exc:
@@ -227,6 +230,7 @@ async def stream_message(
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     repo: Annotated[ChatRepository, Depends(get_chat_repo)],
     tutor: Annotated[ChatTutorService, Depends(get_chat_tutor_service)],
+    memory: Annotated[ConversationMemory, Depends(get_conversation_memory)],
 ):
     if body.role != "user":
         raise HTTPException(status_code=422, detail="El streaming solo acepta mensajes 'user'")
@@ -234,7 +238,7 @@ async def stream_message(
     chat = await repo.find_by_id(chat_id)
     if chat is None or str(chat.owner_id) != current_user_id:
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
-    historial = recent_history(chat.messages)
+    historial = await memory.recall(chat)
     try:
         chat.add_message(role="user", content=body.content, metadata=body.metadata)
     except ValueError as exc:

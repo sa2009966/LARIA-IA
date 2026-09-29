@@ -5,6 +5,7 @@ from uuid import UUID
 
 from src.application.services.analyze_document_service import AnalyzeDocumentService
 from src.application.services.llm_gate import LlmGate
+from src.application.services.topic_catalog import TopicCatalog
 from src.domain.ports.repositories import (
     DocumentRepository,
     StudentProfileRepository,
@@ -12,7 +13,9 @@ from src.domain.ports.repositories import (
 from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.services.adaptive_policy import AdaptationParameters
 from src.domain.services.affect_policy import AffectPolicy
+from src.domain.services.cognitive_style import chosen_style, style_requested_in
 from src.domain.services.intent_detector import IntentDetector, TutorIntent
+from src.domain.services.learner_context import MAX_LEVELS_IN_PROMPT, LearnerContext
 from src.domain.services.pedagogical_engine import (
     PedagogicalDecision,
     PedagogicalMode,
@@ -130,6 +133,19 @@ class TutorResponse:
     envelope: ResponseEnvelope
 
 
+def _nivel_conocido(extra: dict, learner: LearnerContext | None) -> dict:
+    """Si ya se niveló en el tema que pide, no se ofrece otra nivelación (ADR-022).
+
+    El tutor empieza la clase desde su nivel; el botón de "nivelarme" contradiría
+    lo que dice. El cliente recibe el nivel para mostrarlo.
+    """
+    if learner is None or learner.topic_level is None:
+        return extra
+    extra = {k: v for k, v in extra.items() if k != "suggest_placement"}
+    extra["placement_level"] = learner.topic_level[1]
+    return extra
+
+
 class ChatTutorService:
     """Responde mensajes de chat: usa el motor pedagógico si hay documento vinculado,
     o modo libre (LlmGate directo) si es conversación general."""
@@ -140,13 +156,37 @@ class ChatTutorService:
         llm_gate: Optional[LlmGate] = None,
         document_repository: Optional[DocumentRepository] = None,
         profile_repository: Optional[StudentProfileRepository] = None,
+        topic_catalog: Optional[TopicCatalog] = None,
     ) -> None:
         self._analyze_service = analyze_service
         self._llm_gate = llm_gate
         self._doc_repo = document_repository
         self._profile_repo = profile_repository
+        self._topics = topic_catalog
         self._affect = AffectPolicy()
         self._intent = IntentDetector()
+
+    async def _learner(
+        self, profile: StudentProfile | None, intention, question: str
+    ) -> LearnerContext | None:
+        """Nivel y estilo para el modo libre (ADR-022). None si no hay nada que usar."""
+        style = style_requested_in(question) or chosen_style(profile)
+        if profile is None or not profile.level_by_topic:
+            return LearnerContext(style=style) if style else None
+        tema = _tema_a_ofrecer(intention)
+        if tema:
+            clave = await self._topics.canonical(tema) if self._topics else tema
+            nivel = profile.level_for_topic(clave)
+            if nivel:
+                etiqueta = profile.label_for_topic(clave) or tema
+                return LearnerContext(style=style, topic_level=(etiqueta, nivel))
+        # Sin tema concreto: los últimos temas nivelados, para que el modelo
+        # ajuste la profundidad si la pregunta cae en uno de ellos.
+        niveles = tuple(
+            (profile.topic_labels.get(clave, clave), nivel)
+            for clave, nivel in list(profile.level_by_topic.items())[-MAX_LEVELS_IN_PROMPT:]
+        )
+        return LearnerContext(style=style, levels=niveles)
 
     async def answer(
         self,
@@ -211,6 +251,7 @@ class ChatTutorService:
 
         if self._llm_gate is None:
             raise ValueError("LLM gate no configurado para chats libres")
+        learner = await self._learner(profile, intention, question)
         content = await self._llm_gate.answer_question(
             context="",
             question=question,
@@ -218,6 +259,7 @@ class ChatTutorService:
             learning_topic=_tema_a_ofrecer(intention),
             history=history,
             quiz_request=_cuestionario_pedido(intention),
+            learner=learner,
         )
         affect = self._affect.select(profile, None)
         envelope = ResponseEnvelope.from_decision(
@@ -225,7 +267,9 @@ class ChatTutorService:
             "answer",
             affect,
             content=content,
-            extra={**_intent_payload(intention), "grounded": False},
+            extra=_nivel_conocido(
+                {**_intent_payload(intention), "grounded": False}, learner
+            ),
         )
         return TutorResponse(content=content, envelope=envelope)
 
@@ -295,6 +339,8 @@ class ChatTutorService:
             yield content, envelope
             return
 
+        learner = await self._learner(profile, intention, question)
+        extra = _nivel_conocido(extra, learner)
         content = ""
         async for token in self._llm_gate.answer_question_stream(
             context="",
@@ -303,6 +349,7 @@ class ChatTutorService:
             learning_topic=_tema_a_ofrecer(intention),
             history=history,
             quiz_request=_cuestionario_pedido(intention),
+            learner=learner,
         ):
             content += token
             yield token, None

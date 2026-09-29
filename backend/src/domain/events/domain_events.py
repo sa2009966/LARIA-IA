@@ -101,3 +101,16 @@ class TutorQuestionAskedEvent(DomainEventBase):
     # perfil tiene un único escritor —el projector— y la marca debe quedar
     # dentro de la misma idempotencia por `event_id` (ADR-009).
     celebrated_concept: str | None = None
+
+
+@dataclass(kw_only=True)
+class ExplanationStyleChosenEvent(DomainEventBase):
+    """El estudiante eligió cómo quiere que le expliquen (ADR-022).
+
+    Viaja como evento aunque no sea evidencia: el perfil tiene un único escritor
+    —el projector— y una preferencia no es excepción a eso (invariante 1).
+    `style` None = "que lo decida LARIA".
+    """
+
+    student_id: UUID
+    style: str | None = None

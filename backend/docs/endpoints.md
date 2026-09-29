@@ -116,7 +116,9 @@ El envelope es determinista: lo decide el dominio, no el modelo.
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | `GET` | `/api/v1/learning/me` | Historial del estudiante: intentos de quiz + interacciones tutor + recomendaciones |
-| `GET` | `/api/v1/learning/me/profile` | Perfil cognitivo: mastery efectivo, memoria pedagógica, ritmo, señales de struggle |
+| `GET` | `/api/v1/learning/me/profile` | Perfil cognitivo: mastery efectivo, memoria pedagógica, ritmo, señales de struggle. `explanation_style_choice`: el estilo que eligió el estudiante (`null` si no eligió) |
+| `GET` | `/api/v1/learning/me/preferences` | `{ "explanation_style": "analogy" | null }` ([ADR-022](adr/ADR-022-estilo-elegido-y-modo-libre-adaptado.md)) |
+| `PUT` | `/api/v1/learning/me/preferences` | **Elegir cómo quiero que me expliquen.** Body `{ "explanation_style": … }` con `simple` · `step_by_step` · `analogy` · `visual` · `mathematical` · `technical`, o `null` = que decida LARIA. El campo es obligatorio (422 si falta o no es un estilo). Vale para todos los temas y para chats con y sin material; lo que se pida en un mensaje gana en ese turno |
 | `GET` | `/api/v1/learning/paths` | Rutas de aprendizaje del estudiante. El mastery y el estado de cada módulo se **proyectan** desde el perfil en cada lectura ([ADR-008](adr/ADR-008-progreso-derivado-no-declarado.md)) |
 | `POST` | `/api/v1/learning/paths` | Crear una ruta (plan de módulos y prerrequisitos) |
 | `GET` | `/api/v1/learning/paths/{path_id}` | Ruta por id, con el progreso proyectado |

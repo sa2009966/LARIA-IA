@@ -160,6 +160,44 @@ POST /api/v1/quizzes/practice
 Usa `offer_quiz` y no `intent == "quiz"`: `intent` es un diagnóstico interno.
 ([ADR-020](adr/ADR-020-pedir-un-cuestionario.md))
 
+### 2.quater Después de nivelarse: "¿Cómo prefieres que te explique?"
+
+Tras el veredicto de la nivelación (o cuando quieras, desde el perfil):
+
+```http
+PUT /api/v1/learning/me/preferences
+{ "explanation_style": "analogy" }
+```
+
+| Texto para el estudiante | Valor |
+|---|---|
+| Sencillo, sin tecnicismos | `simple` |
+| Paso a paso | `step_by_step` |
+| Con ejemplos y analogías | `analogy` |
+| Con esquemas y dibujos | `visual` |
+| Con fórmulas y demostraciones | `mathematical` |
+| Técnico y riguroso | `technical` |
+| Que lo decida LARIA | `null` |
+
+- Vale para **todos los temas** y para chats con y sin material.
+- Lo que pida en un mensaje concreto ("explícamelo paso a paso") gana en ese turno.
+- Para mostrar la elección actual: `GET /learning/me/preferences` o
+  `explanation_style_choice` en el perfil. **No uses
+  `pedagogical_memory.preferred_explanation_style`**: es lo que LARIA deduce, no
+  lo que eligió.
+
+**Y después, la clase.** Cuando el estudiante vuelve a pedir el tema en el que ya
+se niveló ("quiero aprender ecuaciones"), el tutor empieza la clase desde su
+nivel. El envelope trae `placement_level` y **no** `suggest_placement`, así que no
+muestres el botón de nivelarse. **No hace falta mandar el nivel en el primer
+mensaje**: el tutor ya lo lee del perfil.
+
+**Memoria del chat.** El tutor recuerda los últimos 20 mensajes del chat, y lo
+anterior como resumen ([ADR-021](adr/ADR-021-memoria-larga-del-chat.md)). No
+recuerda entre chats distintos, salvo lo que está en el perfil: nivel, dominio y
+estilo.
+([ADR-022](adr/ADR-022-estilo-elegido-y-modo-libre-adaptado.md))
+
 ### 3. Turno de tutoría
 
 ```http
