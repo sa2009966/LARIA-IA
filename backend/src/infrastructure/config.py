@@ -126,6 +126,13 @@ class Settings(BaseSettings):
         ),
     )
     CLERK_SECRET_KEY: str = ""
+    #: URL de la Frontend API de Clerk (el `iss` de sus tokens). Si va vacía se
+    #: deriva de la clave pública, que la lleva codificada.
+    CLERK_ISSUER: str = ""
+    #: Qué sesiones acepta la API (ADR-027): `own` (JWT propio, lo de siempre),
+    #: `both` (transición: propio y Clerk) o `clerk` (solo Clerk; el registro y
+    #: el login propios responden 410).
+    AUTH_MODE: str = "own"
     #: Voz del tutor (ADR-026). Apagada por defecto: cada audio es un gasto.
     TTS_ENABLED: bool = False
     TTS_MODEL: str = "gpt-4o-mini-tts"
@@ -300,3 +307,31 @@ def validate_runtime_settings(s: "Settings") -> None:
 
 
 settings = Settings()
+
+
+def clerk_issuer(s: "Settings | None" = None) -> str:
+    """El `iss` de los tokens de Clerk: explícito, o sacado de la clave pública.
+
+    `pk_test_<base64("glorious-bluejay-3695.clerk.accounts.dev$")>` lleva dentro
+    la Frontend API; derivarla evita una variable más que se pueda desalinear.
+    """
+    import base64
+
+    s = s or settings
+    explicito = (s.CLERK_ISSUER or "").strip().rstrip("/")
+    if explicito:
+        return explicito
+    clave = (s.CLERK_PUBLISHABLE_KEY or "").strip()
+    if not clave.startswith(("pk_test_", "pk_live_")):
+        return ""
+    cuerpo = clave.split("_", 2)[2]
+    try:
+        host = base64.b64decode(cuerpo + "=" * (-len(cuerpo) % 4)).decode("ascii").rstrip("$")
+    except Exception:  # noqa: BLE001 — clave mal copiada: Clerk queda apagado
+        return ""
+    return f"https://{host}" if host else ""
+
+
+def clerk_enabled(s: "Settings | None" = None) -> bool:
+    s = s or settings
+    return (s.AUTH_MODE or "own").strip().lower() in {"both", "clerk"} and bool(clerk_issuer(s))

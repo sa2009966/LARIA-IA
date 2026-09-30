@@ -28,6 +28,11 @@ class UserRepository(ABC):
     async def find_by_username(self, username: str) -> Optional[UserAggregate]:
         ...
 
+    async def find_by_clerk_id(self, clerk_user_id: str) -> Optional[UserAggregate]:
+        """Usuario vinculado a ese usuario de Clerk (ADR-027). No abstracto: los
+        repositorios de prueba que no lo necesitan siguen sirviendo."""
+        return None
+
     @abstractmethod
     async def save(self, user: UserAggregate) -> None:
         ...

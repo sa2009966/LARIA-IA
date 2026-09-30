@@ -26,6 +26,12 @@ class InMemoryUserRepository(UserRepository):
                 return user
         return None
 
+    async def find_by_clerk_id(self, clerk_user_id: str) -> Optional[UserAggregate]:
+        for user in self._users.values():
+            if user.clerk_user_id == clerk_user_id:
+                return user
+        return None
+
     async def save(self, user: UserAggregate) -> None:
         self._users[user.id] = user
 

@@ -40,6 +40,9 @@ class UserAggregate:
     email_verified: bool = False
     #: Identificador estable de la cuenta de Google vinculada (claim `sub`).
     google_sub: str | None = None
+    #: Usuario de Clerk vinculado (`user_…`, ADR-027). Clerk dice QUIÉN es;
+    #: nuestro `id` sigue siendo la clave de chats, perfil y documentos.
+    clerk_user_id: str | None = None
 
     def has_password(self) -> bool:
         return not self.hashed_password.startswith(UNUSABLE_PASSWORD)
@@ -58,6 +61,34 @@ class UserAggregate:
         )
         user.events.append(UserRegisteredEvent(aggregate_id=user.id, email=email))
         return user
+
+    @staticmethod
+    def register_from_clerk(username: str, email: str, clerk_user_id: str) -> "UserAggregate":
+        """Cuenta creada al entrar con Clerk: correo verificado por Clerk, sin contraseña propia."""
+        user = UserAggregate(
+            username=username,
+            email=Email(email),
+            hashed_password=UNUSABLE_PASSWORD,
+            role=UserRole.STUDENT,
+            is_active=True,
+            email_verified=True,
+            clerk_user_id=clerk_user_id,
+        )
+        user.events.append(UserRegisteredEvent(aggregate_id=user.id, email=email))
+        return user
+
+    def link_clerk(self, clerk_user_id: str) -> None:
+        """Vincula una cuenta existente con su usuario de Clerk (mismo correo verificado).
+
+        Misma protección que `link_google`: si el correo nunca se había
+        verificado, la contraseña del posible pre-registro se anula. Con Clerk,
+        además, la contraseña propia deja de usarse en cuanto se retire el
+        login antiguo (AUTH_MODE=clerk).
+        """
+        if not self.email_verified:
+            self.hashed_password = UNUSABLE_PASSWORD
+        self.email_verified = True
+        self.clerk_user_id = clerk_user_id
 
     def link_google(self, google_sub: str) -> None:
         """Vincula Google a una cuenta existente con el mismo correo.
