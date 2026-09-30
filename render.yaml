@@ -90,6 +90,13 @@ services:
         sync: false
       - key: CLERK_SECRET_KEY
         sync: false
+      # Frontend API de la instancia (el `iss` de los tokens). No es secreta.
+      - key: CLERK_ISSUER
+        value: https://glorious-bluejay-3695.clerk.accounts.dev
+      # Transición (ADR-027): acepta el JWT propio y el de Clerk. Cuando el
+      # frontend con Clerk esté probado en producción → "clerk".
+      - key: AUTH_MODE
+        value: both
       # Voz del tutor (ADR-026): cada audio es gasto en OpenAI.
       - key: TTS_ENABLED
         value: "true"
