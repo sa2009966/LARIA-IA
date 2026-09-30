@@ -89,3 +89,41 @@ def test_el_streaming_tambien_recuerda(client_y_tutor):
         r.read()
 
     assert ("user", "me llamo Alex") in tutor.historiales[-1]
+
+
+class ResumidorFalso:
+    def __init__(self):
+        self.llamadas = 0
+
+    async def summarize_conversation(self, previous, messages):
+        self.llamadas += 1
+        return f"{previous} | {len(messages)} mensajes, primero: {messages[0][1]}".strip(" |")
+
+
+@pytest.mark.parametrize("ruta", ["messages", "stream"])
+def test_un_chat_largo_llega_con_resumen_y_se_guarda(client_y_tutor, ruta):
+    """ADR-021: el dato del primer mensaje sigue llegando 25 mensajes después."""
+    from src.application.services.conversation_memory import ConversationMemory
+    from src.domain.aggregates.chat import HISTORY_MAX_MESSAGES, SUMMARY_BATCH
+
+    c, tutor = client_y_tutor
+    resumidor = ResumidorFalso()
+    app.dependency_overrides[deps.get_conversation_memory] = lambda: ConversationMemory(resumidor)
+    h = _auth(c)
+    chat_id = c.post("/api/v1/chats", headers=h, json={}).json()["id"]
+
+    turnos = (HISTORY_MAX_MESSAGES + SUMMARY_BATCH) // 2 + 1
+    for i in range(turnos):
+        texto = "me llamo Ana" if i == 0 else f"pregunta {i}"
+        r = c.post(f"/api/v1/chats/{chat_id}/{ruta}", headers=h, json={"role": "user", "content": texto})
+        assert r.status_code == 200
+
+    assert resumidor.llamadas == 1
+    ultimo = tutor.historiales[-1]
+    assert ultimo[0][0] == "resumen" and "me llamo Ana" in ultimo[0][1]
+
+    import asyncio
+    from uuid import UUID
+    guardado = asyncio.run(deps.get_chat_repo().find_by_id(UUID(chat_id)))
+    assert guardado.summary_upto == SUMMARY_BATCH
+    assert "me llamo Ana" in guardado.summary

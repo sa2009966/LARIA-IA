@@ -15,7 +15,7 @@ from src.application.services.quiz_service import QuizService
 from src.application.services.user_service import UserService
 from src.domain.aggregates.user_aggregate import UserAggregate
 from src.domain.ports.cache_port import CachePort
-from src.domain.ports.chat_title_generator import ChatTitleGenerator
+from src.domain.ports.chat_title_generator import ChatTitleGenerator, ConversationSummarizer
 from src.domain.ports.embodiment import (
     DeviceCommandPort,
     PresencePort,
@@ -188,12 +188,15 @@ def get_learning_path_repo() -> LearningPathRepository:
 
 def get_chat_tutor_service() -> "ChatTutorService":
     from src.application.services.chat_tutor_service import ChatTutorService
+    from src.application.services.topic_catalog import TopicCatalog
 
     return ChatTutorService(
         analyze_service=get_analyze_service(),
         llm_gate=get_llm_gate(),
         document_repository=get_document_repo(),
         profile_repository=get_profile_repo(),
+        topic_catalog=TopicCatalog(get_concept_graph_repo()),
+        preferences=get_learning_preferences_service(),
     )
 
 
@@ -211,6 +214,22 @@ def get_ia_analyst() -> IAAnalyst:
 
 def get_chat_title_generator() -> ChatTitleGenerator:
     return cast(ChatTitleGenerator, get_ia_analyst())
+
+
+def get_learning_preferences_service() -> "LearningPreferencesService":
+    from src.application.services.learning_preferences_service import (
+        LearningPreferencesService,
+    )
+
+    return LearningPreferencesService(
+        event_bus=get_event_bus(), profile_repository=get_profile_repo()
+    )
+
+
+def get_conversation_memory() -> "ConversationMemory":
+    from src.application.services.conversation_memory import ConversationMemory
+
+    return ConversationMemory(summarizer=cast(ConversationSummarizer, get_ia_analyst()))
 
 
 @lru_cache(maxsize=1)

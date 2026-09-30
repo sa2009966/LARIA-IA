@@ -115,3 +115,19 @@ def test_preguntar_por_la_plataforma_es_preguntar_por_el_producto(frase):
     inventaba funciones a la plataforma ("interacción con tutores", "entorno
     colaborativo"). Como pregunta sobre el producto, responde con lo que hace."""
     assert IntentDetector().detect(frase).intent == TutorIntent.ABOUT
+
+
+@pytest.mark.parametrize(
+    "frase, tema",
+    [
+        ("Hola, soy Martín y quiero aprender electrónica para armar un robot seguidor de línea.", "electrónica"),
+        ("Perfecto. Quiero aprender electrónica, empecemos.", "electrónica"),
+        ("quiero aprender historia de roma porque tengo examen", "historia de roma"),
+        ("enséñame fracciones para poder ayudar a mi hermano", "fracciones"),
+        ("quiero aprender matemáticas para ingeniería", "matemáticas para ingeniería"),
+    ],
+)
+def test_el_tema_no_arrastra_el_proposito_ni_la_coletilla(frase, tema):
+    """Contra Render el nivel se guardó bajo "electrónica para armar un robot
+    seguidor de línea" y "electrónica, empecemos" no lo encontraba."""
+    assert IntentDetector().detect(frase).topic_hint == tema

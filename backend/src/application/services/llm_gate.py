@@ -17,6 +17,7 @@ from src.domain.ports.repositories import QuizRepository
 from src.domain.services.adaptive_policy import PromptShapingParameters
 from src.domain.services.model_router import LlmTask, ModelRouter
 from src.domain.services.pedagogical_engine import PedagogicalDecision
+from src.domain.services.learner_context import LearnerContext
 from src.domain.services.tutor_policy import TutorPolicy
 from src.domain.value_objects.analysis_result import AnalysisResult
 from src.domain.value_objects.question import Quiz
@@ -34,7 +35,10 @@ class LlmCallResult:
 
 
 def _extras(
-    learning_topic: str | None, history: tuple = (), quiz_request: str | None = None
+    learning_topic: str | None,
+    history: tuple = (),
+    quiz_request: str | None = None,
+    learner: LearnerContext | None = None,
 ) -> dict:
     """Tema y conversación solo viajan si existen: así los analistas que no los
     conocen —fakes de test, proveedores futuros— siguen funcionando sin cambiar
@@ -47,6 +51,8 @@ def _extras(
     # "" significa "pidió cuestionario sin tema": se distingue de None a propósito.
     if quiz_request is not None:
         extra["quiz_request"] = quiz_request
+    if learner:
+        extra["learner"] = learner
     return extra
 
 
@@ -146,6 +152,7 @@ class LlmGate:
         learning_topic: str | None = None,
         history: tuple = (),
         quiz_request: str | None = None,
+        learner: LearnerContext | None = None,
     ) -> str:
         choice = self._router.select(
             LlmTask.ASK, decision, struggle_signals=struggle_signals
@@ -162,6 +169,7 @@ class LlmGate:
             learning_topic=learning_topic,
             history=history,
             quiz_request=quiz_request,
+            learner=learner,
         )
         cache_key = f"prompt_resp:{self._hash(prompt.system, prompt.user, choice.model)}"
 
@@ -175,7 +183,8 @@ class LlmGate:
         logger.info("ask cache=miss model=%s reason=%s", choice.model, choice.reason)
         started = time.perf_counter()
         answer = await self._call_answer(
-            context, question, decision, choice.model, adaptation, learning_topic, history, quiz_request
+            context, question, decision, choice.model, adaptation, learning_topic, history,
+            quiz_request, learner,
         )
         self._observe_ms("laria_llm_latency_ms", started, task="ask", model=choice.model)
         if self._cache is not None:
@@ -194,6 +203,7 @@ class LlmGate:
         learning_topic: str | None = None,
         history: tuple = (),
         quiz_request: str | None = None,
+        learner: LearnerContext | None = None,
     ):
         """Streaming de la respuesta del tutor (yield de trozos de texto).
 
@@ -216,6 +226,7 @@ class LlmGate:
             learning_topic=learning_topic,
             history=history,
             quiz_request=quiz_request,
+            learner=learner,
         )
         cache_key = f"prompt_resp:{self._hash(prompt.system, prompt.user, choice.model)}"
 
@@ -236,13 +247,14 @@ class LlmGate:
                 decision,
                 model=choice.model,
                 adaptation=adaptation,
-                **_extras(learning_topic, history, quiz_request),
+                **_extras(learning_topic, history, quiz_request, learner),
             ):
                 full.append(token)
                 yield token
         else:
             text = await self._call_answer(
-                context, question, decision, choice.model, adaptation, learning_topic, history, quiz_request
+                context, question, decision, choice.model, adaptation, learning_topic, history,
+                quiz_request, learner,
             )
             full.append(text)
             yield text
@@ -342,8 +354,9 @@ class LlmGate:
         learning_topic: str | None = None,
         history: tuple = (),
         quiz_request: str | None = None,
+        learner: LearnerContext | None = None,
     ) -> str:
-        extra = _extras(learning_topic, history, quiz_request)
+        extra = _extras(learning_topic, history, quiz_request, learner)
         fn = getattr(self._ia, "answer_question_with_model", None)
         if callable(fn):
             return await fn(

@@ -20,6 +20,7 @@ from pymongo import ReturnDocument
 
 from src.domain.events.domain_events import (
     DomainEvent,
+    ExplanationStyleChosenEvent,
     QuizAttemptCompletedEvent,
     TutorQuestionAskedEvent,
 )
@@ -29,7 +30,9 @@ from src.infrastructure.mongodb.database import get_database
 
 logger = logging.getLogger(__name__)
 
-_SUPPORTED = frozenset({"QuizAttemptCompletedEvent", "TutorQuestionAskedEvent"})
+_SUPPORTED = frozenset(
+    {"QuizAttemptCompletedEvent", "TutorQuestionAskedEvent", "ExplanationStyleChosenEvent"}
+)
 
 #: Cuánto dura una reclamación antes de que otro worker pueda retomar el evento.
 #: Si el proceso muere a mitad de un handler, el evento no queda atrapado para
@@ -55,7 +58,10 @@ def _serialize(event: DomainEvent) -> dict[str, Any]:
             "aggregate_id": str(event.aggregate_id),
             "timestamp": event.timestamp.isoformat(),
             "quiz_id": str(event.quiz_id),
-            "document_id": str(event.document_id),
+            # None en nivelaciones y prácticas (ADR-016, ADR-020): `str(None)`
+            # guardaba "None", que al leerlo reventaba `UUID("None")` fuera del
+            # try del worker y el evento quedaba reintentándose para siempre.
+            "document_id": str(event.document_id) if event.document_id else None,
             "student_id": str(event.student_id),
             "score": event.score,
             "total": event.total,
@@ -87,6 +93,15 @@ def _serialize(event: DomainEvent) -> dict[str, Any]:
             # campo que no viaje aquí deja la feature muerta solo en prod.
             "celebrated_concept": event.celebrated_concept,
         }
+    if isinstance(event, ExplanationStyleChosenEvent):
+        return {
+            "event_type": event.event_type,
+            "event_id": str(event.event_id),
+            "aggregate_id": str(event.aggregate_id),
+            "timestamp": event.timestamp.isoformat(),
+            "student_id": str(event.student_id),
+            "style": event.style,
+        }
     return {
         "event_type": getattr(event, "event_type", type(event).__name__),
         "event_id": _event_id_of(event),
@@ -94,6 +109,13 @@ def _serialize(event: DomainEvent) -> dict[str, Any]:
         "timestamp": getattr(event, "timestamp", _utc_now()).isoformat(),
         "payload": {},
     }
+
+
+def _uuid_o_none(raw: Any) -> UUID | None:
+    """Lee un id opcional. "None" es lo que escribía la versión anterior."""
+    if raw in (None, "", "None"):
+        return None
+    return UUID(str(raw))
 
 
 def _deserialize(doc: dict[str, Any]) -> DomainEvent | None:
@@ -106,7 +128,7 @@ def _deserialize(doc: dict[str, Any]) -> DomainEvent | None:
             event_id=event_id,
             aggregate_id=UUID(payload["aggregate_id"]),
             quiz_id=UUID(payload["quiz_id"]),
-            document_id=UUID(payload["document_id"]),
+            document_id=_uuid_o_none(payload.get("document_id")),
             student_id=UUID(payload["student_id"]),
             score=int(payload["score"]),
             total=int(payload["total"]),
@@ -140,6 +162,13 @@ def _deserialize(doc: dict[str, Any]) -> DomainEvent | None:
             answer_length=int(payload.get("answer_length", 0)),
             focus_concepts=tuple(payload.get("focus_concepts") or ()),
             celebrated_concept=payload.get("celebrated_concept"),
+        )
+    if et == "ExplanationStyleChosenEvent":
+        return ExplanationStyleChosenEvent(
+            event_id=event_id,
+            aggregate_id=UUID(payload["aggregate_id"]),
+            student_id=UUID(payload["student_id"]),
+            style=payload.get("style"),
         )
     return None
 

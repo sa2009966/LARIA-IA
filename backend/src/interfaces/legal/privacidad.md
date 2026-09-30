@@ -1,6 +1,6 @@
 # Política de privacidad
 
-**Versión 2026-09-28.** Esta página explica qué datos guarda Plenum, para qué, con quién los comparte y cómo puedes borrarlos. Está escrita a partir de lo que el sistema hace de verdad, no de una plantilla.
+**Versión 2026-09-29.** Esta página explica qué datos guarda Plenum, para qué, con quién los comparte y cómo puedes borrarlos. Está escrita a partir de lo que el sistema hace de verdad, no de una plantilla.
 
 ## Quién es responsable
 
@@ -12,7 +12,7 @@ El responsable del tratamiento de tus datos es **[[COMPLETAR: nombre de la perso
 
 **Lo que subes y escribes.**
 - Los documentos que subes: el archivo original y el texto que extraemos de él.
-- Tus chats con el tutor, con todos sus mensajes.
+- Tus chats con el tutor, con todos sus mensajes. En los chats largos, además, un resumen de lo hablado que el tutor usa para acordarse de lo que ya no cabe en la conversación reciente (se genera con OpenAI y se guarda con el chat).
 - Los cuestionarios y nivelaciones que haces, y tus respuestas.
 
 **Tu perfil de aprendizaje.** Es lo que permite que el tutor se adapte a ti. Se calcula a partir de lo que haces en la plataforma y contiene:
@@ -20,6 +20,7 @@ El responsable del tratamiento de tus datos es **[[COMPLETAR: nombre de la perso
 - Tu nivel en cada tema en el que te hayas nivelado (básico, intermedio o avanzado).
 - Señales sobre **cómo** aprendes: por ejemplo, si sueles pedir ejemplos, si abandonas las explicaciones largas o cuánto tiempo pasa entre tus mensajes.
 - Los errores frecuentes, tu ritmo y el estilo de explicación que mejor te ha funcionado.
+- Cómo prefieres que te expliquen, si lo eliges tú (por ejemplo, paso a paso o con analogías). Puedes cambiarlo o dejar que lo decida el tutor cuando quieras.
 
 **Datos técnicos.**
 - Tu dirección IP, que usamos solo para limitar el número de peticiones y proteger el servicio de abusos. Se guarda durante aproximadamente un minuto.
@@ -41,7 +42,7 @@ Para funcionar, Plenum se apoya en estos proveedores. Todos están en **Estados 
 
 | Proveedor | Para qué | Qué datos recibe |
 |---|---|---|
-| **OpenAI** | Generar las respuestas del tutor, analizar documentos y crear cuestionarios | El texto de tus documentos, tus preguntas y la conversación reciente del chat |
+| **OpenAI** | Generar las respuestas del tutor, analizar documentos y crear cuestionarios | El texto de tus documentos, tus preguntas, la conversación reciente del chat y el resumen de lo anterior |
 | **Render** (Oregón) | Alojar el servidor de la aplicación | Todo lo que pasa por la aplicación |
 | **MongoDB Atlas** (Virginia) | Guardar tu cuenta, tus chats y tu perfil | Todos los datos descritos arriba, salvo los archivos originales |
 | **Cloudflare R2** | Guardar los archivos originales que subes | Tus documentos originales |

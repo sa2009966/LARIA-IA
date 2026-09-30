@@ -22,6 +22,7 @@ from src.application.services.llm_gate import LlmGate
 from src.domain.aggregates.chat import (
     HISTORY_MAX_CHARS,
     HISTORY_MAX_MESSAGES,
+    _HISTORY_MAX_PER_MESSAGE,
     ChatMessage,
     recent_history,
 )
@@ -82,7 +83,9 @@ def test_un_mensaje_muy_largo_se_recorta():
     historial = recent_history([msg("assistant", "x " * 2000)])
 
     assert historial[0][1].endswith("[…]")
-    assert len(historial[0][1]) < 800
+    # El tope por mensaje subió de 700 a 1500 con ADR-021; lo que se protege es
+    # que haya tope, no su valor.
+    assert len(historial[0][1]) <= _HISTORY_MAX_PER_MESSAGE + len(" […]")
 
 
 def test_el_primer_mensaje_no_tiene_historial():

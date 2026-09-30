@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from src.application.services.learning_preferences_service import LearningPreferencesService
 from src.application.services.learning_query_service import LearningQueryService
 from src.domain.aggregates.learning_path import LearningPathAggregate
 from src.domain.ports.repositories import (
@@ -12,6 +13,7 @@ from src.domain.ports.repositories import (
 from src.interfaces.api.dependencies import (
     get_current_user_id,
     get_learning_path_repo,
+    get_learning_preferences_service,
     get_learning_query_service,
     get_profile_repo,
 )
@@ -26,6 +28,7 @@ from src.interfaces.schemas.quiz_schemas import (
     ConceptMasteryItem,
     DocumentMasteryItem,
     LearningHistoryResponse,
+    LearningPreferences,
     LearningRecommendationItem,
     PedagogicalMemoryItem,
     QuizAttemptSummaryItem,
@@ -119,6 +122,7 @@ async def get_my_profile(
         learning_velocity=profile.learning_velocity,
         level_by_topic=dict(profile.level_by_topic),
         topic_labels=dict(profile.topic_labels),
+        explanation_style_choice=profile.explanation_style_choice,
         pedagogical_memory=(
             PedagogicalMemoryItem(
                 frequent_misconceptions=list(mem.frequent_misconceptions),
@@ -170,6 +174,47 @@ def _map_module(m) -> LearningModuleResponse:
         mastery=m.mastery,
         position=m.position,
     )
+
+
+_DESC_PREFERENCIAS = (
+    "Cómo quiere el estudiante que le expliquen. Vale para todos los temas y para los "
+    "chats con y sin material. Prioridad: lo que pida en un mensaje concreto > esta "
+    "elección > lo que LARIA deduce. `null` = que lo decida LARIA ([ADR-022])."
+)
+
+
+@router.get(
+    "/me/preferences",
+    response_model=LearningPreferences,
+    summary="Mis preferencias de aprendizaje",
+    description=_DESC_PREFERENCIAS,
+    responses={**RESP_401_UNAUTHORIZED},
+)
+async def get_my_preferences(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[LearningPreferencesService, Depends(get_learning_preferences_service)],
+):
+    return LearningPreferences(
+        explanation_style=await service.explanation_style(UUID(current_user_id))
+    )
+
+
+@router.put(
+    "/me/preferences",
+    response_model=LearningPreferences,
+    summary="Elegir cómo quiero que me expliquen",
+    description=_DESC_PREFERENCIAS,
+    responses={**RESP_401_UNAUTHORIZED},
+)
+async def put_my_preferences(
+    body: LearningPreferences,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[LearningPreferencesService, Depends(get_learning_preferences_service)],
+):
+    elegido = await service.choose_explanation_style(
+        UUID(current_user_id), body.explanation_style
+    )
+    return LearningPreferences(explanation_style=elegido)
 
 
 async def _projected(

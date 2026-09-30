@@ -142,3 +142,4 @@ class StudentProfileDTO:
     #: Veredicto de nivelación por tema (ADR-017).
     level_by_topic: dict[str, str] = field(default_factory=dict)
     topic_labels: dict[str, str] = field(default_factory=dict)
+    explanation_style_choice: str | None = None
