@@ -10,7 +10,9 @@ from src.interfaces.api.openapi_responses import (
     RESP_403_FORBIDDEN,
     RESP_404_NOT_FOUND,
 )
+from src.domain.ports.external_identity import ExternalIdentityVerifier, InvalidExternalToken
 from src.interfaces.api.dependencies import (
+    get_google_verifier,
     get_account_service,
     get_current_user,
     get_user_service,
@@ -29,6 +31,17 @@ def _map(user) -> UserResponse:
         role=user.role.value if hasattr(user.role, "value") else user.role,
         is_active=user.is_active,
         created_at=user.created_at,
+        email_verified=getattr(user, "email_verified", False),
+        # Agregado (método) o DTO (campo): quien llama no tiene por qué saberlo.
+        has_password=(
+            user.has_password() if callable(getattr(user, "has_password", None))
+            else getattr(user, "has_password", True)
+        ),
+        auth_provider=(
+            "clerk" if getattr(user, "clerk_user_id", None)
+            else "google" if getattr(user, "google_sub", None)
+            else getattr(user, "auth_provider", "password")
+        ),
     )
 
 
@@ -79,7 +92,8 @@ async def list_users(
         "documentos y sus archivos originales, chats, cuestionarios y nivelaciones, "
         "intentos, interacciones con el tutor, sesiones, rutas de aprendizaje y "
         "perfil de aprendizaje. No se puede deshacer.\n\n"
-        "Pide la contraseña actual en el cuerpo aunque la petición ya lleve token: "
+        "Pide la contraseña actual (`password`) —o, en cuentas de Google, un `google_id_token` "
+        "recién emitido para el mismo correo— aunque la petición ya lleve token: "
         "un token robado no debe bastar para destruir una cuenta. Contraseña "
         "incorrecta → **403**. Tras borrarla, el token deja de servir (**401**)."
     ),
@@ -92,10 +106,22 @@ async def list_users(
 async def delete_my_account(
     body: AccountDeletionRequest,
     current_user: Annotated[UserAggregate, Depends(get_current_user)],
+    google: Annotated[ExternalIdentityVerifier, Depends(get_google_verifier)],
     service=Depends(get_account_service),
 ):
+    correo = None
+    if body.google_id_token:
+        try:
+            correo = (await google.verify(body.google_id_token)).email
+        except InvalidExternalToken as exc:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    elif not body.password:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Confirma con tu contraseña o, si entras con Google, con tu cuenta de Google.",
+        )
     try:
-        await service.delete_account(current_user.id, body.password)
+        await service.delete_account(current_user.id, body.password, verified_email=correo)
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except ValueError as exc:

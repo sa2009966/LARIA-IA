@@ -152,7 +152,41 @@ def is_supported(filename: str) -> bool:
     return extension_of(filename) == ""
 
 
+#: Topes contra bombas de descompresión. Un .docx/.xlsx/.pptx es un zip: 1 MB
+#: puede expandirse a gigas y tumbar la instancia (512 MB en Render). Se mira el
+#: tamaño DECLARADO en el índice del zip antes de abrirlo, sin descomprimir nada.
+MAX_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
+MAX_ZIP_ENTRIES = 5000
+#: Un PDF con decenas de miles de páginas también es un ataque de CPU/memoria.
+MAX_PDF_PAGES = 2000
+#: Texto extraído máximo. Más allá, ni el análisis ni el tutor lo usan: solo ocupa memoria.
+MAX_TEXT_CHARS = 5_000_000
+
+
+def _check_zip(data: bytes) -> None:
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            entradas = zf.infolist()
+    except zipfile.BadZipFile as exc:
+        raise UnsupportedFormatError("El archivo está dañado o no es un documento de Office válido.") from exc
+    if len(entradas) > MAX_ZIP_ENTRIES:
+        raise UnsupportedFormatError("El documento tiene demasiadas partes internas para procesarlo.")
+    total = sum(max(0, e.file_size) for e in entradas)
+    if total > MAX_UNCOMPRESSED_BYTES:
+        raise UnsupportedFormatError(
+            "El documento es demasiado grande una vez descomprimido. Divídelo en partes."
+        )
+
+
 def parse_file(filename: str, data: bytes) -> str:
+    """Extrae texto plano con topes de seguridad (zip, páginas y longitud)."""
+    texto = _parse_file(filename, data)
+    return texto[:MAX_TEXT_CHARS] if len(texto) > MAX_TEXT_CHARS else texto
+
+
+def _parse_file(filename: str, data: bytes) -> str:
     """Extrae texto plano de `data` según la extensión de `filename`.
 
     Returns:
@@ -169,6 +203,8 @@ def parse_file(filename: str, data: bytes) -> str:
         return _decode_text(data)
     if fmt == FileFormat.PDF:
         return _parse_pdf(data)
+    if fmt in (FileFormat.DOCX, FileFormat.XLSX, FileFormat.PPTX):
+        _check_zip(data)
     if fmt == FileFormat.DOCX:
         return _parse_docx(data)
     if fmt == FileFormat.XLSX:
@@ -203,12 +239,24 @@ def _parse_pdf(data: bytes) -> str:
         reader = PdfReader(io.BytesIO(data))
     except Exception as exc:  # noqa: BLE001
         raise UnsupportedFormatError(f"No se pudo leer el PDF: {exc}") from exc
+    try:
+        paginas = len(reader.pages)
+    except Exception as exc:  # noqa: BLE001
+        raise UnsupportedFormatError(f"No se pudo leer el PDF: {exc}") from exc
+    if paginas > MAX_PDF_PAGES:
+        raise UnsupportedFormatError(
+            f"El PDF tiene {paginas} páginas y el máximo es {MAX_PDF_PAGES}. Sube solo los capítulos que necesitas."
+        )
     parts = []
+    total = 0
     for page in reader.pages:
+        if total > MAX_TEXT_CHARS:
+            break
         try:
             txt = page.extract_text() or ""
             if txt.strip():
                 parts.append(txt)
+                total += len(txt)
         except Exception:  # noqa: BLE001
             continue
     text = "\n\n".join(parts).strip()

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -42,6 +42,12 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     created_at: datetime
+    #: El correo lo garantizó Google (o el proveedor que sea).
+    email_verified: bool = False
+    #: False en cuentas creadas con Google: para borrar la cuenta se confirma con Google.
+    has_password: bool = True
+    #: `password` · `google` · `clerk` (ADR-027).
+    auth_provider: str = "password"
 
     model_config = {"from_attributes": True}
 
@@ -53,4 +59,21 @@ class AccountDeletionRequest(BaseModel):
     bastar para destruir la cuenta de alguien.
     """
 
-    password: Annotated[str, Field(min_length=1, max_length=256)]
+    password: Annotated[Optional[str], Field(default=None, min_length=1, max_length=256)] = None
+    #: Para cuentas de Google, que no tienen contraseña: un ID token recién
+    #: emitido por Google para el mismo correo (ADR-025).
+    google_id_token: Annotated[Optional[str], Field(default=None, min_length=20, max_length=8192)] = None
+
+
+class GoogleLoginRequest(BaseModel):
+    """El `credential` que devuelve el botón de Google Identity Services."""
+
+    id_token: Annotated[str, Field(min_length=20, max_length=8192)]
+
+
+class AuthProvidersResponse(BaseModel):
+    #: Client ID público para el botón de Google; `null` si no está configurado.
+    google_client_id: Optional[str] = None
+    #: Clave pública de Clerk (`pk_...`); `null` si no está configurada.
+    #: La secreta no se devuelve.
+    clerk_publishable_key: Optional[str] = None

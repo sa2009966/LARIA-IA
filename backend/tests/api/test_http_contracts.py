@@ -580,7 +580,8 @@ class TestHttpContracts:
             asgi = getattr(asgi, "app", None)
 
         codes: list[int] = []
-        for _ in range(6):
+        # Tope de registro 30/min (antes 5): la IP de la app en Render es compartida.
+        for _ in range(31):
             r = _register(
                 client,
                 f"rl_{uuid4().hex[:8]}@example.com",

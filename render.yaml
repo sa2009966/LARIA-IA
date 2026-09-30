@@ -64,8 +64,10 @@ services:
         value: gpt-4o-mini
       - key: DEBUG
         value: "false"
+      # Swagger público enseñaba el mapa completo de la API. Para usarlo en
+      # desarrollo, local; en Render solo si se reactiva a propósito un momento.
       - key: ENABLE_DOCS
-        value: "true"
+        value: "false"
       - key: RATE_LIMIT_ENABLED
         value: "true"
       - key: LOG_LEVEL
@@ -73,6 +75,30 @@ services:
       - key: LOG_FORMAT
         value: text
       - key: METRICS_ENABLED
+        value: "true"
+      # /metrics exige `Authorization: Bearer <METRICS_TOKEN>` (valor en el panel).
+      - key: METRICS_TOKEN
+        generateValue: true
+      # Client ID de OAuth (Google Cloud Console). Vacío = botón de Google apagado.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      # Clerk. Los valores se rellenan en el panel (sync: false); no van en git.
+      # La pública también se acepta como NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.
+      - key: CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      # Frontend API de la instancia (el `iss` de los tokens). No es secreta.
+      - key: CLERK_ISSUER
+        value: https://glorious-bluejay-3695.clerk.accounts.dev
+      # Transición (ADR-027): acepta el JWT propio y el de Clerk. Cuando el
+      # frontend con Clerk esté probado en producción → "clerk".
+      - key: AUTH_MODE
+        value: both
+      # Voz del tutor (ADR-026): cada audio es gasto en OpenAI.
+      - key: TTS_ENABLED
         value: "true"
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "60"

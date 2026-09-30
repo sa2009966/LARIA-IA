@@ -21,6 +21,11 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+#: Marca de "sin contraseña" (cuentas de Google). No es un hash bcrypt válido, así
+#: que `Password.verify` siempre da False y el login por contraseña no entra.
+UNUSABLE_PASSWORD = "!sin-contrasena"
+
+
 @dataclass
 class UserAggregate:
     id: UUID = field(default_factory=uuid4)
@@ -31,6 +36,72 @@ class UserAggregate:
     is_active: bool = True
     created_at: datetime = field(default_factory=_utc_now)
     events: list[DomainEvent] = field(default_factory=list)
+    #: Un proveedor de identidad (Google) garantizó que el correo es de esta persona.
+    email_verified: bool = False
+    #: Identificador estable de la cuenta de Google vinculada (claim `sub`).
+    google_sub: str | None = None
+    #: Usuario de Clerk vinculado (`user_…`, ADR-027). Clerk dice QUIÉN es;
+    #: nuestro `id` sigue siendo la clave de chats, perfil y documentos.
+    clerk_user_id: str | None = None
+
+    def has_password(self) -> bool:
+        return not self.hashed_password.startswith(UNUSABLE_PASSWORD)
+
+    @staticmethod
+    def register_verified(username: str, email: str, google_sub: str) -> "UserAggregate":
+        """Cuenta creada con Google: correo verificado y sin contraseña propia."""
+        user = UserAggregate(
+            username=username,
+            email=Email(email),
+            hashed_password=UNUSABLE_PASSWORD,
+            role=UserRole.STUDENT,
+            is_active=True,
+            email_verified=True,
+            google_sub=google_sub,
+        )
+        user.events.append(UserRegisteredEvent(aggregate_id=user.id, email=email))
+        return user
+
+    @staticmethod
+    def register_from_clerk(username: str, email: str, clerk_user_id: str) -> "UserAggregate":
+        """Cuenta creada al entrar con Clerk: correo verificado por Clerk, sin contraseña propia."""
+        user = UserAggregate(
+            username=username,
+            email=Email(email),
+            hashed_password=UNUSABLE_PASSWORD,
+            role=UserRole.STUDENT,
+            is_active=True,
+            email_verified=True,
+            clerk_user_id=clerk_user_id,
+        )
+        user.events.append(UserRegisteredEvent(aggregate_id=user.id, email=email))
+        return user
+
+    def link_clerk(self, clerk_user_id: str) -> None:
+        """Vincula una cuenta existente con su usuario de Clerk (mismo correo verificado).
+
+        Misma protección que `link_google`: si el correo nunca se había
+        verificado, la contraseña del posible pre-registro se anula. Con Clerk,
+        además, la contraseña propia deja de usarse en cuanto se retire el
+        login antiguo (AUTH_MODE=clerk).
+        """
+        if not self.email_verified:
+            self.hashed_password = UNUSABLE_PASSWORD
+        self.email_verified = True
+        self.clerk_user_id = clerk_user_id
+
+    def link_google(self, google_sub: str) -> None:
+        """Vincula Google a una cuenta existente con el mismo correo.
+
+        Si el correo NUNCA se había verificado, la contraseña anterior se anula.
+        Sin esto, alguien podía registrar "victima@gmail.com" con una contraseña
+        suya, esperar a que la víctima entrara con Google y compartir la cuenta
+        (secuestro por pre-registro). Quien tiene el correo entra con Google.
+        """
+        if not self.email_verified:
+            self.hashed_password = UNUSABLE_PASSWORD
+        self.email_verified = True
+        self.google_sub = google_sub
 
     @staticmethod
     def register(username: str, email: str, raw_password: str) -> "UserAggregate":

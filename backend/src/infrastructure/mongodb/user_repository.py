@@ -29,6 +29,9 @@ class MongoDBUserRepository(UserRepository):
             "role": user.role.value,
             "is_active": user.is_active,
             "created_at": user.created_at,
+            "email_verified": user.email_verified,
+            "google_sub": user.google_sub,
+            "clerk_user_id": user.clerk_user_id,
         }
 
     @staticmethod
@@ -42,6 +45,9 @@ class MongoDBUserRepository(UserRepository):
             role=UserRole.STUDENT if doc.get("role") == "teacher" else UserRole(doc["role"]),
             is_active=doc["is_active"],
             created_at=doc["created_at"],
+            email_verified=bool(doc.get("email_verified", False)),
+            google_sub=doc.get("google_sub"),
+            clerk_user_id=doc.get("clerk_user_id"),
         )
         return user
 
@@ -60,6 +66,11 @@ class MongoDBUserRepository(UserRepository):
         doc = await db.users.find_one({"username": username})
         return self._from_doc(doc) if doc else None
 
+    async def find_by_clerk_id(self, clerk_user_id: str) -> Optional[UserAggregate]:
+        db = await self._get_db()
+        doc = await db.users.find_one({"clerk_user_id": clerk_user_id})
+        return self._from_doc(doc) if doc else None
+
     async def save(self, user: UserAggregate) -> None:
         db = await self._get_db()
         doc = self._to_doc(user)
@@ -69,6 +80,12 @@ class MongoDBUserRepository(UserRepository):
         db = await self._get_db()
         await db.users.create_index("email", unique=True)
         await db.users.create_index("username", unique=True)
+        # Parcial: los usuarios sin Clerk no chocan entre sí por un null repetido.
+        await db.users.create_index(
+            "clerk_user_id",
+            unique=True,
+            partialFilterExpression={"clerk_user_id": {"$type": "string"}},
+        )
 
     async def delete(self, user_id: UUID) -> None:
         db = await self._get_db()
