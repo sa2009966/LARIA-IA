@@ -71,7 +71,7 @@ Sobre OpenAI: según sus condiciones para la API, los datos enviados por esta v�
 
 ## Seguridad
 
-Todas las comunicaciones viajan cifradas (HTTPS/TLS), también entre nuestros servidores y la base de datos. Las contraseñas se guardan cifradas y exigen al menos 12 caracteres con mayúsculas, minúsculas y números. Solo tú puedes ver tus documentos y tus chats.
+Todas las comunicaciones viajan cifradas (HTTPS/TLS), también entre nuestros servidores y la base de datos. Las contraseñas se guardan cifradas y exigen al menos 8 caracteres con mayúsculas, minúsculas y números. Solo tú puedes ver tus documentos y tus chats.
 
 ## Cambios en esta política
 

@@ -1,4 +1,5 @@
 """Adaptador HTTP de chat completions; los prompts vienen de TutorPolicy (aplicación)."""
+import asyncio
 import json
 import logging
 import time
@@ -22,6 +23,42 @@ logger = logging.getLogger("laria.ia")
 
 _MSG_PROVEEDOR = "El servicio de IA no está disponible en este momento."
 _MSG_RESPUESTA = "El servicio de IA devolvió una respuesta inválida."
+_MSG_SATURADO = (
+    "El servicio de IA está recibiendo muchas peticiones ahora mismo. "
+    "Espera unos segundos y vuelve a intentarlo."
+)
+
+#: Pausas entre reintentos ante fallos pasajeros del proveedor (timeout, caída de
+#: conexión, 429, 5xx). Dos reintentos: el estudiante está esperando un quiz y un
+#: tercer fallo seguido ya no es pasajero.
+_ESPERAS_REINTENTO_S = (1.0, 3.0)
+
+
+def _es_pasajero(exc: Exception) -> bool:
+    if isinstance(exc, (httpx.TimeoutException, httpx.TransportError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        codigo = exc.response.status_code
+        return codigo == 429 or codigo >= 500
+    return False
+
+
+def _describir_fallo(exc: Exception) -> str:
+    """Status y código de error del proveedor, para el log. Nunca la clave ni el prompt.
+
+    Antes solo se contaba el fallo en una métrica en memoria: cuando el estudiante
+    veía "El servicio de IA no está disponible", no quedaba forma de saber si fue
+    un timeout, un 429 o una petición rechazada.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        detalle = ""
+        try:
+            err = exc.response.json().get("error") or {}
+            detalle = f" type={err.get('type')} code={err.get('code')} msg={str(err.get('message'))[:160]}"
+        except Exception:  # noqa: BLE001 — el cuerpo del error es opcional
+            pass
+        return f"http={exc.response.status_code}{detalle}"
+    return type(exc).__name__
 #: Un título más largo se recorta, no se rechaza: el modelo dio algo usable.
 _MAX_TITLE_WORDS = 7
 _MAX_TITLE_CHARS = 120
@@ -98,8 +135,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer):
         started = time.monotonic()
         try:
             client = await self._get_client()
-            response = await client.post(self.api_url, headers=self._headers, json=payload)
-            response.raise_for_status()
+            response = await self._post_con_reintentos(client, payload, task=task, model=use_model)
             body = response.json()
             usage = body.get("usage") or {}
             self.last_usage = {
@@ -121,7 +157,26 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer):
         except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
             if self._metrics:
                 self._metrics.incr("laria_llm_calls", task=task, model=use_model, outcome="error")
-            raise IAAnalysisError(_MSG_PROVEEDOR) from exc
+            logger.error("llm_fallo task=%s model=%s %s", task, use_model, _describir_fallo(exc))
+            saturado = isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429
+            raise IAAnalysisError(_MSG_SATURADO if saturado else _MSG_PROVEEDOR) from exc
+
+    async def _post_con_reintentos(self, client, payload: dict, *, task: str, model: str):
+        """POST al proveedor reintentando solo lo pasajero; lo demás falla a la primera."""
+        for espera in (*_ESPERAS_REINTENTO_S, None):
+            try:
+                response = await client.post(self.api_url, headers=self._headers, json=payload)
+                response.raise_for_status()
+                return response
+            except httpx.HTTPError as exc:
+                if espera is None or not _es_pasajero(exc):
+                    raise
+                logger.warning(
+                    "llm_reintento task=%s model=%s %s espera=%.0fs",
+                    task, model, _describir_fallo(exc), espera,
+                )
+                await asyncio.sleep(espera)
+        raise AssertionError("inalcanzable")
 
     async def generate_chat_title(self, messages: Sequence[TitleMessage]) -> str:
         prompt = self._policy.generate_chat_title(messages)

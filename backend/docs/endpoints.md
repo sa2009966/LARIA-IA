@@ -16,7 +16,7 @@ Raíz: `GET /` → redirect a `/docs` o JSON de servicio si docs off.
 
 | Método | Ruta | Auth | Descripción |
 |--------|------|------|-------------|
-| `POST` | `/api/v1/auth/register` | No | Alta de usuario (`student`). Password ≥12, mayúsculas, minúsculas y dígito. |
+| `POST` | `/api/v1/auth/register` | No | Alta de usuario (`student`). Password ≥8, mayúsculas, minúsculas y dígito. |
 | `POST` | `/api/v1/auth/token` | No | OAuth2 password: campo `username` = **email**. Devuelve JWT. |
 
 **Códigos frecuentes:** `201` register, `200` token, `409` conflicto genérico, `401` credenciales, `422` validación, `429` rate limit.

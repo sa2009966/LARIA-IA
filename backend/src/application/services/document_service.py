@@ -29,6 +29,17 @@ class DocumentTooLargeError(ValueError):
     """El material supera DOCUMENT_MAX_UPLOAD_BYTES."""
 
 
+def mensaje_demasiado_grande(tamano: int, maximo: int) -> str:
+    """Lo que lee el estudiante: en MB y con qué hacer, no en bytes ni con el
+    nombre de una variable de entorno ("supera el límite de 26214400 bytes
+    (DOCUMENT_MAX_UPLOAD_BYTES)")."""
+    mb = 1024 * 1024
+    return (
+        f"El archivo pesa {tamano / mb:.1f} MB y el máximo es {maximo // mb} MB. "
+        "Prueba a dividirlo en partes o a subir solo los capítulos que necesitas."
+    )
+
+
 class UnsupportedFileError(ValueError):
     """El formato del archivo no está soportado o no se pudo extraer texto."""
 
@@ -66,10 +77,7 @@ class DocumentService:
     def _assert_size(self, raw: bytes) -> None:
         max_bytes = self._max_upload_bytes
         if len(raw) > max_bytes:
-            raise DocumentTooLargeError(
-                f"El archivo supera el límite de {max_bytes} bytes "
-                f"(DOCUMENT_MAX_UPLOAD_BYTES)."
-            )
+            raise DocumentTooLargeError(mensaje_demasiado_grande(len(raw), max_bytes))
 
     async def upload(self, owner_id: UUID, dto: UploadDocumentDTO) -> DocumentDTO:
         raw = dto.content.encode("utf-8")
