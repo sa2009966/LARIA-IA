@@ -82,6 +82,14 @@ services:
       # Client ID de OAuth (Google Cloud Console). Vacío = botón de Google apagado.
       - key: GOOGLE_CLIENT_ID
         sync: false
+      # Clerk. Los valores se rellenan en el panel (sync: false); no van en git.
+      # La pública también se acepta como NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.
+      - key: CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
       # Voz del tutor (ADR-026): cada audio es gasto en OpenAI.
       - key: TTS_ENABLED
         value: "true"

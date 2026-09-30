@@ -72,3 +72,6 @@ class GoogleLoginRequest(BaseModel):
 class AuthProvidersResponse(BaseModel):
     #: Client ID público para el botón de Google; `null` si no está configurado.
     google_client_id: Optional[str] = None
+    #: Clave pública de Clerk (`pk_...`); `null` si no está configurada.
+    #: La secreta no se devuelve.
+    clerk_publishable_key: Optional[str] = None

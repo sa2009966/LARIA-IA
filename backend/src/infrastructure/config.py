@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Valores que jamás deben usarse como SECRET_KEY en ejecución real.
@@ -115,6 +115,17 @@ class Settings(BaseSettings):
     METRICS_TOKEN: str = ""
     #: Client ID de OAuth de Google (público). Vacío = "Continuar con Google" apagado.
     GOOGLE_CLIENT_ID: str = ""
+    #: Clerk. La pública la puede leer el cliente; la secreta no sale del proceso.
+    #: Vacías = Clerk apagado. Nunca van en git. El nombre NEXT_PUBLIC_ es el del
+    #: SDK de Next; en Render se aceptan los dos.
+    CLERK_PUBLISHABLE_KEY: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "CLERK_PUBLISHABLE_KEY",
+            "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+        ),
+    )
+    CLERK_SECRET_KEY: str = ""
     #: Voz del tutor (ADR-026). Apagada por defecto: cada audio es un gasto.
     TTS_ENABLED: bool = False
     TTS_MODEL: str = "gpt-4o-mini-tts"

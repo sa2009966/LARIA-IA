@@ -116,10 +116,16 @@ async def login(
     "/providers",
     response_model=AuthProvidersResponse,
     summary="Proveedores de acceso disponibles",
-    description="Client ID público de Google para el botón; `null` si no está configurado.",
+    description=(
+        "Claves públicas para los botones de acceso. `null` si ese proveedor no está "
+        "configurado. La clave secreta de Clerk no sale de aquí."
+    ),
 )
 async def providers():
-    return AuthProvidersResponse(google_client_id=settings.GOOGLE_CLIENT_ID.strip() or None)
+    return AuthProvidersResponse(
+        google_client_id=settings.GOOGLE_CLIENT_ID.strip() or None,
+        clerk_publishable_key=settings.CLERK_PUBLISHABLE_KEY.strip() or None,
+    )
 
 
 @router.post(

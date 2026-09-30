@@ -102,6 +102,16 @@ def test_providers_dice_si_google_esta_configurado(client, monkeypatch):
     from src.infrastructure.config import settings
 
     monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "")
-    assert client.get("/api/v1/auth/providers").json() == {"google_client_id": None}
+    monkeypatch.setattr(settings, "CLERK_PUBLISHABLE_KEY", "")
+    assert client.get("/api/v1/auth/providers").json() == {
+        "google_client_id": None,
+        "clerk_publishable_key": None,
+    }
     monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "123.apps.googleusercontent.com")
-    assert client.get("/api/v1/auth/providers").json() == {"google_client_id": "123.apps.googleusercontent.com"}
+    monkeypatch.setattr(settings, "CLERK_PUBLISHABLE_KEY", "pk_test_publica")
+    cuerpo = client.get("/api/v1/auth/providers").json()
+    assert cuerpo == {
+        "google_client_id": "123.apps.googleusercontent.com",
+        "clerk_publishable_key": "pk_test_publica",
+    }
+    assert "sk_" not in str(cuerpo)
