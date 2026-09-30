@@ -3,6 +3,7 @@ from typing import AsyncIterator, Optional
 
 from src.domain.aggregates.document_aggregate import DocumentAggregate
 from src.domain.services.adaptive_policy import PromptShapingParameters
+from src.domain.services.learner_context import LearnerContext
 from src.domain.services.pedagogical_engine import PedagogicalDecision
 from src.domain.value_objects.analysis_result import AnalysisResult
 from src.domain.value_objects.question import Quiz
@@ -31,6 +32,7 @@ class IAAnalyst(ABC):
         learning_topic: Optional[str] = None,
         history: tuple = (),
         quiz_request: Optional[str] = None,
+        learner: Optional[LearnerContext] = None,
     ) -> str:
         """`learning_topic`: el estudiante pidió aprender ese tema (ADR-017).
 
@@ -67,5 +69,6 @@ class StreamingIAAnalyst(ABC):
         learning_topic: Optional[str] = None,
         history: tuple = (),
         quiz_request: Optional[str] = None,
+        learner: Optional[LearnerContext] = None,
     ) -> "AsyncIterator[str]":
         ...

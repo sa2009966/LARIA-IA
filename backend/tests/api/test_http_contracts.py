@@ -756,3 +756,25 @@ class TestHttpContracts:
 
         assert 500 in oapi.RESP_500_INTERNAL
         assert oapi.RESP_500_INTERNAL[500]["model"].__name__ == "HTTPErrorBody"
+
+
+def test_mensaje_de_archivo_grande_en_mb_y_sin_variables():
+    """El 413 lo lee el estudiante: "pesa 38.0 MB y el máximo es 25 MB", no bytes
+    ni DOCUMENT_MAX_UPLOAD_BYTES."""
+    from src.application.services.document_service import mensaje_demasiado_grande
+
+    m = mensaje_demasiado_grande(38 * 1024 * 1024, 26_214_400)
+
+    assert "38.0 MB" in m and "25 MB" in m
+    assert "bytes" not in m and "DOCUMENT_MAX" not in m
+
+
+def test_registro_acepta_ocho_caracteres(client):
+    """El esquema HTTP importa Password.MIN_LENGTH: 8 también llega a la API."""
+    from uuid import uuid4
+
+    s = uuid4().hex[:8]
+    r = client.post("/api/v1/auth/register", json={"username": f"u8_{s}", "email": f"u8_{s}@example.com", "password": "Clave123"})
+    assert r.status_code in (200, 201), r.text
+    r = client.post("/api/v1/auth/register", json={"username": f"u7_{s}", "email": f"u7_{s}@example.com", "password": "Clave12"})
+    assert r.status_code == 422

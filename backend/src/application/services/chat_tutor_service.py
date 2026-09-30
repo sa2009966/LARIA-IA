@@ -1,10 +1,12 @@
 """Servicio de tutoría para chats: orquesta el motor pedagógico o el modo libre."""
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 from uuid import UUID
 
 from src.application.services.analyze_document_service import AnalyzeDocumentService
+from src.application.services.learning_preferences_service import LearningPreferencesService
 from src.application.services.llm_gate import LlmGate
+from src.application.services.topic_catalog import TopicCatalog
 from src.domain.ports.repositories import (
     DocumentRepository,
     StudentProfileRepository,
@@ -12,7 +14,14 @@ from src.domain.ports.repositories import (
 from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.services.adaptive_policy import AdaptationParameters
 from src.domain.services.affect_policy import AffectPolicy
+from src.domain.services.cognitive_style import CognitiveStyle, chosen_style, style_requested_in
 from src.domain.services.intent_detector import IntentDetector, TutorIntent
+from src.domain.services.learner_context import (
+    MAX_LEVELS_IN_PROMPT,
+    LearnerContext,
+    style_from_option_reply,
+    tutor_offered_styles,
+)
 from src.domain.services.pedagogical_engine import (
     PedagogicalDecision,
     PedagogicalMode,
@@ -69,6 +78,10 @@ def _intent_payload(intention) -> dict:
     # corrige en el servidor. Más estrecho que `intent == "quiz"` nunca fue.
     if intention.offer_quiz:
         carga["offer_quiz"] = True
+    # Pidió que se le pregunte cómo aprende: el cliente puede mostrar la tarjeta
+    # de estilos además del texto del tutor (ADR-023).
+    if intention.ask_learning_style:
+        carga["ask_learning_style"] = True
     return carga
 
 
@@ -130,6 +143,25 @@ class TutorResponse:
     envelope: ResponseEnvelope
 
 
+def _estilo_elegido(eleccion: tuple[bool, str | None]) -> dict:
+    """Eligió estilo en el chat: el cliente lo refleja sin volver a pedirlo (ADR-023)."""
+    eligio, estilo = eleccion
+    return {"explanation_style_chosen": estilo} if eligio else {}
+
+
+def _nivel_conocido(extra: dict, learner: LearnerContext | None) -> dict:
+    """Si ya se niveló en el tema que pide, no se ofrece otra nivelación (ADR-022).
+
+    El tutor empieza la clase desde su nivel; el botón de "nivelarme" contradiría
+    lo que dice. El cliente recibe el nivel para mostrarlo.
+    """
+    if learner is None or learner.topic_level is None:
+        return extra
+    extra = {k: v for k, v in extra.items() if k != "suggest_placement"}
+    extra["placement_level"] = learner.topic_level[1]
+    return extra
+
+
 class ChatTutorService:
     """Responde mensajes de chat: usa el motor pedagógico si hay documento vinculado,
     o modo libre (LlmGate directo) si es conversación general."""
@@ -140,13 +172,74 @@ class ChatTutorService:
         llm_gate: Optional[LlmGate] = None,
         document_repository: Optional[DocumentRepository] = None,
         profile_repository: Optional[StudentProfileRepository] = None,
+        topic_catalog: Optional[TopicCatalog] = None,
+        preferences: Optional[LearningPreferencesService] = None,
     ) -> None:
         self._analyze_service = analyze_service
         self._llm_gate = llm_gate
         self._doc_repo = document_repository
         self._profile_repo = profile_repository
+        self._topics = topic_catalog
+        self._preferences = preferences
         self._affect = AffectPolicy()
         self._intent = IntentDetector()
+
+    async def _eleccion_de_estilo(
+        self, intention, question: str, history: tuple, student_id: UUID
+    ) -> tuple[bool, str | None]:
+        """Si en este turno dijo cómo prefiere aprender: `(eligió, estilo)`. Lo guarda.
+
+        Vale una declaración ("me siento más cómodo con esquemas") o la respuesta a
+        las opciones que el tutor acaba de ofrecer ("la 4"). Estilo None = que
+        decida LARIA. Se guarda por el mismo camino que la tarjeta del cliente:
+        evento y projector (ADR-023).
+        """
+        if intention.declared_style:
+            eligio, estilo = True, intention.declared_style
+        else:
+            ultimo = next((t for rol, t in reversed(history) if rol == "assistant"), "")
+            eligio, estilo = (
+                style_from_option_reply(question)
+                if tutor_offered_styles(ultimo) and len(question) < 120
+                else (False, None)
+            )
+        if eligio and self._preferences is not None:
+            await self._preferences.choose_explanation_style(student_id, estilo)
+        return eligio, estilo
+
+    async def _learner(
+        self,
+        profile: StudentProfile | None,
+        intention,
+        question: str,
+        eleccion: tuple[bool, str | None] = (False, None),
+    ) -> LearnerContext | None:
+        """Nivel y estilo para el modo libre (ADR-022). None si no hay nada que usar."""
+        eligio, elegido = eleccion
+        if eligio:
+            # El perfil se leyó antes de guardar la elección: manda la de ahora.
+            style = CognitiveStyle(elegido) if elegido else None
+        else:
+            style = style_requested_in(question) or chosen_style(profile)
+        base = LearnerContext(
+            style=style, ask_style=intention.ask_learning_style, style_just_chosen=eligio
+        )
+        if base.ask_style or profile is None or not profile.level_by_topic:
+            return base or None
+        tema = _tema_a_ofrecer(intention)
+        if tema:
+            clave = await self._topics.canonical(tema) if self._topics else tema
+            nivel = profile.level_for_topic(clave)
+            if nivel:
+                etiqueta = profile.label_for_topic(clave) or tema
+                return replace(base, topic_level=(etiqueta, nivel))
+        # Sin tema concreto: los últimos temas nivelados, para que el modelo
+        # ajuste la profundidad si la pregunta cae en uno de ellos.
+        niveles = tuple(
+            (profile.topic_labels.get(clave, clave), nivel)
+            for clave, nivel in list(profile.level_by_topic.items())[-MAX_LEVELS_IN_PROMPT:]
+        )
+        return replace(base, levels=niveles)
 
     async def answer(
         self,
@@ -167,7 +260,10 @@ class ChatTutorService:
 
         # Una pregunta sobre el tutor no es una duda del material: sin este
         # desvío recibía una clase y movía la sesión de tutoría.
-        if document_id is not None and intention.intent != TutorIntent.ABOUT:
+        eleccion = await self._eleccion_de_estilo(intention, question, history, student_id)
+        # Hablar del tutor o de cómo aprende no es una duda del material.
+        meta = intention.intent in (TutorIntent.ABOUT, TutorIntent.LEARNING_STYLE) or eleccion[0]
+        if document_id is not None and not meta:
             if self._analyze_service is None:
                 raise ValueError("Servicio de análisis no configurado para chats con documento")
             plan = await self._analyze_service.prepare_pedagogy(
@@ -211,6 +307,7 @@ class ChatTutorService:
 
         if self._llm_gate is None:
             raise ValueError("LLM gate no configurado para chats libres")
+        learner = await self._learner(profile, intention, question, eleccion)
         content = await self._llm_gate.answer_question(
             context="",
             question=question,
@@ -218,6 +315,7 @@ class ChatTutorService:
             learning_topic=_tema_a_ofrecer(intention),
             history=history,
             quiz_request=_cuestionario_pedido(intention),
+            learner=learner,
         )
         affect = self._affect.select(profile, None)
         envelope = ResponseEnvelope.from_decision(
@@ -225,7 +323,10 @@ class ChatTutorService:
             "answer",
             affect,
             content=content,
-            extra={**_intent_payload(intention), "grounded": False},
+            extra=_nivel_conocido(
+                {**_intent_payload(intention), "grounded": False, **_estilo_elegido(eleccion)},
+                learner,
+            ),
         )
         return TutorResponse(content=content, envelope=envelope)
 
@@ -255,7 +356,10 @@ class ChatTutorService:
 
         # Una pregunta sobre el tutor no es una duda del material: sin este
         # desvío recibía una clase y movía la sesión de tutoría.
-        if document_id is not None and intention.intent != TutorIntent.ABOUT:
+        eleccion = await self._eleccion_de_estilo(intention, question, history, student_id)
+        # Hablar del tutor o de cómo aprende no es una duda del material.
+        meta = intention.intent in (TutorIntent.ABOUT, TutorIntent.LEARNING_STYLE) or eleccion[0]
+        if document_id is not None and not meta:
             if self._analyze_service is None:
                 raise ValueError("Servicio de análisis no configurado para chats con documento")
             plan = await self._analyze_service.prepare_pedagogy(
@@ -295,6 +399,8 @@ class ChatTutorService:
             yield content, envelope
             return
 
+        learner = await self._learner(profile, intention, question, eleccion)
+        extra = _nivel_conocido({**extra, **_estilo_elegido(eleccion)}, learner)
         content = ""
         async for token in self._llm_gate.answer_question_stream(
             context="",
@@ -303,6 +409,7 @@ class ChatTutorService:
             learning_topic=_tema_a_ofrecer(intention),
             history=history,
             quiz_request=_cuestionario_pedido(intention),
+            learner=learner,
         ):
             content += token
             yield token, None

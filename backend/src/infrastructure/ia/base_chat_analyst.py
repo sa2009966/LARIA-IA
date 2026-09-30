@@ -1,26 +1,70 @@
 """Adaptador HTTP de chat completions; los prompts vienen de TutorPolicy (aplicación)."""
+import asyncio
 import json
+import logging
 import time
 from typing import Sequence
 
 import httpx
 
 from src.domain.aggregates.document_aggregate import DocumentAggregate
-from src.domain.ports.chat_title_generator import ChatTitleGenerator, TitleMessage
+from src.domain.ports.chat_title_generator import (
+    ChatTitleGenerator,
+    ConversationSummarizer,
+    TitleMessage,
+)
 from src.domain.ports.ia_analyst import IAAnalysisError, IAAnalyst
 from src.domain.ports.metrics_port import MetricsPort
 from src.domain.services.tutor_policy import TutorPolicy
 from src.domain.value_objects.analysis_result import AnalysisResult
 from src.domain.value_objects.question import Quiz, QuizQuestion
 
+logger = logging.getLogger("laria.ia")
+
 _MSG_PROVEEDOR = "El servicio de IA no está disponible en este momento."
 _MSG_RESPUESTA = "El servicio de IA devolvió una respuesta inválida."
+_MSG_SATURADO = (
+    "El servicio de IA está recibiendo muchas peticiones ahora mismo. "
+    "Espera unos segundos y vuelve a intentarlo."
+)
+
+#: Pausas entre reintentos ante fallos pasajeros del proveedor (timeout, caída de
+#: conexión, 429, 5xx). Dos reintentos: el estudiante está esperando un quiz y un
+#: tercer fallo seguido ya no es pasajero.
+_ESPERAS_REINTENTO_S = (1.0, 3.0)
+
+
+def _es_pasajero(exc: Exception) -> bool:
+    if isinstance(exc, (httpx.TimeoutException, httpx.TransportError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        codigo = exc.response.status_code
+        return codigo == 429 or codigo >= 500
+    return False
+
+
+def _describir_fallo(exc: Exception) -> str:
+    """Status y código de error del proveedor, para el log. Nunca la clave ni el prompt.
+
+    Antes solo se contaba el fallo en una métrica en memoria: cuando el estudiante
+    veía "El servicio de IA no está disponible", no quedaba forma de saber si fue
+    un timeout, un 429 o una petición rechazada.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        detalle = ""
+        try:
+            err = exc.response.json().get("error") or {}
+            detalle = f" type={err.get('type')} code={err.get('code')} msg={str(err.get('message'))[:160]}"
+        except Exception:  # noqa: BLE001 — el cuerpo del error es opcional
+            pass
+        return f"http={exc.response.status_code}{detalle}"
+    return type(exc).__name__
 #: Un título más largo se recorta, no se rechaza: el modelo dio algo usable.
 _MAX_TITLE_WORDS = 7
 _MAX_TITLE_CHARS = 120
 
 
-class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
+class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer):
     """Implementa analyze/answer_question/generate_quiz sobre un endpoint de chat.
 
     Las subclases solo definen `api_url`, `model` y `api_key`.
@@ -70,6 +114,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         model: str | None = None,
         max_tokens: int | None = None,
         task: str = "chat",
+        json_mode: bool = False,
     ) -> str:
         use_model = model or self.model
         payload = {
@@ -82,11 +127,15 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        if json_mode:
+            # El proveedor garantiza JSON sintácticamente válido. Sin esto, cerca
+            # de 1 de cada 4 nivelaciones sobre "linux" llegaba con una llave de
+            # más ("…]}}]}") y el estudiante veía "respuesta inválida" (502).
+            payload["response_format"] = {"type": "json_object"}
         started = time.monotonic()
         try:
             client = await self._get_client()
-            response = await client.post(self.api_url, headers=self._headers, json=payload)
-            response.raise_for_status()
+            response = await self._post_con_reintentos(client, payload, task=task, model=use_model)
             body = response.json()
             usage = body.get("usage") or {}
             self.last_usage = {
@@ -108,7 +157,26 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
             if self._metrics:
                 self._metrics.incr("laria_llm_calls", task=task, model=use_model, outcome="error")
-            raise IAAnalysisError(_MSG_PROVEEDOR) from exc
+            logger.error("llm_fallo task=%s model=%s %s", task, use_model, _describir_fallo(exc))
+            saturado = isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429
+            raise IAAnalysisError(_MSG_SATURADO if saturado else _MSG_PROVEEDOR) from exc
+
+    async def _post_con_reintentos(self, client, payload: dict, *, task: str, model: str):
+        """POST al proveedor reintentando solo lo pasajero; lo demás falla a la primera."""
+        for espera in (*_ESPERAS_REINTENTO_S, None):
+            try:
+                response = await client.post(self.api_url, headers=self._headers, json=payload)
+                response.raise_for_status()
+                return response
+            except httpx.HTTPError as exc:
+                if espera is None or not _es_pasajero(exc):
+                    raise
+                logger.warning(
+                    "llm_reintento task=%s model=%s %s espera=%.0fs",
+                    task, model, _describir_fallo(exc), espera,
+                )
+                await asyncio.sleep(espera)
+        raise AssertionError("inalcanzable")
 
     async def generate_chat_title(self, messages: Sequence[TitleMessage]) -> str:
         prompt = self._policy.generate_chat_title(messages)
@@ -137,6 +205,42 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
             title = title[:_MAX_TITLE_CHARS].rsplit(" ", 1)[0].rstrip()
         return title
 
+    async def summarize_conversation(
+        self, previous: str, messages: Sequence[tuple[str, str]]
+    ) -> str:
+        prompt = self._policy.summarize_conversation(previous, messages)
+        raw = await self._chat(
+            prompt.system,
+            prompt.user,
+            # 150 palabras en español caben en ~250 tokens; el margen evita cortar
+            # el resumen a media frase.
+            max_tokens=320,
+            model=self.model,
+            task="summary",
+        )
+        resumen = " ".join(raw.strip().split())
+        if resumen.lower().startswith("resumen:"):
+            resumen = resumen.split(":", 1)[1].strip()
+        if not resumen:
+            raise IAAnalysisError(_MSG_RESPUESTA)
+        return resumen
+
+    async def _chat_json(self, system_prompt: str, user_message: str, *, model: str | None) -> dict:
+        """Pide JSON y lo parsea. Si aun así llega roto, reintenta una vez.
+
+        Un solo reintento: dos fallos seguidos ya no son mala suerte, y el
+        estudiante está esperando. El error sigue siendo `IAAnalysisError` (502).
+        """
+        for intento in (1, 2):
+            raw = await self._chat(system_prompt, user_message, model=model, json_mode=True)
+            try:
+                return self._extract_json(raw)
+            except IAAnalysisError:
+                if intento == 2:
+                    raise
+                logger.warning("json_invalido_reintento model=%s", model or self.model)
+        raise IAAnalysisError(_MSG_RESPUESTA)  # inalcanzable; lo exige el tipo
+
     @staticmethod
     def _extract_json(raw: str) -> dict:
         start = raw.find("{")
@@ -159,8 +263,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
 
     async def analyze_with_model(self, document: DocumentAggregate, model: str) -> AnalysisResult:
         prompt = self._policy.analyze_document(document.content)
-        raw = await self._chat(prompt.system, prompt.user, model=model)
-        data = self._extract_json(raw)
+        data = await self._chat_json(prompt.system, prompt.user, model=model)
 
         return AnalysisResult(
             summary=data.get("summary", "") or "Sin resumen",
@@ -179,6 +282,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         learning_topic=None,
         history=(),
         quiz_request=None,
+        learner=None,
     ) -> str:
         return await self.answer_question_with_model(
             context,
@@ -189,6 +293,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
             learning_topic=learning_topic,
             history=history,
             quiz_request=quiz_request,
+            learner=learner,
         )
 
     async def answer_question_with_model(
@@ -202,6 +307,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         learning_topic=None,
         history=(),
         quiz_request=None,
+        learner=None,
     ) -> str:
         prompt = self._policy.answer_question(
             context,
@@ -211,6 +317,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
             learning_topic=learning_topic,
             history=history,
             quiz_request=quiz_request,
+            learner=learner,
         )
         return await self._chat(prompt.system, prompt.user, model=model)
 
@@ -225,6 +332,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         learning_topic=None,
         history=(),
         quiz_request=None,
+        learner=None,
     ):
         """Genera la respuesta del tutor en streaming (yield de tokens).
 
@@ -240,6 +348,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
             learning_topic=learning_topic,
             history=history,
             quiz_request=quiz_request,
+            learner=learner,
         )
         use_model = model or self.model
         payload = {
@@ -307,8 +416,8 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
     ) -> Quiz:
         text = context if context is not None else document.content
         prompt = self._policy.generate_quiz(text, num_questions, decision)
-        raw = await self._chat(prompt.system, prompt.user, model=model)
-        return self._quiz_desde_json(raw)
+        data = await self._chat_json(prompt.system, prompt.user, model=model)
+        return self._quiz_desde_json(data)
 
     async def generate_diagnostic(self, plan, *, model: str | None = None) -> Quiz:
         """Diagnóstico de entrada a partir de un tema, sin documento (ADR-016).
@@ -318,12 +427,13 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator):
         no hay contenido del que partir, solo un tema.
         """
         prompt = self._policy.generate_diagnostic(plan)
-        raw = await self._chat(prompt.system, prompt.user, model=model or self.model)
-        return self._quiz_desde_json(raw)
+        data = await self._chat_json(prompt.system, prompt.user, model=model or self.model)
+        return self._quiz_desde_json(data)
 
-    def _quiz_desde_json(self, raw: str) -> Quiz:
+    def _quiz_desde_json(self, data: dict | str) -> Quiz:
         """Contrato de ítems compartido por el quiz normal y el diagnóstico."""
-        data = self._extract_json(raw)
+        if isinstance(data, str):
+            data = self._extract_json(data)
         try:
             questions = []
             for q in data.get("questions", []):

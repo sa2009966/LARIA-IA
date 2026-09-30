@@ -91,6 +91,7 @@ class LearningQueryService:
             learning_velocity=profile.learning_velocity,
             level_by_topic=dict(profile.level_by_topic),
             topic_labels=dict(profile.topic_labels),
+            explanation_style_choice=profile.explanation_style_choice or None,
             pedagogical_memory=PedagogicalMemoryDTO(
                 frequent_misconceptions=list(mem.frequent_misconceptions),
                 successful_examples=list(mem.successful_examples),

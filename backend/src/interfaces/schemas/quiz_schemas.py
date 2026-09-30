@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -162,6 +162,9 @@ class StudentProfileResponse(BaseModel):
     level_by_topic: dict[str, str] = {}
     #: Cómo mostrar cada clave de `level_by_topic` (mismas claves, con tildes).
     topic_labels: dict[str, str] = {}
+    #: Cómo eligió el estudiante que le expliquen (ADR-022); `null` = que decida
+    #: LARIA. Lo deducido está en `pedagogical_memory.preferred_explanation_style`.
+    explanation_style_choice: str | None = None
 
 
 class PracticeRequest(BaseModel):
@@ -169,3 +172,18 @@ class PracticeRequest(BaseModel):
 
     topic: Annotated[str, Field(min_length=2, max_length=120, description="Tema a practicar")]
     num_questions: Annotated[int, Field(ge=1, le=20)] = 5
+
+
+ExplanationStyle = Literal["simple", "step_by_step", "analogy", "visual", "mathematical", "technical"]
+
+
+class LearningPreferences(BaseModel):
+    """Cómo quiere el estudiante que le expliquen (ADR-022)."""
+
+    explanation_style: ExplanationStyle | None = Field(
+        description=(
+            "simple · step_by_step · analogy · visual · mathematical · technical. "
+            "`null` = que lo decida LARIA. Vale para todos los temas; lo que pida en un "
+            "mensaje (\"explícamelo paso a paso\") gana en ese turno."
+        ),
+    )

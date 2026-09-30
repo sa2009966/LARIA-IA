@@ -87,7 +87,7 @@ feature/backend  →  develop  →  main
 ## Seguridad rápida
 
 - JWT HS256 fijado en código; `SECRET_KEY` fail-closed al arrancar.
-- Contraseñas bcrypt; política ≥12 chars con mayúsculas, minúsculas y dígito.
+- Contraseñas bcrypt; política ≥8 chars con mayúsculas, minúsculas y dígito.
 - Rate limiting en auth y rutas de IA.
 - Ownership: recursos ajenos responden 404 (sin oráculo 403/404).
 - OpenAPI/docs desactivables con `ENABLE_DOCS`.

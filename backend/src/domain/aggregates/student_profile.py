@@ -363,6 +363,10 @@ class StudentProfile:
     level_by_topic: dict[str, str] = field(default_factory=dict)
     #: Cómo mostrar cada tema de `level_by_topic` (mismas claves).
     topic_labels: dict[str, str] = field(default_factory=dict)
+    #: Cómo eligió el estudiante que le expliquen (ADR-022). Vacío = que decida
+    #: LARIA. No es lo mismo que `pedagogical_memory.preferred_explanation_style`,
+    #: que es lo DEDUCIDO de lo que le funcionó.
+    explanation_style_choice: str = ""
     updated_at: datetime = field(default_factory=_utc_now)
     version: int = 0
 
@@ -483,6 +487,15 @@ class StudentProfile:
     def level_for_topic(self, topic: str) -> str | None:
         """Nivel alcanzado en un tema, o None si nunca se niveló."""
         return self.level_by_topic.get(_norm_concept(topic))
+
+    def choose_explanation_style(self, style: str | None) -> None:
+        """Guarda la elección del estudiante. None o vacío la borra."""
+        self.explanation_style_choice = (style or "").strip().lower()
+        self.updated_at = _utc_now()
+
+    def label_for_topic(self, topic: str) -> str | None:
+        """Cómo mostrar un tema nivelado, o None si no hay etiqueta."""
+        return self.topic_labels.get(_norm_concept(topic))
 
     def record_placement(self, topic: str, level: str, label: str | None = None) -> None:
         """Guarda el veredicto de una ronda de nivelación (ADR-017)."""

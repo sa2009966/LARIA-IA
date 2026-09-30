@@ -37,6 +37,8 @@ class MongoDBChatRepository(ChatRepository):
             ],
             "created_at": chat.created_at,
             "updated_at": chat.updated_at,
+            "summary": chat.summary,
+            "summary_upto": chat.summary_upto,
         }
 
     @staticmethod
@@ -59,6 +61,8 @@ class MongoDBChatRepository(ChatRepository):
             messages=messages,
             created_at=doc["created_at"],
             updated_at=doc["updated_at"],
+            summary=doc.get("summary") or "",
+            summary_upto=int(doc.get("summary_upto") or 0),
         )
 
     async def find_by_id(self, chat_id: UUID) -> Optional[ChatAggregate]:

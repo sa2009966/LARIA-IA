@@ -37,8 +37,8 @@ class UserAggregate:
         pw = PasswordVO(raw_password)
         if pw.is_weak():
             raise ValueError(
-                "La contraseña es demasiado débil: mínimo 12 caracteres, "
-                "mayúsculas, minúsculas y al menos un dígito."
+                f"La contraseña es demasiado débil: mínimo {PasswordVO.MIN_LENGTH} "
+                "caracteres, mayúsculas, minúsculas y al menos un dígito."
             )
         user = UserAggregate(
             username=username,

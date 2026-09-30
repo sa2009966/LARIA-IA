@@ -24,8 +24,18 @@ class TestUserAggregate:
             UserAggregate.register("ana", "invalido", "SecurePass1x")
 
     def test_register_weak_password(self):
-        with pytest.raises(ValueError, match="at least 12"):
+        with pytest.raises(ValueError, match="at least 8"):
             UserAggregate.register("ana", "ana@example.com", "Ab1")
+
+    def test_ocho_caracteres_con_mayuscula_minuscula_y_digito_bastan(self):
+        """Mínimo bajado de 12 a 8 (decisión de producto, 2026-09-30)."""
+        user = UserAggregate.register("ana", "ana@example.com", "Clave123")
+        assert user.is_active
+
+    @pytest.mark.parametrize("debil", ["clave123", "CLAVE123", "Clavesss", "Cla123"])
+    def test_ocho_caracteres_sin_mezcla_o_digito_siguen_siendo_debiles(self, debil):
+        with pytest.raises(ValueError):
+            UserAggregate.register("ana", "ana@example.com", debil)
 
     def test_deactivate_active_user(self):
         user = UserAggregate.register("ana", "ana@example.com", "SecurePass1x")

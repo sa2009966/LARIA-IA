@@ -1,7 +1,11 @@
 from src.application.concurrency import with_concurrency_retry
 from src.domain.aggregates.student_profile import HIGH_LATENCY_THRESHOLD_MS, StudentProfile
 from src.domain.aggregates.tutor_interaction import TutorInteractionAggregate
-from src.domain.events.domain_events import QuizAttemptCompletedEvent, TutorQuestionAskedEvent
+from src.domain.events.domain_events import (
+    ExplanationStyleChosenEvent,
+    QuizAttemptCompletedEvent,
+    TutorQuestionAskedEvent,
+)
 from src.domain.ports.event_bus import EventBus
 from src.domain.ports.metrics_port import MetricsPort
 from src.domain.ports.repositories import (
@@ -106,6 +110,9 @@ class LearningEvidenceProjector:
     async def register(self) -> None:
         await self._event_bus.subscribe(QuizAttemptCompletedEvent, self.handle_quiz_attempt)
         await self._event_bus.subscribe(TutorQuestionAskedEvent, self.handle_tutor_question)
+        await self._event_bus.subscribe(
+            ExplanationStyleChosenEvent, self.handle_style_chosen
+        )
 
     async def handle_tutor_question(self, event: TutorQuestionAskedEvent) -> None:
         """Unifica ask → perfil (además de la interacción ya guardada en el servicio)."""
@@ -181,6 +188,24 @@ class LearningEvidenceProjector:
                 mastered = len(profile.mastered_concepts(limit=50))
                 self._metrics.gauge("laria_concepts_weak", float(weak), student="agg")
                 self._metrics.gauge("laria_concepts_mastered", float(mastered), student="agg")
+            return profile
+
+        await with_concurrency_retry(_persist_profile)
+
+    async def handle_style_chosen(self, event: ExplanationStyleChosenEvent) -> None:
+        """Guarda cómo eligió el estudiante que le expliquen (ADR-022)."""
+        if self._profile_repo is None:
+            return
+
+        async def _persist_profile():
+            profile = await self._profile_repo.find_by_student(event.student_id)
+            if profile is None:
+                profile = StudentProfile.create(event.student_id)
+            if profile.was_event_applied(event.event_id):
+                return profile
+            profile.choose_explanation_style(event.style)
+            profile.mark_event_applied(event.event_id)
+            await self._profile_repo.save(profile)
             return profile
 
         await with_concurrency_retry(_persist_profile)

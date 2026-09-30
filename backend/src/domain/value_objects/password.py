@@ -9,7 +9,10 @@ class Password:
     #: importa en vez de repetir el número. Antes eran 8 aquí y 12 en la API,
     #: así que el objeto de dominio aceptaba contraseñas que la aplicación
     #: siempre rechazaba: una trampa para el siguiente que lo usara.
-    MIN_LENGTH = 12
+    #: 8 por decisión de producto (2026-09-30): 12 era una barrera de entrada para
+    #: estudiantes. La fuerza la siguen dando mayúsculas + minúsculas + dígito, y
+    #: el login está limitado por rate limit.
+    MIN_LENGTH = 8
 
     value: str
 
