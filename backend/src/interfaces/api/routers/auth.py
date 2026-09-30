@@ -5,15 +5,24 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 from src.application.dto.user_dto import RegisterUserDTO
 from src.application.services.user_service import UserService
+from src.infrastructure.rate_limit import login_attempt_allowed
 from src.infrastructure.security.jwt_tokens import create_access_token
-from src.interfaces.api.dependencies import get_user_service
+from src.domain.ports.external_identity import ExternalIdentityVerifier, InvalidExternalToken
+from src.infrastructure.config import settings
+from src.interfaces.api.dependencies import get_google_verifier, get_user_service
 from src.interfaces.api.openapi_responses import (
     RESP_401_UNAUTHORIZED,
     RESP_409_CONFLICT,
     RESP_422_VALIDATION,
     RESP_429_RATE_LIMIT,
 )
-from src.interfaces.schemas.user_schemas import TokenResponse, UserRegisterRequest, UserResponse
+from src.interfaces.schemas.user_schemas import (
+    AuthProvidersResponse,
+    GoogleLoginRequest,
+    TokenResponse,
+    UserRegisterRequest,
+    UserResponse,
+)
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
@@ -85,6 +94,12 @@ async def login(
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
     service: Annotated[UserService, Depends(get_user_service)],
 ):
+    if not await login_attempt_allowed(form.username):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiados intentos para esta cuenta. Espera 15 minutos y vuelve a intentarlo.",
+            headers={"Retry-After": "900"},
+        )
     try:
         user = await service.authenticate(form.username, form.password)
     except ValueError as exc:
@@ -95,3 +110,43 @@ async def login(
         )
     token = create_access_token(str(user.id))
     return TokenResponse(access_token=token)
+
+
+@router.get(
+    "/providers",
+    response_model=AuthProvidersResponse,
+    summary="Proveedores de acceso disponibles",
+    description="Client ID público de Google para el botón; `null` si no está configurado.",
+)
+async def providers():
+    return AuthProvidersResponse(google_client_id=settings.GOOGLE_CLIENT_ID.strip() or None)
+
+
+@router.post(
+    "/google",
+    response_model=TokenResponse,
+    summary="Entrar con Google",
+    description=(
+        "Recibe el ID token (`credential`) del botón de Google Identity Services, lo verifica "
+        "(firma, audiencia, emisor, caducidad y correo verificado) y devuelve el mismo JWT "
+        "que `/auth/token`. Si no existe cuenta con ese correo, la crea. Si existe, la "
+        "vincula; si su correo nunca se había verificado, su contraseña anterior se anula "
+        "(evita el secuestro por pre-registro, ADR-025)."
+    ),
+    responses={**RESP_401_UNAUTHORIZED, **RESP_422_VALIDATION, **RESP_429_RATE_LIMIT},
+)
+async def google_login(
+    body: GoogleLoginRequest,
+    service: Annotated[UserService, Depends(get_user_service)],
+    verifier: Annotated[ExternalIdentityVerifier, Depends(get_google_verifier)],
+):
+    try:
+        identidad = await verifier.verify(body.id_token)
+        user = await service.login_with_external(identidad)
+    except (InvalidExternalToken, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return TokenResponse(access_token=create_access_token(str(user.id)))

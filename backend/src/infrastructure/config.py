@@ -111,6 +111,16 @@ class Settings(BaseSettings):
     EMBODIMENT_ENABLED: bool = False
     EVENT_BUS_BACKEND: str = "memory"  # memory | outbox
     METRICS_ENABLED: bool = True
+    #: Si se define, /metrics exige `Authorization: Bearer <token>`.
+    METRICS_TOKEN: str = ""
+    #: Client ID de OAuth de Google (público). Vacío = "Continuar con Google" apagado.
+    GOOGLE_CLIENT_ID: str = ""
+    #: Voz del tutor (ADR-026). Apagada por defecto: cada audio es un gasto.
+    TTS_ENABLED: bool = False
+    TTS_MODEL: str = "gpt-4o-mini-tts"
+    TTS_VOICE: str = "coral"
+    #: Caracteres por petición: una o dos frases. El cliente trocea la respuesta.
+    TTS_MAX_CHARS: int = 1200
     FORGETTING_HALF_LIFE_DAYS: float = 14.0
 
     # Motor adaptativo (ADR-004). Son hipótesis nombradas, no constantes:

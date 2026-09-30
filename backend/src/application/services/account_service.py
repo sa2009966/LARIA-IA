@@ -62,7 +62,9 @@ class AccountService:
         self._paths = learning_path_repository
         self._extra = tuple(extra_purges)
 
-    async def delete_account(self, user_id: UUID, password: str) -> dict[str, int]:
+    async def delete_account(
+        self, user_id: UUID, password: str | None, *, verified_email: str | None = None
+    ) -> dict[str, int]:
         """Borra la cuenta y todos sus datos. Devuelve cuánto se borró de cada cosa.
 
         Pide la contraseña aunque la petición ya venga autenticada: un token
@@ -75,7 +77,13 @@ class AccountService:
         user = await self._users.find_by_id(user_id)
         if user is None:
             raise ValueError(self._MSG_NO_ENCONTRADA)
-        if not Password.verify(password or "", user.hashed_password):
+        # Confirma quien es: su contraseña, o —cuentas de Google, sin contraseña—
+        # un token de Google recién emitido para su mismo correo (ya verificado
+        # por el router). Un token de sesión robado no basta para ninguna.
+        if verified_email is not None:
+            if verified_email.strip().lower() != user.email.value.strip().lower():
+                raise PermissionError("Esa cuenta de Google no es la de esta cuenta.")
+        elif not Password.verify(password or "", user.hashed_password):
             raise PermissionError(self._MSG_CONTRASENA)
 
         borrado: dict[str, int] = {}

@@ -23,7 +23,8 @@ class MongoDBTutorInteractionRepository(TutorInteractionRepository):
         return {
             "_id": str(interaction.id),
             "student_id": str(interaction.student_id),
-            "document_id": str(interaction.document_id),
+            # None en nivelaciones y prácticas: `str(None)` guardaba "None".
+            "document_id": str(interaction.document_id) if interaction.document_id else None,
             "question": interaction.question,
             "answer": interaction.answer,
             "asked_at": interaction.asked_at,
@@ -34,7 +35,14 @@ class MongoDBTutorInteractionRepository(TutorInteractionRepository):
         return TutorInteractionAggregate(
             id=UUID(doc["_id"]),
             student_id=UUID(doc["student_id"]),
-            document_id=UUID(doc["document_id"]),
+            # "None" es lo que escribía la versión anterior: leerlo como UUID daba
+            # 500 en GET /learning/me desde la primera nivelación, y el frontend
+            # mostraba "No se pudo cargar tu perfil de aprendizaje".
+            document_id=(
+                UUID(doc["document_id"])
+                if doc.get("document_id") not in (None, "", "None")
+                else None
+            ),
             question=doc["question"],
             answer=doc["answer"],
             asked_at=doc["asked_at"],

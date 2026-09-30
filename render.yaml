@@ -64,8 +64,10 @@ services:
         value: gpt-4o-mini
       - key: DEBUG
         value: "false"
+      # Swagger público enseñaba el mapa completo de la API. Para usarlo en
+      # desarrollo, local; en Render solo si se reactiva a propósito un momento.
       - key: ENABLE_DOCS
-        value: "true"
+        value: "false"
       - key: RATE_LIMIT_ENABLED
         value: "true"
       - key: LOG_LEVEL
@@ -73,6 +75,15 @@ services:
       - key: LOG_FORMAT
         value: text
       - key: METRICS_ENABLED
+        value: "true"
+      # /metrics exige `Authorization: Bearer <METRICS_TOKEN>` (valor en el panel).
+      - key: METRICS_TOKEN
+        generateValue: true
+      # Client ID de OAuth (Google Cloud Console). Vacío = botón de Google apagado.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      # Voz del tutor (ADR-026): cada audio es gasto en OpenAI.
+      - key: TTS_ENABLED
         value: "true"
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "60"

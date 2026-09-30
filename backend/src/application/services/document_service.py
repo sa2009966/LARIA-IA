@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from uuid import UUID
 from typing import Optional
@@ -103,7 +104,9 @@ class DocumentService:
                 "Solo se admiten archivos de texto, PDF, DOCX, XLSX, PPTX o código."
             )
         try:
-            text = parse_file(filename, data)
+            # En un hilo: extraer texto de un PDF grande es CPU pura, y en el event
+            # loop congelaba TODAS las peticiones mientras duraba.
+            text = await asyncio.to_thread(parse_file, filename, data)
         except Exception as exc:
             raise UnsupportedFileError(str(exc)) from exc
         if not text or not text.strip():

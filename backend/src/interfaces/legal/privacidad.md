@@ -1,6 +1,6 @@
 # Política de privacidad
 
-**Versión 2026-09-29.** Esta página explica qué datos guarda Plenum, para qué, con quién los comparte y cómo puedes borrarlos. Está escrita a partir de lo que el sistema hace de verdad, no de una plantilla.
+**Versión 2026-09-30.** Esta página explica qué datos guarda Plenum, para qué, con quién los comparte y cómo puedes borrarlos. Está escrita a partir de lo que el sistema hace de verdad, no de una plantilla.
 
 ## Quién es responsable
 
@@ -42,7 +42,8 @@ Para funcionar, Plenum se apoya en estos proveedores. Todos están en **Estados 
 
 | Proveedor | Para qué | Qué datos recibe |
 |---|---|---|
-| **OpenAI** | Generar las respuestas del tutor, analizar documentos y crear cuestionarios | El texto de tus documentos, tus preguntas, la conversación reciente del chat y el resumen de lo anterior |
+| **OpenAI** | Generar las respuestas del tutor, analizar documentos y crear cuestionarios | El texto de tus documentos, tus preguntas, la conversación reciente del chat y el resumen de lo anterior. Si activas la voz, también el texto de las respuestas que pides escuchar (nunca tu voz: Plenum no graba audio) |
+| **Google** (solo si entras con Google) | Confirmar quién eres al iniciar sesión | Nada de Plenum: Google nos envía tu nombre, tu correo y un identificador de tu cuenta, y nosotros no le enviamos ningún dato tuyo |
 | **Render** (Oregón) | Alojar el servidor de la aplicación | Todo lo que pasa por la aplicación |
 | **MongoDB Atlas** (Virginia) | Guardar tu cuenta, tus chats y tu perfil | Todos los datos descritos arriba, salvo los archivos originales |
 | **Cloudflare R2** | Guardar los archivos originales que subes | Tus documentos originales |

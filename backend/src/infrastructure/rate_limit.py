@@ -1,4 +1,9 @@
-"""Rate limiting por IP y ruta (memory o Redis).
+"""Rate limiting por usuario (o IP si no hay sesión) y ruta (memory o Redis).
+
+Por usuario y no por IP: en Render la IP que ve la app es la del balanceador,
+la misma para todos. Contar por IP convertía cada límite en uno GLOBAL (10
+logins por minuto para toda la plataforma, 8 preguntas al tutor…): un atacante
+bloqueaba a todos y una clase registrándose a la vez chocaba con el tope.
 
 El contador es **asíncrono** a propósito: el middleware corre en el event loop y
 el backend Redis va por red. Con el cliente síncrono, cada request rate-limitada
@@ -89,15 +94,29 @@ class RedisSlidingWindow:
 _RULES_DOC = "see _match_rule"
 
 def _match_rule(path: str, method: str) -> tuple[str, int, float] | None:
+    # Sin sesión solo hay IP, y la IP puede ser compartida (balanceador): estos
+    # topes son holgados y frenan volumen. La fuerza bruta contra una cuenta la
+    # frena el límite por correo del propio login (`login_attempt_allowed`).
     if path.startswith("/api/v1/auth/register"):
-        return ("/api/v1/auth/register", 5, 60.0)
+        return ("/api/v1/auth/register", 30, 60.0)
+    if path.startswith("/api/v1/auth/google"):
+        return ("/api/v1/auth/google", 30, 60.0)
     if path.startswith("/api/v1/auth/token"):
-        return ("/api/v1/auth/token", 10, 60.0)
+        return ("/api/v1/auth/token", 60, 60.0)
     # Pide la contraseña: sin límite serviría para adivinarla a fuerza bruta.
     if method == "DELETE" and path.rstrip("/") == "/api/v1/users/me":
         return ("/api/v1/users/me:delete", 5, 60.0)
     if method == "POST" and path.rstrip("/") == "/api/v1/chats/generate-title":
         return ("ia:title", 8, 60.0)
+    # Voz: una petición por frase, así que el tope es más alto que el del chat.
+    if method == "POST" and path.rstrip("/") == "/api/v1/speech":
+        return ("ia:tts", 60, 60.0)
+    # Cada mensaje del chat es una llamada al modelo: sin límite, un solo
+    # usuario podía generar gasto ilimitado en OpenAI.
+    if method == "POST" and path.startswith("/api/v1/chats/") and (
+        path.endswith("/messages") or path.endswith("/stream")
+    ):
+        return ("ia:chat", 20, 60.0)
     if "/analyze" in path:
         return ("ia:analyze", 8, 60.0)
     if path.rstrip("/").endswith("/ask") or "/ask" in path:
@@ -153,6 +172,55 @@ def _client_ip(request: Request) -> str:
     return xff.split(",")[0].strip() or peer
 
 
+def _client_key(request: Request) -> str:
+    """El usuario del token si es válido; si no, la IP.
+
+    El token se VERIFICA: sin firma, un atacante rotaría el `sub` para esquivar
+    el límite. Uno inválido cae a la IP y la ruta responderá 401 de todos modos.
+    """
+    auth = request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        try:
+            import jwt
+
+            from src.infrastructure.config import JWT_ALGORITHM
+
+            payload = jwt.decode(auth[7:].strip(), settings.SECRET_KEY, algorithms=[JWT_ALGORITHM])
+            sub = payload.get("sub")
+            if sub:
+                return f"u:{sub}"
+        except Exception:  # noqa: BLE001 — token inválido: se limita por IP
+            pass
+    return f"ip:{_client_ip(request)}"
+
+
+_shared_counter: RateLimitCounter | None = None
+
+
+def shared_rate_limit_counter() -> RateLimitCounter:
+    """Un solo contador para el middleware y los límites de dominio (login por correo)."""
+    global _shared_counter
+    if _shared_counter is None:
+        _shared_counter = build_rate_limit_counter()
+    return _shared_counter
+
+
+#: Intentos de login por cuenta: 10 cada 15 minutos. Por correo y no por IP, así
+#: que adivinar la contraseña de una cuenta no depende de desde dónde se ataque,
+#: y bloquear una cuenta no bloquea a las demás.
+LOGIN_ATTEMPTS_PER_ACCOUNT = 10
+LOGIN_WINDOW_SECONDS = 900.0
+
+
+async def login_attempt_allowed(email: str) -> bool:
+    if not settings.RATE_LIMIT_ENABLED:
+        return True
+    clave = f"login:{(email or '').strip().lower()}"
+    return await shared_rate_limit_counter().allow(
+        clave, LOGIN_ATTEMPTS_PER_ACCOUNT, LOGIN_WINDOW_SECONDS
+    )
+
+
 def build_rate_limit_counter() -> RateLimitCounter:
     backend = (settings.RATE_LIMIT_BACKEND or "memory").lower().strip()
     if backend == "redis":
@@ -172,7 +240,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     def _get_counter(self) -> RateLimitCounter:
         if self._counter is None:
-            self._counter = build_rate_limit_counter()
+            self._counter = shared_rate_limit_counter()
         return self._counter
 
     async def dispatch(self, request: Request, call_next) -> Response:
@@ -182,8 +250,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if rule is None:
             return await call_next(request)
         prefix, limit, window = rule
-        client = _client_ip(request)
-        key = f"{client}:{prefix}"
+        key = f"{_client_key(request)}:{prefix}"
         if not await self._get_counter().allow(key, limit, window):
             return JSONResponse(
                 status_code=429,

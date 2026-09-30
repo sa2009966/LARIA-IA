@@ -18,3 +18,5 @@ class UserDTO:
     role: str
     is_active: bool
     created_at: datetime
+    email_verified: bool = False
+    has_password: bool = True

@@ -15,6 +15,7 @@ from src.application.services.quiz_service import QuizService
 from src.application.services.user_service import UserService
 from src.domain.aggregates.user_aggregate import UserAggregate
 from src.domain.ports.cache_port import CachePort
+from src.domain.ports.external_identity import ExternalIdentityVerifier
 from src.domain.ports.chat_title_generator import ChatTitleGenerator, ConversationSummarizer
 from src.domain.ports.embodiment import (
     DeviceCommandPort,
@@ -287,6 +288,10 @@ def get_speech_to_text() -> SpeechToTextPort:
 
 @lru_cache(maxsize=1)
 def get_text_to_speech() -> TextToSpeechPort:
+    if settings.TTS_ENABLED and settings.OPENAI_API_KEY.strip():
+        from src.infrastructure.embodiment.openai_tts import OpenAITextToSpeech
+
+        return OpenAITextToSpeech(settings.OPENAI_API_KEY, settings.TTS_MODEL, settings.TTS_VOICE)
     metrics = get_metrics() if settings.METRICS_ENABLED else None
     return NullTextToSpeech(metrics=metrics)
 
@@ -455,3 +460,10 @@ async def require_admin(user: Annotated[UserAggregate, Depends(get_current_user)
             detail="Se requiere rol de administrador.",
         )
     return user
+
+
+@lru_cache(maxsize=1)
+def get_google_verifier() -> "ExternalIdentityVerifier":
+    from src.infrastructure.security.google_identity import GoogleIdentityVerifier
+
+    return GoogleIdentityVerifier(settings.GOOGLE_CLIENT_ID)

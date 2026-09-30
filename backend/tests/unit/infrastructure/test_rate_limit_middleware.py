@@ -77,7 +77,8 @@ async def test_middleware_returns_429_when_blocked(monkeypatch):
     monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", True)
     counter = SlidingWindowCounter()
     for _ in range(8):
-        await counter.allow("1.1.1.1:ia:analyze", 8, 60.0)
+        # Sin token la clave es la IP con prefijo "ip:"; con token, "u:<id>".
+        await counter.allow("ip:1.1.1.1:ia:analyze", 8, 60.0)
 
     async def app(scope, receive, send):
         resp = Response("ok")

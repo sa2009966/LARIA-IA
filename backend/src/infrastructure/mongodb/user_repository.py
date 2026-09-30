@@ -29,6 +29,8 @@ class MongoDBUserRepository(UserRepository):
             "role": user.role.value,
             "is_active": user.is_active,
             "created_at": user.created_at,
+            "email_verified": user.email_verified,
+            "google_sub": user.google_sub,
         }
 
     @staticmethod
@@ -42,6 +44,8 @@ class MongoDBUserRepository(UserRepository):
             role=UserRole.STUDENT if doc.get("role") == "teacher" else UserRole(doc["role"]),
             is_active=doc["is_active"],
             created_at=doc["created_at"],
+            email_verified=bool(doc.get("email_verified", False)),
+            google_sub=doc.get("google_sub"),
         )
         return user
 

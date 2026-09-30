@@ -46,6 +46,7 @@ _MEMORY_BACKENDS = (
 )
 
 _CACHE_NAMES = (
+    "get_google_verifier",
     "get_user_repo",
     "get_document_repo",
     "get_document_blob_store",
