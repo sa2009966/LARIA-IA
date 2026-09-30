@@ -37,14 +37,14 @@ def test_un_zip_roto_da_un_mensaje_claro():
 
 
 def test_pdf_con_demasiadas_paginas(monkeypatch):
-    from reportlab.pdfgen import canvas
+    # PyPDF2 ya es dependencia del parser. reportlab no está en el CI.
+    from PyPDF2 import PdfWriter
 
+    writer = PdfWriter()
+    for _ in range(4):
+        writer.add_blank_page(width=72, height=72)
     buf = io.BytesIO()
-    c = canvas.Canvas(buf)
-    for i in range(4):
-        c.drawString(40, 800, f"pagina {i}")
-        c.showPage()
-    c.save()
+    writer.write(buf)
     monkeypatch.setattr(fp, "MAX_PDF_PAGES", 3)
 
     with pytest.raises(fp.UnsupportedFormatError, match="4 páginas"):
