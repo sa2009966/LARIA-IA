@@ -21,8 +21,9 @@ from src.infrastructure.config import (
 )
 from src.infrastructure.logging_setup import configure_logging
 from src.infrastructure.rate_limit import RateLimitMiddleware
+from src.infrastructure.security_headers import SecurityHeadersMiddleware
 from src.infrastructure.request_logging import RequestLoggingMiddleware
-from src.interfaces.api.routers import auth, chats, documents, learning, legal, quizzes, users
+from src.interfaces.api.routers import auth, chats, documents, learning, legal, quizzes, speech, users
 from src.interfaces.schemas.http_errors import HTTPErrorBody
 
 configure_logging(level=settings.LOG_LEVEL, fmt=settings.LOG_FORMAT)
@@ -196,6 +197,7 @@ app = FastAPI(
 )
 
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -240,6 +242,7 @@ PREFIX = "/api/v1"
 
 app.include_router(auth.router, prefix=PREFIX)
 app.include_router(users.router, prefix=PREFIX)
+app.include_router(speech.router, prefix=PREFIX)
 app.include_router(documents.router, prefix=PREFIX)
 app.include_router(quizzes.router, prefix=PREFIX)
 app.include_router(learning.router, prefix=PREFIX)
@@ -333,9 +336,18 @@ async def readiness_check():
         404: {"description": "Métricas deshabilitadas (`METRICS_ENABLED=false`)."},
     },
 )
-def metrics_endpoint():
+def metrics_endpoint(request: Request):
     if not settings.METRICS_ENABLED:
         return JSONResponse({"detail": "metrics disabled"}, status_code=404)
+    # Público exponía volumen de uso, latencias y fallos a cualquiera. Con
+    # METRICS_TOKEN definido, solo quien lo presente (el scraper).
+    esperado = (settings.METRICS_TOKEN or "").strip()
+    if esperado:
+        import hmac
+
+        dado = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
+        if not hmac.compare_digest(dado.encode(), esperado.encode()):
+            return JSONResponse({"detail": "No autorizado."}, status_code=401)
     from src.interfaces.api.dependencies import get_metrics
     from src.infrastructure.metrics.in_memory_metrics import InMemoryMetrics
 
