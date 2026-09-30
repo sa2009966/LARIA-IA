@@ -37,6 +37,11 @@ def _map(user) -> UserResponse:
             user.has_password() if callable(getattr(user, "has_password", None))
             else getattr(user, "has_password", True)
         ),
+        auth_provider=(
+            "clerk" if getattr(user, "clerk_user_id", None)
+            else "google" if getattr(user, "google_sub", None)
+            else getattr(user, "auth_provider", "password")
+        ),
     )
 
 

@@ -46,6 +46,8 @@ class UserResponse(BaseModel):
     email_verified: bool = False
     #: False en cuentas creadas con Google: para borrar la cuenta se confirma con Google.
     has_password: bool = True
+    #: `password` · `google` · `clerk` (ADR-027).
+    auth_provider: str = "password"
 
     model_config = {"from_attributes": True}
 

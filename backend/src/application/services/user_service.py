@@ -16,6 +16,14 @@ _MSG_CREDENCIALES = "Credenciales invalidas"
 _DUMMY_HASH = Password("DummyHash1x!!").hash()
 
 
+def _proveedor(user: UserAggregate) -> str:
+    if user.clerk_user_id:
+        return "clerk"
+    if user.google_sub:
+        return "google"
+    return "password"
+
+
 class UserService:
     def __init__(self, user_repository: UserRepository, event_bus: Optional[EventBus] = None) -> None:
         self._user_repo = user_repository
@@ -63,6 +71,45 @@ class UserService:
                 await self._event_bus.publish(event)
         user.clear_events()
         return self._to_dto(user)
+
+    async def resolve_clerk_user(self, clerk_user_id: str, clerk_client) -> UserAggregate:
+        """El usuario nuestro de una sesión de Clerk; lo vincula o lo crea la primera vez (ADR-027).
+
+        Solo la primera vez se consulta a Clerk (correo primario y si está
+        verificado). Después basta `clerk_user_id`: una búsqueda por índice.
+        """
+        user = await self._user_repo.find_by_clerk_id(clerk_user_id)
+        if user is not None:
+            return user
+        datos = await clerk_client.get_user(clerk_user_id)
+        if not datos.email or not datos.email_verified:
+            # Sin correo verificado no se enlaza con nada: sería la puerta del
+            # secuestro por pre-registro que el enlace por correo evita.
+            raise PermissionError("Verifica tu correo en Clerk para entrar.")
+        user = await self._user_repo.find_by_email(Email(datos.email))
+        if user is None:
+            identidad = ExternalIdentity(subject=clerk_user_id, email=datos.email, name=datos.username)
+            user = UserAggregate.register_from_clerk(
+                await self._username_libre(identidad), datos.email, clerk_user_id
+            )
+            nuevo = True
+        else:
+            user.link_clerk(clerk_user_id)
+            nuevo = False
+        try:
+            await self._user_repo.save(user)
+        except Exception:
+            # Dos primeras peticiones a la vez: la otra ya lo creó o vinculó
+            # (índices únicos de correo y clerk_user_id). Se usa ese.
+            existente = await self._user_repo.find_by_clerk_id(clerk_user_id)
+            if existente is None:
+                raise
+            return existente
+        if nuevo and self._event_bus:
+            for event in user.events:
+                await self._event_bus.publish(event)
+        user.clear_events()
+        return user
 
     async def _username_libre(self, identity: ExternalIdentity) -> str:
         """Nombre visible a partir del nombre de Google o del correo, sin chocar."""
@@ -118,4 +165,5 @@ class UserService:
             created_at=user.created_at,
             email_verified=user.email_verified,
             has_password=user.has_password(),
+            auth_provider=_proveedor(user),
         )

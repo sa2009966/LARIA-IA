@@ -20,3 +20,4 @@ class UserDTO:
     created_at: datetime
     email_verified: bool = False
     has_password: bool = True
+    auth_provider: str = "password"

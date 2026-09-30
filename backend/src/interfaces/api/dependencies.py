@@ -1,5 +1,7 @@
 """Proveedores de dependencias FastAPI: conectan los adaptadores a los servicios."""
 from functools import lru_cache
+
+import httpx
 from typing import Annotated, cast
 from uuid import UUID
 
@@ -426,8 +428,56 @@ _CREDENTIALS_ERROR = HTTPException(
 )
 
 
+@lru_cache(maxsize=1)
+def get_clerk_verifier():
+    """None si Clerk no está activo (AUTH_MODE=own o sin clave pública)."""
+    from src.infrastructure.security.clerk import session_verifier_from_settings
+
+    return session_verifier_from_settings()
+
+
+@lru_cache(maxsize=1)
+def get_clerk_client():
+    from src.infrastructure.security.clerk import ClerkBackendClient
+
+    return ClerkBackendClient(settings.CLERK_SECRET_KEY.strip())
+
+
+def _auth_mode() -> str:
+    return (settings.AUTH_MODE or "own").strip().lower()
+
+
+async def _clerk_user(token: str) -> UserAggregate | None:
+    """El usuario de un token de Clerk, o None si el token no es de Clerk."""
+    verifier = get_clerk_verifier()
+    if verifier is None or not verifier.issued_by_clerk(token):
+        return None
+    from src.infrastructure.security.clerk import InvalidClerkToken
+
+    try:
+        sesion = await verifier.verify(token)
+    except InvalidClerkToken:
+        raise _CREDENTIALS_ERROR
+    try:
+        return await get_user_service().resolve_clerk_user(sesion.user_id, get_clerk_client())
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except httpx.HTTPError:
+        # Clerk no respondió al vincular por primera vez: reintentar es seguro.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No pudimos confirmar tu cuenta ahora mismo. Vuelve a intentarlo.",
+        )
+
+
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> UserAggregate:
-    """Decodifica el JWT, carga el usuario y verifica que siga activo."""
+    """Decodifica el token (propio o de Clerk, ADR-027), carga el usuario y verifica que siga activo."""
+    user = await _clerk_user(token)
+    if user is not None:
+        return _activo(user)
+    if _auth_mode() == "clerk":
+        # Solo Clerk: el JWT propio ya no abre sesión.
+        raise _CREDENTIALS_ERROR
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[JWT_ALGORITHM])
         subject: str | None = payload.get("sub")
@@ -440,6 +490,10 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> Use
     user = await get_user_repo().find_by_id(user_id)
     if user is None:
         raise _CREDENTIALS_ERROR
+    return _activo(user)
+
+
+def _activo(user: UserAggregate) -> UserAggregate:
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
