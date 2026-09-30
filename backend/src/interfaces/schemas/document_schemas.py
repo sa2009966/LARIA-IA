@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 class DocumentUploadRequest(BaseModel):
     filename: Annotated[str, Field(min_length=1, max_length=255)]
     content: Annotated[str, Field(min_length=1, max_length=100_000, description="Texto completo del material")]
-    subject: Annotated[str, Field(min_length=1, max_length=128)]
+    #: Opcional: sin materia, "General" (no filtra heurísticas por área).
+    subject: Annotated[Optional[str], Field(default=None, max_length=128)] = None
 
 
 class DocumentResponse(BaseModel):

@@ -21,9 +21,11 @@ from src.application.services.document_service import (
     DocumentService,
     DocumentTooLargeError,
     UnsupportedFileError,
+    mensaje_demasiado_grande,
 )
 from src.application.services.quiz_service import QuizService
 from src.domain.ports.ia_analyst import IAAnalysisError
+from src.domain.value_objects.subject import DEFAULT_SUBJECT
 from src.infrastructure.config import settings
 from src.interfaces.api.openapi_responses import (
     RESP_401_UNAUTHORIZED,
@@ -61,7 +63,7 @@ _RESUME_FORMATOS = (
 )
 _RESP_413 = {
     _HTTP_413: {
-        "description": "El archivo supera DOCUMENT_MAX_UPLOAD_BYTES (200 MiB por defecto).",
+        "description": "El archivo supera DOCUMENT_MAX_UPLOAD_BYTES (25 MB en producción).",
     }
 }
 
@@ -96,7 +98,7 @@ def _http_not_found(exc: Exception) -> HTTPException:
         "Registra un material educativo asociado al usuario del JWT. "
         "El contenido se envía como texto en JSON (máx. 100_000 caracteres). "
         "El cuerpo se almacena en DocumentBlobStore (GridFS si Mongo). "
-        "Para archivos grandes use `POST /documents/upload` (multipart, hasta 200 MiB)."
+        "Para archivos grandes use `POST /documents/upload` (multipart)."
     ),
     response_description="Metadatos del documento creado (incluye resultado de análisis previo si existiera).",
     responses={
@@ -114,7 +116,7 @@ async def upload_document(
     dto = UploadDocumentDTO(
         filename=body.filename,
         content=body.content,
-        subject=body.subject,
+        subject=(body.subject or "").strip() or DEFAULT_SUBJECT,
     )
     try:
         doc = await service.upload(UUID(current_user_id), dto)
@@ -135,9 +137,9 @@ async def upload_document(
     "/upload",
     response_model=DocumentResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Subir documento (multipart, hasta 200 MiB)",
+    summary="Subir documento (multipart; el límite lo fija DOCUMENT_MAX_UPLOAD_BYTES)",
     description=(
-        "Sube material educativo como archivo multipart (`file` + `subject` + `filename` opcional). "
+        "Sube material educativo como archivo multipart (`file`; `subject` y `filename` opcionales: sin materia se guarda \"General\"). "
         f"Límite: {settings.DOCUMENT_MAX_UPLOAD_BYTES} bytes (DOCUMENT_MAX_UPLOAD_BYTES). "
         f"Formatos soportados: {_RESUME_FORMATOS}. El blob va a GridFS (Mongo) o almacén en memoria."
     ),
@@ -152,7 +154,8 @@ async def upload_document_multipart(
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[DocumentService, Depends(get_document_service)],
     file: Annotated[UploadFile, File(description=f"Archivo ({_RESUME_FORMATOS})")],
-    subject: Annotated[str, Form(min_length=1, max_length=128)],
+    # Opcional: el chat sube solo `file`. Sin materia, "General" (ver Subject).
+    subject: Annotated[Optional[str], Form(max_length=128)] = None,
     filename: Annotated[Optional[str], Form()] = None,
 ):
     name = (filename or file.filename or "material.txt").strip() or "material.txt"
@@ -166,10 +169,9 @@ async def upload_document_multipart(
     if len(data) > max_bytes:
         raise HTTPException(
             status_code=_HTTP_413,
-            detail=(
-                f"El archivo supera el límite de {max_bytes} bytes "
-                "(DOCUMENT_MAX_UPLOAD_BYTES)."
-            ),
+            # Solo se leyó hasta el límite + 1: el tamaño real lo da la cabecera
+            # del multipart (Starlette lo expone en `size`).
+            detail=mensaje_demasiado_grande(file.size or len(data), max_bytes),
         )
     if not data:
         raise HTTPException(
@@ -181,7 +183,7 @@ async def upload_document_multipart(
             UUID(current_user_id),
             filename=name,
             data=data,
-            subject=subject,
+            subject=(subject or "").strip() or DEFAULT_SUBJECT,
         )
     except DocumentTooLargeError as exc:
         raise HTTPException(
