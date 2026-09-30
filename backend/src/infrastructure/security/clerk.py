@@ -117,3 +117,21 @@ class ClerkBackendClient:
         r = await self._request("DELETE", f"/users/{user_id}")
         if r.status_code not in (200, 404):  # 404: ya no existía, el resultado es el mismo
             r.raise_for_status()
+
+
+_verificador: ClerkSessionVerifier | None = None
+_verificador_para: tuple | None = None
+
+
+def session_verifier_from_settings() -> ClerkSessionVerifier | None:
+    """Verificador según la configuración actual; None si Clerk está apagado."""
+    global _verificador, _verificador_para
+    from src.infrastructure.config import clerk_enabled, clerk_issuer, settings
+
+    if not clerk_enabled():
+        return None
+    clave = (clerk_issuer(), tuple(settings.CORS_ORIGINS), settings.CORS_ORIGIN_REGEX or "")
+    if _verificador is None or _verificador_para != clave:
+        _verificador = ClerkSessionVerifier(clave[0], list(clave[1]), clave[2].strip())
+        _verificador_para = clave
+    return _verificador

@@ -194,6 +194,30 @@ def _client_key(request: Request) -> str:
     return f"ip:{_client_ip(request)}"
 
 
+async def _client_key_async(request: Request) -> str:
+    """Como `_client_key`, pero reconoce también los tokens de Clerk (ADR-027).
+
+    Sin esto, un usuario de Clerk contaría por IP, que en Render es compartida:
+    el límite volvería a ser global.
+    """
+    clave = _client_key(request)
+    if not clave.startswith("ip:"):
+        return clave
+    auth = request.headers.get("authorization") or ""
+    if not auth.lower().startswith("bearer "):
+        return clave
+    from src.infrastructure.security.clerk import InvalidClerkToken, session_verifier_from_settings
+
+    verificador = session_verifier_from_settings()
+    token = auth[7:].strip()
+    if verificador is None or not verificador.issued_by_clerk(token):
+        return clave
+    try:
+        return f"c:{(await verificador.verify(token)).user_id}"
+    except InvalidClerkToken:
+        return clave
+
+
 _shared_counter: RateLimitCounter | None = None
 
 
@@ -250,7 +274,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if rule is None:
             return await call_next(request)
         prefix, limit, window = rule
-        key = f"{_client_key(request)}:{prefix}"
+        key = f"{await _client_key_async(request)}:{prefix}"
         if not await self._get_counter().allow(key, limit, window):
             return JSONResponse(
                 status_code=429,
