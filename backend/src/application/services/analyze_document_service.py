@@ -3,6 +3,7 @@ from uuid import UUID
 from typing import Optional
 import logging
 import time
+from datetime import datetime, timedelta, timezone
 
 from src.application.concurrency import with_concurrency_retry
 from src.application.services.llm_gate import LlmGate
@@ -94,6 +95,15 @@ class PedagogyPlan:
     @property
     def prompt_shaping(self) -> PromptShapingParameters:
         return self.adaptation.prompt_shaping
+
+
+#: Un análisis "en curso" más viejo que esto se da por perdido (servidor dormido
+#: a mitad) y el respaldo lo repite.
+ANALYSIS_STALE_AFTER = timedelta(minutes=10)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class AnalyzeDocumentService:
@@ -196,6 +206,38 @@ class AnalyzeDocumentService:
 
         return result
 
+    async def ensure_analysis(
+        self, document: DocumentAggregate, requesting_user_id: UUID
+    ) -> DocumentAggregate:
+        """El documento con su análisis; lo hace ahora si nadie lo hizo (ADR-029).
+
+        Respaldo del análisis en segundo plano que se lanza al subir: si el
+        servidor se durmió a mitad, o el documento es de antes, el primer turno
+        o quiz lo analiza. Antes nadie llamaba a /analyze desde el cliente y los
+        documentos se quedaban sin resumen ni conceptos: el tutor trabajaba a
+        ciegas sobre el material.
+
+        Si ya hay un análisis en curso reciente, no se lanza otro (se pagaría
+        dos veces): este turno sigue con el texto, sin resumen. Si falla, igual.
+        """
+        if document.has_analysis():
+            return document
+        subido = document.uploaded_at
+        if subido.tzinfo is None:  # Mongo devuelve fechas sin zona
+            subido = subido.replace(tzinfo=timezone.utc)
+        if document.status == DocumentStatus.ANALYZING and _utc_now() - subido < ANALYSIS_STALE_AFTER:
+            return document
+        try:
+            await self.execute(document.id, requesting_user_id)
+        except Exception:  # noqa: BLE001 — sin análisis el turno sigue
+            logger.warning("analisis_de_respaldo_fallo doc=%s", document.id)
+            return document
+        actualizado = await self._doc_repo.find_by_id(document.id)
+        if actualizado is None:
+            return document
+        actualizado.content = actualizado.content or document.content
+        return actualizado
+
     async def answer_question(
         self, document_id: UUID, question: str, requesting_user_id: UUID
     ) -> str:
@@ -281,6 +323,7 @@ class AnalyzeDocumentService:
         document = await self._get_document_if_owner(document_id, requesting_user_id)
         if self._ia_analyst is None and self._llm_gate is None:
             raise ValueError("IA Analyst not configured")
+        document = await self.ensure_analysis(document, requesting_user_id)
         if self._interaction_repo is None:
             raise ValueError("Repositorio de interacciones no configurado")
 
@@ -366,7 +409,11 @@ class AnalyzeDocumentService:
             question=question,
             history=history,
             quiz_request=quiz_request,
-            context=self._context.select(document, decision.focus_concepts),
+            # Con la pregunta y más presupuesto: con un libro, lo que importa es
+            # encontrar el fragmento que responde, no el principio (ADR-029).
+            context=self._context.select(
+                document, decision.focus_concepts, max_chars=5000, query=question
+            ),
             decision=decision,
             adaptation=adaptation,
             struggle_signals=profile.total_struggle_signals if profile else 0,

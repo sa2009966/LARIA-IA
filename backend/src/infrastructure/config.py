@@ -113,6 +113,9 @@ class Settings(BaseSettings):
     METRICS_ENABLED: bool = True
     #: Si se define, /metrics exige `Authorization: Bearer <token>`.
     METRICS_TOKEN: str = ""
+    #: Con ENABLE_DOCS=false, /docs y /openapi.json siguen disponibles detrás de
+    #: usuario ("laria") y esta contraseña. Vacía = documentación apagada del todo.
+    DOCS_PASSWORD: str = ""
     #: Client ID de OAuth de Google (público). Vacío = "Continuar con Google" apagado.
     GOOGLE_CLIENT_ID: str = ""
     #: Clerk. La pública la puede leer el cliente; la secreta no sale del proceso.
@@ -133,6 +136,9 @@ class Settings(BaseSettings):
     #: `both` (transición: propio y Clerk) o `clerk` (solo Clerk; el registro y
     #: el login propios responden 410).
     AUTH_MODE: str = "own"
+    #: Analizar cada documento al subirlo, en segundo plano (ADR-029). Los tests
+    #: lo apagan para no llamar al modelo; los que lo prueban lo encienden.
+    AUTO_ANALYZE_UPLOAD: bool = True
     #: Voz del tutor (ADR-026). Apagada por defecto: cada audio es un gasto.
     TTS_ENABLED: bool = False
     TTS_MODEL: str = "gpt-4o-mini-tts"

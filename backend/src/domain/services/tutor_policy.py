@@ -14,6 +14,7 @@ from src.domain.services.prerequisite_graph import GateAction
 from src.domain.value_objects.question import Difficulty
 
 if TYPE_CHECKING:  # pragma: no cover - solo para tipos
+    from src.domain.ports.lesson_generator import LessonRequest
     from src.domain.services.diagnostic_planner import DiagnosticPlan
 
 
@@ -209,6 +210,29 @@ def _adaptacion_sin_material(learner: LearnerContext | None, tema: str | None) -
     return "".join(partes)
 
 
+#: Qué pide cada tipo de explicación. La elige TeachingPolicy, no el modelo.
+_VARIANTES = {
+    "introduce": "Presenta el concepto por primera vez: qué es, para qué sirve y la idea clave.",
+    "new_example": (
+        "El estudiante lo entendió a medias. No repitas la explicación anterior: aclara en "
+        "dos frases la idea que suele confundirse y céntrate en un ejemplo NUEVO y distinto."
+    ),
+    "reformulate": (
+        "El estudiante no lo entendió. Explícalo de otra manera, más simple y paso a paso, "
+        "con una analogía cotidiana. Sin culparlo y sin decir que le falta nivel."
+    ),
+    "remediate": (
+        "Este es un concepto base que le está costando y que necesita para seguir. "
+        "Explícalo desde lo esencial, paso a paso."
+    ),
+    "consolidate": (
+        "El estudiante acertó la comprobación. Haz un repaso muy breve (2-3 frases) y un "
+        "ejemplo algo más exigente para afianzarlo."
+    ),
+    "resume": "Retoma este concepto ahora que el estudiante repasó la base que le faltaba.",
+}
+
+
 @dataclass(frozen=True)
 class ChatPrompt:
     system: str
@@ -323,6 +347,86 @@ class TutorPolicy:
                 "4. Como máximo 150 palabras, en frases cortas, en el idioma de la conversación.\n\n"
                 f"Resumen anterior:\n<summary>\n{previous or '(ninguno)'}\n</summary>\n\n"
                 f"Mensajes nuevos:\n<messages>\n{lineas}\n</messages>\n\nResumen:"
+            ),
+        )
+
+    def teaching_lesson(self, req: "LessonRequest") -> ChatPrompt:
+        """Un paso de la clase (ADR-028): explicación + ejemplo + comprobación de 2 preguntas.
+
+        Todo lo que se decide ya viene decidido en `req`; aquí solo se pide redactarlo.
+        """
+        nivel = _NIVELES.get(req.level or "", (None, ""))
+        variante = _VARIANTES[req.variant.value]
+        if req.variant.value == "remediate" and req.return_to_title:
+            variante += f" Di que es la base de «{req.return_to_title}» y que después volverán a ello."
+        if req.variant.value == "resume" and req.return_to_title is None:
+            variante += " Retoma el tema conectándolo con la base que acaba de repasar."
+        estilo = f" Forma de explicar que prefiere: {_STYLE_INSTRUCTIONS[req.style]}" if req.style else ""
+        evitar = f" No reutilices este ejemplo anterior: «{req.avoid_example}»." if req.avoid_example else ""
+        dificultades = ", ".join(d.value for d in req.check_difficulties)
+        return ChatPrompt(
+            system=(
+                f"{_IDENTIDAD} Estás dando una clase sobre «{req.topic_label}». El concepto de "
+                f"este paso es «{req.concept_title}» y NO otro: no adelantes temas siguientes. "
+                f"{variante}{estilo}{evitar} "
+                + (f"Nivel del estudiante: {nivel[0]}. {nivel[1]} " if nivel[0] else "")
+                + "Responde SOLO en JSON con las claves: explanation (markdown, "
+                + ("2-3 frases, sin repetir la introducción" if req.variant.value == "consolidate" else "80-180 palabras")
+                + ", sin el ejemplo), example (markdown, un ejemplo concreto y resuelto), "
+                "example_summary (una frase que resuma el ejemplo), check (lista de EXACTAMENTE "
+                f"{len(req.check_difficulties)} preguntas de opción múltiple sobre «{req.concept_title}», "
+                f"con dificultades en este orden: {dificultades}; cada una con text, options "
+                '(objeto {"A":..,"B":..,"C":..,"D":..}) y correct_answer (la letra)). Las '
+                "preguntas comprueban comprensión, no memoria literal, y no repiten el ejemplo. "
+                "Cada pregunta tiene UNA sola opción correcta: ninguna otra opción puede ser "
+                "equivalente a ella (p. ej. 3/4 y 9/12, o 0,5 y 1/2)."
+            ),
+            user=f"Prepara este paso de la clase sobre «{req.concept_title}».",
+        )
+
+    def propose_syllabus(self, topic_label: str, level: str | None) -> ChatPrompt:
+        nivel = _NIVELES.get(level or "", (None, ""))[0]
+        return ChatPrompt(
+            system=(
+                "Diseñas temarios cortos para un tutor. Responde SOLO en JSON con la clave "
+                "modules: una lista de 3 a 6 subtemas en orden de enseñanza, cada uno con "
+                "title (2-6 palabras, en español) y prerequisites (lista de títulos de "
+                "subtemas ANTERIORES de esta misma lista; vacía si no depende de ninguno)."
+            ),
+            user=(
+                f"Tema: «{topic_label}»."
+                + (f" Nivel del estudiante: {nivel}." if nivel else "")
+                + " Empieza por lo que hace falta para entender el resto."
+            ),
+        )
+
+    def analyze_section(self, content: str, index: int, total: int) -> ChatPrompt:
+        """Una sección de un documento demasiado largo para leerlo de una vez (ADR-029)."""
+        return ChatPrompt(
+            system=(
+                "Eres un asistente educativo. Lees UNA sección de un documento largo. "
+                "Responde exclusivamente en JSON con las claves: summary (3-5 frases sobre "
+                "lo que enseña esta sección) y key_concepts (hasta 10 conceptos que se "
+                "explican aquí, en español, de 1 a 4 palabras cada uno)."
+            ),
+            user=f"Sección {index} de {total}:\n\n{content}",
+        )
+
+    def merge_analysis(self, summaries: list[str], concepts: list[str]) -> ChatPrompt:
+        """Une los análisis de las secciones en el análisis del documento entero."""
+        secciones = "\n".join(f"{i}. {s}" for i, s in enumerate(summaries, 1))
+        return ChatPrompt(
+            system=(
+                "Eres un asistente educativo. Tienes el resumen de cada sección de un "
+                "documento, en orden. Responde exclusivamente en JSON con las claves: "
+                "summary (un párrafo que resuma el documento entero), key_concepts (hasta 30 "
+                "conceptos importantes, en orden de aparición, elegidos de la lista dada, "
+                "con al menos uno de CADA sección: el documento no es solo su principio) y "
+                "suggested_questions (5 preguntas de estudio repartidas por todo el documento)."
+            ),
+            user=(
+                f"Resúmenes por sección:\n{secciones}\n\n"
+                f"Conceptos detectados (de más a menos frecuentes): {', '.join(concepts)}"
             ),
         )
 

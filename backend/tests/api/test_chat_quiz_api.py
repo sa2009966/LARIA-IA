@@ -127,7 +127,8 @@ class TestChatQuizAPI:
         r = client.post(f"/api/v1/chats/{chat_id}/quiz", headers=_auth(token))
 
         assert r.status_code == 422
-        assert "material" in r.json()["detail"].lower()
+        # Texto para el estudiante: qué hacer, sin rutas de la API.
+        assert "documento" in r.json()["detail"].lower() and "PUT" not in r.json()["detail"]
 
     def test_chat_ajeno_devuelve_404(self, client):
         token_a = _token(client)

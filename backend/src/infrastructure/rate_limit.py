@@ -108,6 +108,11 @@ def _match_rule(path: str, method: str) -> tuple[str, int, float] | None:
         return ("/api/v1/users/me:delete", 5, 60.0)
     if method == "POST" and path.rstrip("/") == "/api/v1/chats/generate-title":
         return ("ia:title", 8, 60.0)
+    # La clase genera contenido con el modelo en cada paso (ADR-028).
+    if method == "POST" and path.startswith("/api/v1/learning/paths/") and path.endswith("/lesson"):
+        return ("ia:lesson", 12, 60.0)
+    if method == "POST" and path.rstrip("/") == "/api/v1/learning/paths/from-topic":
+        return ("ia:lesson", 12, 60.0)
     # Voz: una petición por frase, así que el tope es más alto que el del chat.
     if method == "POST" and path.rstrip("/") == "/api/v1/speech":
         return ("ia:tts", 60, 60.0)
