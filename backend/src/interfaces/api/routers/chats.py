@@ -331,8 +331,10 @@ async def generate_chat_quiz(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                "Este chat no tiene material vinculado. Vincula un documento "
-                "(PUT /chats/{chat_id}) para poder evaluar sobre él."
+                # Lo lee el estudiante (el cliente muestra el detail): sin rutas de la
+                # API. Antes decía "Vincula un documento (PUT /chats/{chat_id})".
+                "Este chat no tiene un documento. Sube uno o adjúntalo al chat "
+                "para hacer un quiz sobre él."
             ),
         )
     try:

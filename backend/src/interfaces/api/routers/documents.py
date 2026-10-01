@@ -1,9 +1,11 @@
+import logging
 from typing import Annotated, Optional
 from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -50,6 +52,8 @@ from src.interfaces.schemas.document_schemas import (
 )
 from src.interfaces.schemas.quiz_schemas import QuizPublicResponse
 
+logger = logging.getLogger("laria.documents")
+
 router = APIRouter(prefix="/documents", tags=["Documentos"])
 
 _MSG_NO_ENCONTRADO = "Recurso no encontrado"
@@ -89,6 +93,20 @@ def _http_not_found(exc: Exception) -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_MSG_NO_ENCONTRADO)
 
 
+async def _analizar_en_segundo_plano(analyze: AnalyzeDocumentService, document_id, owner_id) -> None:
+    """Analiza el documento recién subido sin hacer esperar al estudiante (ADR-029).
+
+    Antes el análisis solo ocurría si el cliente llamaba a /analyze, y el
+    cliente nunca lo hacía: los documentos se quedaban sin resumen ni conceptos
+    y el tutor trabajaba a ciegas. Si esto falla o el servidor se duerme, el
+    primer turno o quiz lo repite (`ensure_analysis`).
+    """
+    try:
+        await analyze.execute(document_id, owner_id)
+    except Exception:  # noqa: BLE001 — el respaldo lo reintenta
+        logger.warning("analisis_en_segundo_plano_fallo doc=%s", document_id)
+
+
 @router.post(
     "/",
     response_model=DocumentResponse,
@@ -112,6 +130,8 @@ async def upload_document(
     body: DocumentUploadRequest,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[DocumentService, Depends(get_document_service)],
+    background: BackgroundTasks,
+    analyze: Annotated[AnalyzeDocumentService, Depends(get_analyze_service)],
 ):
     dto = UploadDocumentDTO(
         filename=body.filename,
@@ -130,6 +150,8 @@ async def upload_document(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
+    if settings.AUTO_ANALYZE_UPLOAD:
+        background.add_task(_analizar_en_segundo_plano, analyze, doc.id, UUID(current_user_id))
     return _map(doc)
 
 
@@ -153,6 +175,8 @@ async def upload_document(
 async def upload_document_multipart(
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[DocumentService, Depends(get_document_service)],
+    background: BackgroundTasks,
+    analyze: Annotated[AnalyzeDocumentService, Depends(get_analyze_service)],
     file: Annotated[UploadFile, File(description=f"Archivo ({_RESUME_FORMATOS})")],
     # Opcional: el chat sube solo `file`. Sin materia, "General" (ver Subject).
     subject: Annotated[Optional[str], Form(max_length=128)] = None,
@@ -195,6 +219,8 @@ async def upload_document_multipart(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
+    if settings.AUTO_ANALYZE_UPLOAD:
+        background.add_task(_analizar_en_segundo_plano, analyze, doc.id, UUID(current_user_id))
     return _map(doc)
 
 

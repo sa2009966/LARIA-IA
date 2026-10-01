@@ -181,4 +181,8 @@ def test_un_chat_sin_material_no_puede_evaluar(client: TestClient):
     r = client.post(f"/api/v1/chats/{chat_id}/quiz", headers=headers)
 
     assert r.status_code == 422
-    assert "material" in r.json()["detail"].lower()
+    detalle = r.json()["detail"]
+    # Lo lee el estudiante: dice qué hacer y no enseña rutas de la API
+    # (antes: "Vincula un documento (PUT /chats/{chat_id})").
+    assert "documento" in detalle.lower()
+    assert "PUT" not in detalle and "/chats" not in detalle

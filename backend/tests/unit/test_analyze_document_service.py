@@ -205,6 +205,11 @@ class TestAnalyzeDocumentService:
     ):
         owner_id = uuid4()
         doc = DocumentAggregate.upload(owner_id, "test.txt", "Contenido del tema.", "Historia")
+        # Ya analizado: este test es sobre la interacción. El análisis de
+        # respaldo (ADR-029) tiene sus propios tests.
+        doc.mark_analyzing()
+        doc.complete_analysis(AnalysisResult(summary="Resumen del tema."))
+        doc.clear_events()
         doc_repo_mock.find_by_id.return_value = doc
         ia_mock.answer_question.return_value = "Respuesta corta."
 
@@ -212,8 +217,9 @@ class TestAnalyzeDocumentService:
 
         assert resp == "Respuesta corta."
         assert ia_mock.answer_question.await_count == 1
+        ia_mock.analyze.assert_not_awaited()
         call_kwargs = ia_mock.answer_question.await_args.kwargs
-        assert call_kwargs["context"] == doc.content
+        assert doc.content in call_kwargs["context"]
         assert call_kwargs["question"] == "¿Qué es?"
         assert call_kwargs["decision"] is not None
         interaction_repo_mock.save.assert_awaited_once()

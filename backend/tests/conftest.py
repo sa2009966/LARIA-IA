@@ -12,6 +12,8 @@ from pathlib import Path
 # Forzar (no setdefault): el .env del desarrollador no debe contaminar la suite.
 os.environ["SECRET_KEY"] = "a" * 64
 os.environ["OPENAI_API_KEY"] = "sk-test-not-a-real-key"
+# Sin red en los tests: la subida no dispara el análisis salvo en los que lo prueban.
+os.environ["AUTO_ANALYZE_UPLOAD"] = "false"
 os.environ["IA_PROVIDER"] = "openai"
 os.environ["DB_PROVIDER"] = "memory"
 os.environ["EVENT_BUS_BACKEND"] = "memory"

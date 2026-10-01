@@ -64,6 +64,7 @@ class QuizService:
         llm_gate: Optional[LlmGate] = None,
         concept_graph_repository: Optional[ConceptGraphRepository] = None,
         graph_id: str = "default",
+        analyze_service=None,
     ) -> None:
         self._doc_repo = document_repository
         self._quiz_repo = quiz_repository
@@ -75,6 +76,8 @@ class QuizService:
         self._engine = pedagogical_engine or PedagogicalEngine()
         self._session_repo = session_repository
         self._graph_repo = concept_graph_repository
+        # Para asegurar el análisis antes de un quiz sobre un documento (ADR-029).
+        self._analyze = analyze_service
         self._graph_id = graph_id
         self._tagger = ConceptTagger()
         self._context = ContextSelector()
@@ -98,6 +101,9 @@ class QuizService:
             document.content = body
         if self._ia_analyst is None and self._llm_gate is None:
             raise ValueError("IA Analyst not configured")
+        if self._analyze is not None:
+            # Sin análisis, el quiz no sabe de qué conceptos va el documento.
+            document = await self._analyze.ensure_analysis(document, user_id)
 
         profile = None
         if self._profile_repo is not None:
@@ -114,7 +120,9 @@ class QuizService:
         decision = self._engine.select(
             profile, document_id, TutorIntent.QUIZ, concepts, session=session, graph=graph
         )
-        ctx = self._context.select(document, decision.focus_concepts)
+        # Repartido por todo el documento si no hay foco: un quiz de un libro no
+        # debe salir solo de las primeras páginas (ADR-029).
+        ctx = self._context.select(document, decision.focus_concepts, max_chars=8000, spread=True)
         if self._llm_gate is not None:
             generated = await self._llm_gate.generate_quiz(
                 document,

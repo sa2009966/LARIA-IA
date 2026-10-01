@@ -20,6 +20,14 @@ class TopicCatalog:
         self._graph_id = graph_id
         self._graph = None
 
+    async def graph(self):
+        if self._graph is None:
+            if self._repo is not None:
+                self._graph = await self._repo.find_by_id(self._graph_id)
+            if self._graph is None:
+                self._graph = build_seeded_graph(self._graph_id)
+        return self._graph
+
     async def canonical(self, topic: str) -> str:
         if self._graph is None:
             if self._repo is not None:

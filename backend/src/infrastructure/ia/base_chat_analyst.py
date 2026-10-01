@@ -14,6 +14,7 @@ from src.domain.ports.chat_title_generator import (
     TitleMessage,
 )
 from src.domain.ports.ia_analyst import IAAnalysisError, IAAnalyst
+from src.domain.ports.lesson_generator import Lesson, LessonGenerator, LessonRequest, SyllabusItem
 from src.domain.ports.metrics_port import MetricsPort
 from src.domain.services.tutor_policy import TutorPolicy
 from src.domain.value_objects.analysis_result import AnalysisResult
@@ -32,6 +33,67 @@ _MSG_SATURADO = (
 #: conexión, 429, 5xx). Dos reintentos: el estudiante está esperando un quiz y un
 #: tercer fallo seguido ya no es pasajero.
 _ESPERAS_REINTENTO_S = (1.0, 3.0)
+
+#: Hasta aquí el documento se analiza de una vez (~75-100k tokens en español,
+#: con margen bajo los 128k del modelo). Por encima, por secciones (ADR-029).
+ANALYSIS_DIRECT_CHARS = 300_000
+#: Secciones de un libro: cada una cabe en una llamada, y nunca más de 16 (coste).
+SECTION_MIN_CHARS = 250_000
+MAX_SECTIONS = 16
+
+
+#: Conceptos de un libro: más que de un apunte, para que quepan todos los capítulos.
+MAX_BOOK_CONCEPTS = 40
+
+
+def round_robin_concepts(por_seccion: list[list[str]], limite: int = 60) -> list[str]:
+    """El 1.º de cada sección, luego el 2.º de cada una… sin repetidos."""
+    vistos: dict[str, str] = {}
+    for ronda in range(max((len(c) for c in por_seccion), default=0)):
+        for conceptos in por_seccion:
+            if ronda < len(conceptos):
+                k = conceptos[ronda].strip()
+                if k and k.lower() not in vistos:
+                    vistos[k.lower()] = k
+                    if len(vistos) >= limite:
+                        return list(vistos.values())
+    return list(vistos.values())
+
+
+def cover_sections(elegidos: list[str], por_seccion: list[list[str]]) -> list[str]:
+    """Lo que eligió el modelo, más el concepto principal de cada sección que falte.
+
+    El modelo puede volver a sesgarse hacia el principio: esto garantiza en el
+    código que cada sección aporta al menos su concepto principal.
+    """
+    salida = [c for c in elegidos if c.strip()]
+    tiene = {c.lower() for c in salida}
+    for conceptos in por_seccion:
+        if conceptos and not any(c.lower() in tiene for c in conceptos):
+            salida.append(conceptos[0])
+            tiene.add(conceptos[0].lower())
+    return salida[:MAX_BOOK_CONCEPTS]
+
+
+def split_sections(content: str) -> list[str]:
+    """Trocea en secciones de tamaño parecido, cortando en saltos de línea."""
+    import math
+
+    tam = max(SECTION_MIN_CHARS, math.ceil(len(content) / MAX_SECTIONS))
+    secciones: list[str] = []
+    inicio = 0
+    while inicio < len(content):
+        fin = min(len(content), inicio + tam)
+        if fin < len(content):
+            corte = content.rfind("\n", inicio + tam // 2, fin)
+            fin = corte if corte > inicio else fin
+        secciones.append(content[inicio:fin].strip())
+        inicio = fin
+    secciones = [s for s in secciones if s]
+    # Un resto pequeño se une a la anterior: no vale una llamada propia.
+    if len(secciones) > 1 and len(secciones[-1]) < tam // 4:
+        secciones[-2] = f"{secciones[-2]}\n{secciones.pop()}"
+    return secciones
 
 
 def _es_pasajero(exc: Exception) -> bool:
@@ -64,7 +126,7 @@ _MAX_TITLE_WORDS = 7
 _MAX_TITLE_CHARS = 120
 
 
-class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer):
+class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, LessonGenerator):
     """Implementa analyze/answer_question/generate_quiz sobre un endpoint de chat.
 
     Las subclases solo definen `api_url`, `model` y `api_key`.
@@ -241,6 +303,107 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer):
                 logger.warning("json_invalido_reintento model=%s", model or self.model)
         raise IAAnalysisError(_MSG_RESPUESTA)  # inalcanzable; lo exige el tipo
 
+    async def _analyze_by_sections(self, content: str, model: str) -> AnalysisResult:
+        """Libro entero: secciones en paralelo y luego una síntesis (ADR-029).
+
+        Mandarlo de una vez fallaba por encima de ~128k tokens (un libro de unas
+        300-400 páginas): "context_length_exceeded", y el estudiante veía "El
+        servicio de IA no está disponible".
+        """
+        secciones = split_sections(content)
+        limite = asyncio.Semaphore(4)
+
+        async def una(i: int, texto: str):
+            async with limite:
+                p = self._policy.analyze_section(texto, i, len(secciones))
+                try:
+                    return await self._chat_json(p.system, p.user, model=model)
+                except IAAnalysisError:
+                    logger.warning("seccion_sin_analisis %d/%d", i, len(secciones))
+                    return None
+
+        partes = [r for r in await asyncio.gather(*(una(i, s) for i, s in enumerate(secciones, 1))) if r]
+        if not partes:
+            raise IAAnalysisError(_MSG_RESPUESTA)
+        resumenes = [str(p.get("summary", "")).strip() for p in partes if str(p.get("summary", "")).strip()]
+        # Por turnos, sección a sección: con la frecuencia global, los conceptos
+        # del principio del libro se comían la lista y el motor —que decide el
+        # foco con ella— trataba un libro de biología como si solo hablara de
+        # la célula (visto contra el modelo real).
+        conceptos = round_robin_concepts([self._as_str_list(p.get("key_concepts", [])) for p in partes])
+        p = self._policy.merge_analysis(resumenes, conceptos)
+        data = await self._chat_json(p.system, p.user, model=model)
+        elegidos = self._as_str_list(data.get("key_concepts", []))
+        return AnalysisResult(
+            summary=data.get("summary", "") or " ".join(resumenes)[:1500] or "Sin resumen",
+            key_concepts=cover_sections(elegidos, [self._as_str_list(p.get("key_concepts", [])) for p in partes]),
+            suggested_questions=self._as_str_list(data.get("suggested_questions", [])),
+        )
+
+    async def generate_lesson(self, request: LessonRequest) -> Lesson:
+        """Un paso de la clase (ADR-028). Lo que no tenga la forma pedida se rechaza.
+
+        Las preguntas salen etiquetadas con el concepto del paso y con la
+        dificultad que pidió el backend, diga lo que diga el modelo: son evidencia
+        de ESE concepto, y la dificultad es una decisión pedagógica, no del modelo.
+        """
+        prompt = self._policy.teaching_lesson(request)
+        for intento in (1, 2):
+            data = await self._chat_json(prompt.system, prompt.user, model=self.model)
+            try:
+                return self._lesson_desde(data, request)
+            except (KeyError, TypeError, ValueError) as exc:
+                if intento == 2:
+                    raise IAAnalysisError(_MSG_RESPUESTA) from exc
+                logger.warning("leccion_invalida_reintento %s", exc)
+        raise IAAnalysisError(_MSG_RESPUESTA)  # inalcanzable
+
+    @staticmethod
+    def _lesson_desde(data: dict, request: LessonRequest) -> Lesson:
+        explicacion = str(data["explanation"]).strip()
+        ejemplo = str(data["example"]).strip()
+        if len(explicacion) < 40 or len(ejemplo) < 20:
+            raise ValueError("explicación o ejemplo vacíos")
+        items = data["check"]
+        if not isinstance(items, list) or len(items) != len(request.check_difficulties):
+            raise ValueError(f"se pidieron {len(request.check_difficulties)} preguntas")
+        preguntas = []
+        for item, dificultad in zip(items, request.check_difficulties):
+            opciones = {str(k).strip().upper()[:1]: str(v).strip() for k, v in dict(item["options"]).items()}
+            correcta = str(item["correct_answer"]).strip().upper()[:1]
+            if len(opciones) < 3 or correcta not in opciones or not str(item["text"]).strip():
+                raise ValueError("pregunta mal formada")
+            preguntas.append(
+                QuizQuestion(
+                    text=str(item["text"]).strip(),
+                    options=opciones,
+                    correct_answer=correcta,
+                    difficulty=dificultad,
+                    concept_tags=(request.concept,),
+                )
+            )
+        return Lesson(
+            explanation=explicacion,
+            example=ejemplo,
+            example_summary=str(data.get("example_summary") or ejemplo[:200]).strip(),
+            check=tuple(preguntas),
+        )
+
+    async def propose_syllabus(self, topic_label: str, level: str | None) -> list[SyllabusItem]:
+        prompt = self._policy.propose_syllabus(topic_label, level)
+        data = await self._chat_json(prompt.system, prompt.user, model=self.model)
+        modulos = data.get("modules")
+        if not isinstance(modulos, list):
+            raise IAAnalysisError(_MSG_RESPUESTA)
+        return [
+            SyllabusItem(
+                title=str(m.get("title", "")).strip(),
+                prerequisites=tuple(str(p).strip() for p in (m.get("prerequisites") or []) if str(p).strip()),
+            )
+            for m in modulos
+            if isinstance(m, dict) and str(m.get("title", "")).strip()
+        ]
+
     @staticmethod
     def _extract_json(raw: str) -> dict:
         start = raw.find("{")
@@ -262,6 +425,8 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer):
         return await self.analyze_with_model(document, model=self.model)
 
     async def analyze_with_model(self, document: DocumentAggregate, model: str) -> AnalysisResult:
+        if len(document.content or "") > ANALYSIS_DIRECT_CHARS:
+            return await self._analyze_by_sections(document.content, model)
         prompt = self._policy.analyze_document(document.content)
         data = await self._chat_json(prompt.system, prompt.user, model=model)
 

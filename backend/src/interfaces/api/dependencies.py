@@ -409,6 +409,7 @@ def get_quiz_service() -> QuizService:
         session_repository=get_session_repo(),
         llm_gate=get_llm_gate(),
         concept_graph_repository=get_concept_graph_repo(),
+        analyze_service=get_analyze_service(),
     )
 
 
@@ -521,3 +522,19 @@ def get_google_verifier() -> "ExternalIdentityVerifier":
     from src.infrastructure.security.google_identity import GoogleIdentityVerifier
 
     return GoogleIdentityVerifier(settings.GOOGLE_CLIENT_ID)
+
+
+def get_teaching_service() -> "TeachingService":
+    """La clase de una ruta (ADR-028): mismo quiz service, mismo perfil, mismo grafo."""
+    from src.application.services.teaching_service import TeachingService
+    from src.application.services.topic_catalog import TopicCatalog
+    from src.domain.ports.lesson_generator import LessonGenerator
+
+    return TeachingService(
+        path_repository=get_learning_path_repo(),
+        profile_repository=get_profile_repo(),
+        quiz_repository=get_quiz_repo(),
+        quiz_service=get_quiz_service(),
+        lesson_generator=cast(LessonGenerator, get_ia_analyst()),
+        topic_catalog=TopicCatalog(get_concept_graph_repo()),
+    )
