@@ -3,7 +3,15 @@ from uuid import UUID
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from src.domain.aggregates.learning_path import LearningModule, LearningPathAggregate
+from src.domain.aggregates.learning_path import (
+    CheckOutcome,
+    LearningModule,
+    LearningPathAggregate,
+    LessonVariant,
+    ModuleKind,
+    TeachingPhase,
+    TeachingState,
+)
 from src.domain.ports.repositories import LearningPathRepository
 from src.domain.value_objects.question import Difficulty
 from src.infrastructure.mongodb.database import get_database
@@ -30,6 +38,7 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             "status": m.status,
             "mastery": m.mastery,
             "position": m.position,
+            "kind": m.kind.value,
         }
 
     @staticmethod
@@ -43,7 +52,52 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             status=d.get("status", "locked"),
             mastery=float(d.get("mastery", 0.0)),
             position=int(d.get("position", 0)),
+            kind=ModuleKind(d.get("kind", ModuleKind.CONTENT.value)),
         )
+
+    @staticmethod
+    def _teaching_to_doc(t: TeachingState) -> dict:
+        return {
+            "phase": t.phase.value,
+            "concept": t.concept,
+            "return_to": t.return_to,
+            "variant": t.variant.value,
+            "pending_check_quiz_id": str(t.pending_check_quiz_id) if t.pending_check_quiz_id else None,
+            "lesson_markdown": t.lesson_markdown,
+            "last_example": t.last_example,
+            "checks_on_concept": t.checks_on_concept,
+            "failures_on_concept": t.failures_on_concept,
+            "understood_streak": t.understood_streak,
+            "last_outcome": t.last_outcome.value if t.last_outcome else None,
+            "passed_concepts": list(t.passed_concepts),
+            "reason": t.reason,
+            "updated_at": t.updated_at,
+        }
+
+    @staticmethod
+    def _teaching_from_doc(d: dict) -> TeachingState:
+        if not d:
+            return TeachingState()
+        pendiente = d.get("pending_check_quiz_id")
+        resultado = d.get("last_outcome")
+        estado = TeachingState(
+            phase=TeachingPhase(d.get("phase", TeachingPhase.ASSESSMENT.value)),
+            concept=d.get("concept"),
+            return_to=d.get("return_to"),
+            variant=LessonVariant(d.get("variant", LessonVariant.INTRODUCE.value)),
+            pending_check_quiz_id=UUID(pendiente) if pendiente else None,
+            lesson_markdown=d.get("lesson_markdown", ""),
+            last_example=d.get("last_example", ""),
+            checks_on_concept=int(d.get("checks_on_concept", 0)),
+            failures_on_concept=int(d.get("failures_on_concept", 0)),
+            understood_streak=int(d.get("understood_streak", 0)),
+            last_outcome=CheckOutcome(resultado) if resultado else None,
+            passed_concepts=list(d.get("passed_concepts") or []),
+            reason=d.get("reason", ""),
+        )
+        if d.get("updated_at"):
+            estado.updated_at = d["updated_at"]
+        return estado
 
     @staticmethod
     def _to_doc(path: LearningPathAggregate) -> dict:
@@ -55,6 +109,8 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             "modules": [MongoDBLearningPathRepository._module_to_doc(m) for m in path.modules],
             "created_at": path.created_at,
             "updated_at": path.updated_at,
+            "topic": path.topic,
+            "teaching": MongoDBLearningPathRepository._teaching_to_doc(path.teaching),
         }
 
     @staticmethod
@@ -67,6 +123,8 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             modules=[MongoDBLearningPathRepository._module_from_doc(m) for m in doc.get("modules", [])],
             created_at=doc["created_at"],
             updated_at=doc["updated_at"],
+            topic=doc.get("topic", ""),
+            teaching=MongoDBLearningPathRepository._teaching_from_doc(doc.get("teaching") or {}),
         )
 
     async def find_by_id(self, path_id: UUID) -> Optional[LearningPathAggregate]:

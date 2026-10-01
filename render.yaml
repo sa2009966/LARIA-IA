@@ -68,6 +68,10 @@ services:
       # desarrollo, local; en Render solo si se reactiva a propósito un momento.
       - key: ENABLE_DOCS
         value: "false"
+      # Pero /docs sigue disponible con usuario "laria" y esta contraseña
+      # (se genera sola; se ve en el panel de Render → Environment).
+      - key: DOCS_PASSWORD
+        generateValue: true
       - key: RATE_LIMIT_ENABLED
         value: "true"
       - key: LOG_LEVEL

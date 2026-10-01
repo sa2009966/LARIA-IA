@@ -1,0 +1,57 @@
+"""Puerto del contenido de la clase (ADR-028). El modelo REDACTA; no decide.
+
+Qué concepto, qué tipo de explicación y qué dificultad tienen las preguntas lo
+fija `TeachingPolicy` y viaja en `LessonRequest`. El adaptador solo devuelve
+texto y preguntas, y el backend valida su forma antes de usarlas.
+"""
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+from src.domain.aggregates.learning_path import LessonVariant
+from src.domain.services.cognitive_style import CognitiveStyle
+from src.domain.value_objects.question import Difficulty, QuizQuestion
+
+
+@dataclass(frozen=True)
+class LessonRequest:
+    topic_label: str
+    concept: str
+    concept_title: str
+    variant: LessonVariant
+    #: Dificultad de cada pregunta de la comprobación (la decide el backend).
+    check_difficulties: tuple[Difficulty, ...]
+    level: str | None = None
+    style: CognitiveStyle | None = None
+    #: Concepto al que se volverá tras la remediación (para prometerlo).
+    return_to_title: str | None = None
+    #: Ejemplo anterior, para no repetirlo.
+    avoid_example: str = ""
+
+
+@dataclass(frozen=True)
+class Lesson:
+    explanation: str
+    example: str
+    example_summary: str
+    check: tuple[QuizQuestion, ...]
+
+    @property
+    def markdown(self) -> str:
+        return f"{self.explanation.strip()}\n\n**Ejemplo.** {self.example.strip()}"
+
+
+@dataclass(frozen=True)
+class SyllabusItem:
+    title: str
+    prerequisites: tuple[str, ...] = ()
+
+
+class LessonGenerator(ABC):
+    @abstractmethod
+    async def generate_lesson(self, request: LessonRequest) -> Lesson: ...
+
+    @abstractmethod
+    async def propose_syllabus(self, topic_label: str, level: str | None) -> list[SyllabusItem]:
+        """Temario de un tema que el grafo curricular no cubre. Se valida y se congela."""

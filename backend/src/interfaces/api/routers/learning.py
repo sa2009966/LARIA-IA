@@ -5,6 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.application.services.learning_preferences_service import LearningPreferencesService
 from src.application.services.learning_query_service import LearningQueryService
+from src.application.services.teaching_service import (
+    AssessmentRequired,
+    NoPendingCheck,
+    PathNotFound,
+    TeachingService,
+)
+from src.domain.ports.ia_analyst import IAAnalysisError
+from src.interfaces.api.quiz_mappers import quiz_to_public_response
 from src.domain.aggregates.learning_path import LearningPathAggregate
 from src.domain.ports.repositories import (
     LearningPathRepository,
@@ -16,13 +24,20 @@ from src.interfaces.api.dependencies import (
     get_learning_preferences_service,
     get_learning_query_service,
     get_profile_repo,
+    get_teaching_service,
 )
 from src.interfaces.api.openapi_responses import RESP_401_UNAUTHORIZED
 from src.interfaces.schemas.learning_path_schemas import (
+    CheckAnswerRequest,
+    CheckAnswerResponse,
     LearningModuleResponse,
     LearningPathCreateRequest,
     LearningPathListResponse,
     LearningPathResponse,
+    LessonResponse,
+    NextStepResponse,
+    PathFromTopicRequest,
+    TeachingStateResponse,
 )
 from src.interfaces.schemas.quiz_schemas import (
     ConceptMasteryItem,
@@ -173,6 +188,27 @@ def _map_module(m) -> LearningModuleResponse:
         status=m.status,
         mastery=m.mastery,
         position=m.position,
+        kind=m.kind.value if hasattr(m, "kind") else "content",
+    )
+
+
+def _map_teaching(p: LearningPathAggregate) -> TeachingStateResponse | None:
+    if not p.topic:
+        return None  # ruta creada a mano: sin clase
+    t = p.teaching
+    actual = p.module(t.concept) if t.concept else None
+    vuelta = p.module(t.return_to) if t.return_to else None
+    return TeachingStateResponse(
+        phase=t.phase.value,
+        concept=t.concept,
+        concept_title=actual.title if actual else None,
+        return_to=t.return_to,
+        return_to_title=vuelta.title if vuelta else None,
+        variant=t.variant.value,
+        pending_check_quiz_id=str(t.pending_check_quiz_id) if t.pending_check_quiz_id else None,
+        last_outcome=t.last_outcome.value if t.last_outcome else None,
+        passed_concepts=list(t.passed_concepts),
+        reason=t.reason,
     )
 
 
@@ -230,7 +266,15 @@ async def _projected(
     el dominio; aquí solo se le pasan los números del perfil.
     """
     profile = await profile_repo.find_by_student(student_id)
-    path.project_mastery(profile.effective_mastery_by_concept() if profile else {})
+    if path.topic:
+        # Rutas de un tema (ADR-028): lo no medido se da por sabido, no bloquea.
+        medidos = (
+            {c for c in profile.mastery_by_concept if profile.has_decision_evidence(c)}
+            if profile else set()
+        )
+        path.project_mastery(profile.effective_mastery_by_concept() if profile else {}, measured=medidos)
+    else:
+        path.project_mastery(profile.effective_mastery_by_concept() if profile else {})
     return path
 
 
@@ -243,6 +287,8 @@ def _map_path(p: LearningPathAggregate) -> LearningPathResponse:
         progress=p.progress,
         created_at=p.created_at,
         updated_at=p.updated_at,
+        topic=p.topic,
+        teaching=_map_teaching(p),
     )
 
 
@@ -334,3 +380,131 @@ async def delete_learning_path(
     if path is None or not path.is_owned_by(UUID(current_user_id)):
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
     await repo.delete(path_id)
+
+
+# --- La clase (ADR-028) --------------------------------------------------------------
+
+_DESC_CLASE = (
+    "Flujo: nivelación (`/quizzes/diagnostic`) → `POST /learning/paths/from-topic` → "
+    "`POST /learning/paths/{id}/lesson` (explicación + ejemplo + comprobación de 2 preguntas) → "
+    "`POST /learning/paths/{id}/check` (califica, registra evidencia y decide el siguiente paso) "
+    "→ otra vez `/lesson`. Las decisiones son del backend; el estado vive en la ruta."
+)
+
+
+@router.post(
+    "/paths/from-topic",
+    response_model=LearningPathResponse,
+    summary="Ruta de aprendizaje de un tema (tras la nivelación)",
+    description=(
+        "Crea la ruta del tema desde el grafo curricular (o, si el grafo no lo cubre, desde un "
+        "temario validado y congelado). Idempotente: si ya existe, devuelve la misma. "
+        "`teaching.phase` = `assessment` mientras el tema no tenga nivelación. " + _DESC_CLASE
+    ),
+    responses={**RESP_401_UNAUTHORIZED},
+)
+async def path_from_topic(
+    body: PathFromTopicRequest,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[TeachingService, Depends(get_teaching_service)],
+):
+    usuario = UUID(current_user_id)
+    try:
+        path = await service.path_for_topic(usuario, body.topic)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return _map_path(await service.projected(path, usuario))
+
+
+@router.post(
+    "/paths/{path_id}/lesson",
+    response_model=LessonResponse,
+    summary="Paso actual de la clase",
+    description=(
+        "Devuelve la explicación y la comprobación que tocan. Si ya se entregaron y esperan "
+        "respuesta, devuelve las MISMAS (recargar no genera otra). 409 si falta la nivelación; "
+        "`check: null` si la ruta está completada. " + _DESC_CLASE
+    ),
+    responses={**RESP_401_UNAUTHORIZED},
+)
+async def lesson(
+    path_id: UUID,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[TeachingService, Depends(get_teaching_service)],
+):
+    usuario = UUID(current_user_id)
+    try:
+        paso = await service.lesson(usuario, path_id)
+    except PathNotFound:
+        raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    except AssessmentRequired as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Primero haz la nivelación de «{exc}» para saber por dónde empezar.",
+        )
+    except IAAnalysisError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    path = await service.projected(paso.path, usuario)
+    return LessonResponse(
+        path=_map_path(path),
+        markdown=path.teaching.lesson_markdown if paso.check else "",
+        check=quiz_to_public_response(paso.check) if paso.check else None,
+    )
+
+
+@router.post(
+    "/paths/{path_id}/check",
+    response_model=CheckAnswerResponse,
+    summary="Responder la comprobación de la clase",
+    description=(
+        "Califica en servidor por el flujo de quizzes (la evidencia llega al perfil como la de "
+        "cualquier quiz), decide si entendió, entendió a medias o no, y deja la clase en el "
+        "siguiente paso. 409 si esa no es la comprobación pendiente. " + _DESC_CLASE
+    ),
+    responses={**RESP_401_UNAUTHORIZED},
+)
+async def answer_check(
+    path_id: UUID,
+    body: CheckAnswerRequest,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[TeachingService, Depends(get_teaching_service)],
+):
+    usuario = UUID(current_user_id)
+    try:
+        respuestas = {int(k): v for k, v in body.answers.items()}
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Las respuestas van por índice de pregunta.")
+    try:
+        r = await service.answer_check(usuario, path_id, body.quiz_id, respuestas)
+    except PathNotFound:
+        raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    except NoPendingCheck:
+        raise HTTPException(
+            status_code=409,
+            detail="Esa comprobación ya no está pendiente. Pide el paso actual de la clase.",
+        )
+    path = await service.projected(r.path, usuario)
+    siguiente = path.module(r.next.concept) if r.next.concept else None
+    return CheckAnswerResponse(
+        outcome=r.outcome.value,
+        score=r.attempt.score,
+        total_points=r.attempt.total_points,
+        questions=[
+            {
+                "index": q.index,
+                "text": q.text,
+                "selected": q.selected,
+                "correct_answer": q.correct_answer,
+                "is_correct": q.is_correct,
+            }
+            for q in r.attempt.questions
+        ],
+        next=NextStepResponse(
+            phase=r.next.phase.value,
+            concept=r.next.concept,
+            concept_title=siguiente.title if siguiente else None,
+            variant=r.next.variant.value if r.next.variant else None,
+            reason=r.next.reason,
+        ),
+        path=_map_path(path),
+    )

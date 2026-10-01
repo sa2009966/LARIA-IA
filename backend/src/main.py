@@ -250,6 +250,46 @@ app.include_router(chats.router, prefix=PREFIX)
 app.include_router(legal.router, prefix=PREFIX)
 
 
+def _docs_protegidos(request: Request) -> None:
+    """Swagger en producción: detrás de usuario y contraseña (Basic), no público (ADR-024).
+
+    El navegador pide las credenciales solo; un 401 sin la cabecera
+    WWW-Authenticate no mostraría el diálogo.
+    """
+    import base64
+    import hmac
+
+    from fastapi import HTTPException
+
+    esperado = f"laria:{settings.DOCS_PASSWORD}".encode()
+    dado = request.headers.get("authorization") or ""
+    ok = False
+    if dado.lower().startswith("basic "):
+        try:
+            ok = hmac.compare_digest(base64.b64decode(dado[6:].strip()), esperado)
+        except Exception:  # noqa: BLE001 — cabecera mal formada
+            ok = False
+    if not ok:
+        raise HTTPException(
+            status_code=401,
+            detail="Documentación protegida.",
+            headers={"WWW-Authenticate": 'Basic realm="Plenum API docs"'},
+        )
+
+
+if not settings.ENABLE_DOCS and settings.DOCS_PASSWORD.strip():
+    from fastapi import Depends
+    from fastapi.openapi.docs import get_swagger_ui_html
+
+    @app.get("/docs", include_in_schema=False, dependencies=[Depends(_docs_protegidos)])
+    def docs_protegidos():
+        return get_swagger_ui_html(openapi_url="/openapi.json", title=f"{settings.APP_TITLE} – docs")
+
+    @app.get("/openapi.json", include_in_schema=False, dependencies=[Depends(_docs_protegidos)])
+    def openapi_protegido():
+        return JSONResponse(app.openapi())
+
+
 @app.get("/", include_in_schema=False)
 def root():
     if settings.ENABLE_DOCS:
