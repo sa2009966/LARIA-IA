@@ -37,7 +37,9 @@ from src.domain.services.adaptive_signal_observer import (
     AdaptiveSignalObserver,
     TurnFacts,
 )
+from src.domain.catalog.voices import persona_for
 from src.domain.services.context_selector import ContextSelector
+from src.domain.services.learner_context import LearnerContext
 from src.domain.services.learning_signal_detector import (
     LearningSignalDetector,
     LearningSignalKind,
@@ -85,6 +87,8 @@ class PedagogyPlan:
     #: Pidió un cuestionario: "" sin tema, el tema, o None. El tutor lo anuncia en
     #: vez de escribirlo (lo presenta la plataforma, interactivo).
     quiz_request: str | None = None
+    #: Solo lleva el género de la voz (ADR-030); con material lo demás lo decide el motor.
+    learner: LearnerContext | None = None
     # Qué pidió la política y no sobrevivió al fondo pedagógico (ADR-004,
     # Decisión 5). Se conserva para depurar y para explicárselo al estudiante.
     overrides: tuple[Override, ...] = ()
@@ -274,6 +278,7 @@ class AnalyzeDocumentService:
                 adaptation=self.prompt_shaping_for(plan),
                 history=plan.history,
                 quiz_request=plan.quiz_request,
+                learner=plan.learner,
             )
         return await self._ia_analyst.answer_question(
             context=plan.context,
@@ -283,6 +288,7 @@ class AnalyzeDocumentService:
             # Solo si hay: un analista que no lo declare sigue funcionando.
             **({"history": plan.history} if plan.history else {}),
             **({"quiz_request": plan.quiz_request} if plan.quiz_request is not None else {}),
+            **({"learner": plan.learner} if plan.learner else {}),
         )
 
     async def stream_from_plan(self, plan: PedagogyPlan):
@@ -302,6 +308,7 @@ class AnalyzeDocumentService:
             adaptation=self.prompt_shaping_for(plan),
             history=plan.history,
             quiz_request=plan.quiz_request,
+            learner=plan.learner,
         ):
             yield token
 
@@ -404,6 +411,7 @@ class AnalyzeDocumentService:
         if porque:
             logger.info("adaptacion_explicada aplicada=%s texto=%s", self._adaptation_enabled, porque)
         return PedagogyPlan(
+            learner=LearnerContext(persona=persona_for(profile.voice_choice if profile else None)),
             document_id=document_id,
             student_id=requesting_user_id,
             question=question,

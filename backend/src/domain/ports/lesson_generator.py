@@ -28,6 +28,8 @@ class LessonRequest:
     return_to_title: str | None = None
     #: Ejemplo anterior, para no repetirlo.
     avoid_example: str = ""
+    #: Género con el que LARIA habla de sí misma (el de su voz, ADR-030).
+    persona: str | None = None
 
 
 @dataclass(frozen=True)
