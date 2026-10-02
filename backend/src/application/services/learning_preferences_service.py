@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from src.domain.events.domain_events import ExplanationStyleChosenEvent
+from src.domain.catalog.voices import is_voice
+from src.domain.events.domain_events import ExplanationStyleChosenEvent, VoiceChosenEvent
 from src.domain.ports.event_bus import EventBus
 from src.domain.ports.repositories import StudentProfileRepository
 from src.domain.services.cognitive_style import CognitiveStyle
@@ -34,3 +35,15 @@ class LearningPreferencesService:
             ExplanationStyleChosenEvent(aggregate_id=student_id, student_id=student_id, style=style)
         )
         return style
+
+    async def voice(self, student_id: UUID) -> str | None:
+        if self._profiles is None:
+            return None
+        perfil = await self._profiles.find_by_student(student_id)
+        return (perfil.voice_choice or None) if perfil else None
+
+    async def choose_voice(self, student_id: UUID, voice: str | None) -> str | None:
+        if voice is not None and not is_voice(voice):
+            raise ValueError("Esa voz no existe.")
+        await self._bus.publish(VoiceChosenEvent(aggregate_id=student_id, student_id=student_id, voice=voice))
+        return voice

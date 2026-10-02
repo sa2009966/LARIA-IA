@@ -49,6 +49,8 @@ class LessonVariant(str, Enum):
     REMEDIATE = "remediate"
     CONSOLIDATE = "consolidate"
     RESUME = "resume"
+    #: Repaso: lo superó, pero el olvido lo bajó del umbral (motor, ADR-032).
+    REVIEW = "review"
 
 
 class CheckOutcome(str, Enum):
@@ -220,6 +222,14 @@ class LearningPathAggregate:
         if outcome == CheckOutcome.NOT_UNDERSTOOD:
             t.failures_on_concept += 1
         self._touch()
+
+    def reopen_for_review(self, concept: str, reason: str) -> None:
+        """Una ruta completada vuelve a abrirse para repasar un concepto que se olvidó."""
+        key = canonicalize_concept(concept)
+        if key in self.teaching.passed_concepts:
+            self.teaching.passed_concepts.remove(key)
+        self.teaching.last_outcome = None
+        self.start_teaching(key, LessonVariant.REVIEW, phase=TeachingPhase.TEACHING, reason=reason)
 
     def mark_passed(self, concept: str) -> None:
         key = canonicalize_concept(concept)

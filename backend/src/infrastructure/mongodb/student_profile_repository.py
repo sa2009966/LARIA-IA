@@ -72,6 +72,7 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             "level_by_topic": dict(profile.level_by_topic),
             "topic_labels": dict(profile.topic_labels),
             "explanation_style_choice": profile.explanation_style_choice,
+            "voice_choice": profile.voice_choice,
             "pedagogical_memory": {
                 "frequent_misconceptions": list(mem.frequent_misconceptions),
                 "successful_examples": list(mem.successful_examples),
@@ -158,6 +159,7 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             level_by_topic=dict(doc.get("level_by_topic") or {}),
             topic_labels=dict(doc.get("topic_labels") or {}),
             explanation_style_choice=doc.get("explanation_style_choice") or "",
+            voice_choice=doc.get("voice_choice") or "",
             last_interaction_at=doc.get("last_interaction_at"),
             last_answer_length=int(doc.get("last_answer_length", 0)),
             adaptive_signals=signals,

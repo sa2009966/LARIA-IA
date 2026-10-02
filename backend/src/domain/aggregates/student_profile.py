@@ -367,6 +367,8 @@ class StudentProfile:
     #: LARIA. No es lo mismo que `pedagogical_memory.preferred_explanation_style`,
     #: que es lo DEDUCIDO de lo que le funcionó.
     explanation_style_choice: str = ""
+    #: Voz del tutor que eligió (ADR-030). Vacío = la de por defecto.
+    voice_choice: str = ""
     updated_at: datetime = field(default_factory=_utc_now)
     version: int = 0
 
@@ -487,6 +489,10 @@ class StudentProfile:
     def level_for_topic(self, topic: str) -> str | None:
         """Nivel alcanzado en un tema, o None si nunca se niveló."""
         return self.level_by_topic.get(_norm_concept(topic))
+
+    def choose_voice(self, voice: str | None) -> None:
+        self.voice_choice = (voice or "").strip().lower()
+        self.updated_at = _utc_now()
 
     def choose_explanation_style(self, style: str | None) -> None:
         """Guarda la elección del estudiante. None o vacío la borra."""

@@ -39,20 +39,20 @@ class OpenAITextToSpeech(TextToSpeechPort):
         self._voice = voice
         self._client = client
 
-    def _payload(self, text: str, affect: AffectState) -> dict:
+    def _payload(self, text: str, affect: AffectState, voice: str | None = None) -> dict:
         return {
             "model": self._model,
-            "voice": self._voice,
+            "voice": voice or self._voice,
             "input": text,
             "instructions": f"{_BASE} {_TONO.get(affect, '')}",
             "response_format": "mp3",
         }
 
-    async def stream(self, text: str, affect: AffectState) -> AsyncIterator[bytes]:
+    async def stream(self, text: str, affect: AffectState, voice: str | None = None) -> AsyncIterator[bytes]:
         """MP3 en trozos, según llegan: el primer audio suena a los ~2 s y no al final."""
         client = self._client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0))
         try:
-            async with client.stream("POST", API_URL, headers=self._headers, json=self._payload(text, affect)) as r:
+            async with client.stream("POST", API_URL, headers=self._headers, json=self._payload(text, affect, voice)) as r:
                 if r.status_code != 200:
                     cuerpo = (await r.aread())[:200]
                     logger.error("tts_fallo http=%s cuerpo=%s", r.status_code, cuerpo)
