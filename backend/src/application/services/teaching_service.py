@@ -27,6 +27,7 @@ from src.domain.aggregates.learning_path import (
 from src.domain.aggregates.quiz_aggregate import QuizAggregate
 from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.catalog.prerequisite_seeds import seed_display_labels
+from src.domain.catalog.voices import persona_for
 from src.domain.concept_identity import canonicalize_concept
 from src.domain.ports.lesson_generator import LessonGenerator, LessonRequest, SyllabusItem
 from src.domain.ports.repositories import (
@@ -221,6 +222,7 @@ class TeachingService:
             style=chosen_style(perfil),
             return_to_title=vuelta.title if vuelta else None,
             avoid_example=t.last_example,
+            persona=persona_for(perfil.voice_choice if perfil else None),
         )
         leccion = await self._generator.generate_lesson(peticion)
         quiz = QuizAggregate.create(

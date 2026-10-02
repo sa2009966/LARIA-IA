@@ -52,16 +52,16 @@ class RecordingAnalyst:
     async def generate_quiz(self, *a, **kw):  # pragma: no cover - no usado aquí
         raise NotImplementedError
 
-    async def answer_question(self, context, question, decision=None, adaptation=None):
+    async def answer_question(self, context, question, decision=None, adaptation=None, **_):
         return self._record(context, question, decision, adaptation)
 
     async def answer_question_with_model(
-        self, context, question, decision=None, *, model, adaptation=None
+        self, context, question, decision=None, *, model, adaptation=None, **_
     ):
         return self._record(context, question, decision, adaptation)
 
     async def answer_question_stream(
-        self, context, question, decision=None, model=None, adaptation=None
+        self, context, question, decision=None, model=None, adaptation=None, **_
     ):
         text = self._record(context, question, decision, adaptation)
         for chunk in (text[:8], text[8:]):

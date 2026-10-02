@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from uuid import UUID
 
 from src.application.services.learning_preferences_service import LearningPreferencesService
-from src.domain.catalog.voices import DEFAULT_VOICE, VOICES, is_voice
+from src.domain.catalog.voices import DEFAULT_VOICE, SAMPLE_TEXTS, VOICES, is_voice
 from src.domain.ports.embodiment import AffectState, TextToSpeechPort
 from src.domain.services.speakable import speakable_text
 from src.infrastructure.config import settings
@@ -52,8 +52,10 @@ class VoicesResponse(BaseModel):
     default: str
     #: La que eligió el estudiante; `null` = la de por defecto.
     selected: str | None = None
-    #: Frase para la vista previa de cada voz.
-    sample_text: str = "Hola, soy LARIA, tu tutora de Plenum. Así sonará mi voz en tus clases."
+    #: Frase de vista previa de la voz por defecto (compatibilidad).
+    sample_text: str = SAMPLE_TEXTS["femenina"]
+    #: Frase de vista previa por género: "tu tutor" / "tu tutora" (ADR-030).
+    sample_texts: dict[str, str] = dict(SAMPLE_TEXTS)
 
 
 class VoiceChoice(BaseModel):

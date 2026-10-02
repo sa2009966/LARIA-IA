@@ -13,6 +13,7 @@ from src.domain.ports.repositories import (
 )
 from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.services.adaptive_policy import AdaptationParameters
+from src.domain.catalog.voices import persona_for
 from src.domain.services.affect_policy import AffectPolicy
 from src.domain.services.cognitive_style import CognitiveStyle, chosen_style, style_requested_in
 from src.domain.services.intent_detector import IntentDetector, TutorIntent
@@ -222,7 +223,10 @@ class ChatTutorService:
         else:
             style = style_requested_in(question) or chosen_style(profile)
         base = LearnerContext(
-            style=style, ask_style=intention.ask_learning_style, style_just_chosen=eligio
+            style=style,
+            ask_style=intention.ask_learning_style,
+            style_just_chosen=eligio,
+            persona=persona_for(profile.voice_choice if profile else None),
         )
         if base.ask_style or profile is None or not profile.level_by_topic:
             return base or None
