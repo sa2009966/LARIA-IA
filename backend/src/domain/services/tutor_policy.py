@@ -210,6 +210,20 @@ def _adaptacion_sin_material(learner: LearnerContext | None, tema: str | None) -
     return "".join(partes)
 
 
+#: Qué significa cada dificultad. Sin esto, medido con un evaluador (gpt-4o), las
+#: "difíciles" tenían nivel cognitivo medio 1.75/3 —casi como las fáciles— y la
+#: nivelación sobreestimaba el nivel (ADR-031).
+_RUBRICA_DIFICULTAD = (
+    "Qué significa cada dificultad (respétalo estrictamente): "
+    "easy = reconocer o recordar una definición, un dato o un ejemplo básico; "
+    "medium = aplicar una idea o procedimiento en UN paso a un caso concreto "
+    "(calcular, clasificar, predecir un resultado sencillo); "
+    "hard = resolver un problema de VARIOS pasos, combinar dos ideas, detectar un "
+    "error en un razonamiento o aplicar el concepto a una situación nueva. Una "
+    "pregunta hard nunca se responde recordando un dato: exige razonar."
+)
+
+
 #: Qué pide cada tipo de explicación. La elige TeachingPolicy, no el modelo.
 _VARIANTES = {
     "introduce": "Presenta el concepto por primera vez: qué es, para qué sirve y la idea clave.",
@@ -230,6 +244,10 @@ _VARIANTES = {
         "ejemplo algo más exigente para afianzarlo."
     ),
     "resume": "Retoma este concepto ahora que el estudiante repasó la base que le faltaba.",
+    "review": (
+        "El estudiante ya dominó este concepto hace un tiempo y puede haberlo olvidado. "
+        "Haz un repaso breve (lo esencial en 3-4 frases) y un ejemplo distinto."
+    ),
 }
 
 
@@ -521,7 +539,7 @@ class TutorPolicy:
             user=f"{_bloque_conversacion(history)}Contexto:\n{context}\n\nPregunta: {question}",
         )
 
-    def generate_diagnostic(self, plan: "DiagnosticPlan") -> ChatPrompt:
+    def generate_diagnostic(self, plan: "DiagnosticPlan", avoid: tuple[str, ...] = ()) -> ChatPrompt:
         """Prompt del diagnóstico de entrada (ADR-016).
 
         A diferencia de `generate_quiz`, no parte de un contenido: parte de un
@@ -553,8 +571,19 @@ class TutorPolicy:
                 "El campo difficulty de cada ítem DEBE coincidir con el peldaño "
                 "al que pertenece, y concept_tags DEBE contener el concepto que "
                 "ese ítem mide, escrito igual que aquí. "
+                f"{_RUBRICA_DIFICULTAD} "
                 f"{proposito} "
-                "IMPORTANTE: reparte correct_answer entre A, B, C y D de forma "
+                "Una sola opción correcta: ninguna otra puede ser equivalente o "
+                "defendible. Los distractores salen de errores típicos de quien "
+                "está aprendiendo el tema, no de opciones absurdas. "
+                + (
+                    "NO repitas ni reformules ninguna de estas preguntas ya hechas: "
+                    + " | ".join(t[:160] for t in avoid[:20])
+                    + ". "
+                    if avoid
+                    else ""
+                )
+                + "IMPORTANTE: reparte correct_answer entre A, B, C y D de forma "
                 "equilibrada (no pongas casi todas en A). Sin texto adicional."
             ),
             user=f"Tema {'para practicar' if practica else 'a diagnosticar'}: {plan.topic}",

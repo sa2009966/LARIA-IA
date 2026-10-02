@@ -409,6 +409,7 @@ def get_quiz_service() -> QuizService:
         session_repository=get_session_repo(),
         llm_gate=get_llm_gate(),
         concept_graph_repository=get_concept_graph_repo(),
+        strong_model=settings.OPENAI_MODEL_STRONG,
         analyze_service=get_analyze_service(),
     )
 
@@ -537,4 +538,5 @@ def get_teaching_service() -> "TeachingService":
         quiz_service=get_quiz_service(),
         lesson_generator=cast(LessonGenerator, get_ia_analyst()),
         topic_catalog=TopicCatalog(get_concept_graph_repo()),
+        attempt_repository=get_attempt_repo(),
     )

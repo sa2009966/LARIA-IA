@@ -43,6 +43,17 @@ from src.domain.services.quiz_quality import ensure_quiz_quality
 from src.domain.value_objects.question import Difficulty
 
 
+def repeated_questions(preguntas, previas: tuple[str, ...], umbral: float = 0.75) -> int:
+    """Cuántas preguntas repiten (casi literalmente) una de `previas`."""
+    from difflib import SequenceMatcher
+
+    viejas = [p.lower() for p in previas]
+    return sum(
+        1 for q in preguntas
+        if any(SequenceMatcher(None, q.text.lower(), v).ratio() > umbral for v in viejas)
+    )
+
+
 class QuizService:
     _MSG_PERMISO = "No tienes permiso para operar sobre este quiz"
     _MSG_QUIZ_NO_ENCONTRADO = "Quiz no encontrado"
@@ -65,6 +76,7 @@ class QuizService:
         concept_graph_repository: Optional[ConceptGraphRepository] = None,
         graph_id: str = "default",
         analyze_service=None,
+        strong_model: Optional[str] = None,
     ) -> None:
         self._doc_repo = document_repository
         self._quiz_repo = quiz_repository
@@ -78,6 +90,9 @@ class QuizService:
         self._graph_repo = concept_graph_repository
         # Para asegurar el análisis antes de un quiz sobre un documento (ADR-029).
         self._analyze = analyze_service
+        # Modelo para la ronda avanzada: con el barato, las "difíciles" medían
+        # nivel cognitivo 2.08/3 y la nivelación sobreestimaba (ADR-031).
+        self._strong_model = strong_model
         self._graph_id = graph_id
         self._tagger = ConceptTagger()
         self._context = ContextSelector()
@@ -205,10 +220,46 @@ class QuizService:
                 nivel = PlacementLevel(guardado) if guardado else None
         return graph, nivel
 
+    #: Preguntas recientes del tema que no se deben repetir (ADR-031).
+    _MAX_PREVIAS = 30
+
+    async def _preguntas_previas(self, user_id: UUID, topic: str) -> tuple[str, ...]:
+        """Enunciados de nivelaciones y prácticas anteriores del mismo tema."""
+        try:
+            quizzes = await self._quiz_repo.find_by_owner(user_id)
+        except Exception:  # noqa: BLE001 — sin historial, se genera igual
+            return ()
+        mismos = sorted(
+            (q for q in quizzes if q.document_id is None and q.topic == topic),
+            key=lambda q: q.created_at,
+            reverse=True,
+        )
+        return tuple(p.text for q in mismos for p in q.questions)[: self._MAX_PREVIAS]
+
+    async def _generar_sin_repetir(self, plan, previas: tuple[str, ...]):
+        """Genera pidiendo no repetir; si aun así repite, lo vuelve a intentar una vez.
+
+        Medido: sin esto, un tercio de la ronda avanzada repetía preguntas de la
+        base (14/42), y el estudiante contestaba lo mismo dos veces.
+        """
+        kwargs: dict = {"avoid": previas} if previas else {}
+        if self._strong_model and getattr(plan, "round", None) == PlacementRound.AVANZADA:
+            kwargs["model"] = self._strong_model
+        try:
+            generado = await self._ia_analyst.generate_diagnostic(plan, **kwargs)
+        except TypeError:  # analistas sin `avoid` (dobles de prueba antiguos)
+            return await self._ia_analyst.generate_diagnostic(plan)
+        if previas and repeated_questions(generado.questions, previas) > 0:
+            otra = await self._ia_analyst.generate_diagnostic(plan, **kwargs)
+            if repeated_questions(otra.questions, previas) < repeated_questions(generado.questions, previas):
+                generado = otra
+        return generado
+
     async def _quiz_por_tema(self, plan, user_id: UUID) -> QuizPublicDTO:
         """Genera, etiqueta y guarda un quiz sin documento. Nivelación o práctica:
         lo distingue `plan.round` (None = práctica, que no escribe nivel)."""
-        generated = await self._ia_analyst.generate_diagnostic(plan)
+        previas = await self._preguntas_previas(user_id, plan.topic)
+        generated = await self._generar_sin_repetir(plan, previas)
         questions = ensure_quiz_quality(list(generated.questions))
         # Red de seguridad: el prompt pide concept_tags, pero si el modelo los
         # omite la evidencia se perdería sin que nadie lo note.

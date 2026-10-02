@@ -257,3 +257,44 @@ def test_el_prompt_de_la_leccion_pide_lo_que_decidio_el_backend():
     assert "2-3 frases" in s, "afianzar no repite la introducción"
     assert "pizza de 8 porciones" in s, "no se repite el ejemplo"
     assert "UNA sola opción correcta" in s
+
+
+def test_un_concepto_superado_que_se_olvida_vuelve_como_repaso_antes_de_seguir():
+    from datetime import datetime, timedelta, timezone
+
+    path = _ruta()
+    path.mark_passed("base")
+    perfil = _perfil(base=[1.0] * 4)
+    perfil.mastery_by_concept["base"].last_practiced_at = datetime.now(timezone.utc) - timedelta(days=60)
+
+    paso = TeachingPolicy().next_concept(path, perfil)
+
+    assert (paso.concept, paso.variant) == ("base", LessonVariant.REVIEW)
+
+
+def test_un_concepto_superado_y_reciente_no_se_repasa():
+    path = _ruta()
+    path.mark_passed("base")
+
+    assert TeachingPolicy().due_review(path, _perfil(base=[1.0] * 4)) is None
+
+
+@pytest.mark.asyncio
+async def test_un_segundo_envio_de_la_misma_comprobacion_se_rechaza():
+    """Doble clic o dos pestañas: el segundo no cuenta como otra evidencia."""
+    from unittest.mock import AsyncMock
+
+    from src.application.services.teaching_service import NoPendingCheck, TeachingService
+
+    path = _ruta()
+    quiz_id = uuid4()
+    path.start_teaching("tema", LessonVariant.INTRODUCE)
+    path.deliver_lesson("x", "y", quiz_id)
+    paths, attempts = AsyncMock(), AsyncMock()
+    paths.find_by_id.return_value = path
+    attempts.find_by_quiz.return_value = [object()]  # ya hay un intento
+    servicio = TeachingService(paths, AsyncMock(), AsyncMock(), AsyncMock(), AsyncMock(), AsyncMock(),
+                               attempt_repository=attempts)
+
+    with pytest.raises(NoPendingCheck):
+        await servicio.answer_check(path.owner_id, path.id, quiz_id, {0: "A"})

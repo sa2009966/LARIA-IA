@@ -26,10 +26,12 @@ from src.domain.aggregates.learning_path import (
 )
 from src.domain.aggregates.quiz_aggregate import QuizAggregate
 from src.domain.aggregates.student_profile import StudentProfile
+from src.domain.catalog.prerequisite_seeds import seed_display_labels
 from src.domain.concept_identity import canonicalize_concept
 from src.domain.ports.lesson_generator import LessonGenerator, LessonRequest, SyllabusItem
 from src.domain.ports.repositories import (
     LearningPathRepository,
+    QuizAttemptRepository,
     QuizRepository,
     StudentProfileRepository,
 )
@@ -85,6 +87,7 @@ class TeachingService:
         lesson_generator: LessonGenerator,
         topic_catalog: TopicCatalog,
         policy: TeachingPolicy | None = None,
+        attempt_repository: QuizAttemptRepository | None = None,
     ) -> None:
         self._paths = path_repository
         self._profiles = profile_repository
@@ -93,6 +96,7 @@ class TeachingService:
         self._generator = lesson_generator
         self._topics = topic_catalog
         self._policy = policy or TeachingPolicy()
+        self._attempts = attempt_repository
 
     # --- Ruta -----------------------------------------------------------------------
 
@@ -123,12 +127,13 @@ class TeachingService:
         """Del grafo curricular si cubre el tema; si no, temario del modelo, validado."""
         grafo = await self._topics.graph()
         bases = grafo.all_prerequisites(tema)  # bases primero (orden topológico)
+        nombres = seed_display_labels()
         if bases:
             dentro = set(bases)
             modulos = [
                 {
                     "concept": b,
-                    "title": display_label(b),
+                    "title": display_label(nombres.get(b, b)),
                     "prerequisites": [p for p in grafo.prerequisites_of(b) if p in dentro],
                     "kind": ModuleKind.PREREQUISITE.value,
                     "difficulty": "easy",
@@ -190,8 +195,15 @@ class TeachingService:
             await self._paths.save(path)
             raise AssessmentRequired(path.title)
         if t.phase == TeachingPhase.COMPLETED:
-            await self._paths.save(path)
-            return LessonStep(path, None)
+            # Una ruta completada se reabre si el olvido bajó algo de lo aprendido.
+            repaso = self._policy.due_review(path, perfil)
+            if repaso is None:
+                await self._paths.save(path)
+                return LessonStep(path, None)
+            path.reopen_for_review(
+                repaso, f"Hace un tiempo que no practicas «{path.module(repaso).title if path.module(repaso) else repaso}»: lo repasamos."
+            )
+            t = path.teaching
         if t.phase == TeachingPhase.CHECK and t.pending_check_quiz_id is not None:
             pendiente = await self._quizzes.find_by_id(t.pending_check_quiz_id)
             if pendiente is not None:
@@ -230,6 +242,10 @@ class TeachingService:
         path = await self.get_owned(user_id, path_id)
         t = path.teaching
         if t.phase != TeachingPhase.CHECK or t.pending_check_quiz_id != quiz_id:
+            raise NoPendingCheck(quiz_id)
+        if self._attempts is not None and await self._attempts.find_by_quiz(quiz_id):
+            # Dos envíos casi simultáneos (doble clic, dos pestañas): el segundo
+            # ya no cuenta como otra comprobación ni como más evidencia.
             raise NoPendingCheck(quiz_id)
         # Mismo camino que cualquier quiz: calificación en servidor, evento y
         # projector. La evidencia de la clase NO tiene un sistema propio.

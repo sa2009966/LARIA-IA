@@ -114,3 +114,11 @@ class ExplanationStyleChosenEvent(DomainEventBase):
 
     student_id: UUID
     style: str | None = None
+
+
+@dataclass(kw_only=True)
+class VoiceChosenEvent(DomainEventBase):
+    """El estudiante eligió la voz del tutor (ADR-030). `voice` None = la de por defecto."""
+
+    student_id: UUID
+    voice: str | None = None
