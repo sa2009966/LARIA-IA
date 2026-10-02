@@ -210,6 +210,21 @@ def _adaptacion_sin_material(learner: LearnerContext | None, tema: str | None) -
     return "".join(partes)
 
 
+def _persona(persona: str | None) -> str:
+    """Concordancia de género consigo misma, la de la voz que oye el estudiante (ADR-030)."""
+    if persona == "masculina":
+        return (
+            " Hablas de ti en masculino: eres el tutor (\"soy tu tutor\", \"encantado\", "
+            "\"estoy listo\")."
+        )
+    if persona == "femenina":
+        return (
+            " Hablas de ti en femenino: eres la tutora (\"soy tu tutora\", \"encantada\", "
+            "\"estoy lista\")."
+        )
+    return ""
+
+
 #: Qué significa cada dificultad. Sin esto, medido con un evaluador (gpt-4o), las
 #: "difíciles" tenían nivel cognitivo medio 1.75/3 —casi como las fáciles— y la
 #: nivelación sobreestimaba el nivel (ADR-031).
@@ -384,7 +399,7 @@ class TutorPolicy:
         dificultades = ", ".join(d.value for d in req.check_difficulties)
         return ChatPrompt(
             system=(
-                f"{_IDENTIDAD} Estás dando una clase sobre «{req.topic_label}». El concepto de "
+                f"{_IDENTIDAD}{_persona(req.persona)} Estás dando una clase sobre «{req.topic_label}». El concepto de "
                 f"este paso es «{req.concept_title}» y NO otro: no adelantes temas siguientes. "
                 f"{variante}{estilo}{evitar} "
                 + (f"Nivel del estudiante: {nivel[0]}. {nivel[1]} " if nivel[0] else "")
@@ -498,6 +513,7 @@ class TutorPolicy:
                 "Si el estudiante muestra confusión, aclara con un ejemplo breve sin "
                 "entregar la respuesta completa de un examen."
                 f"{_adaptacion_sin_material(learner, learning_topic)}"
+                f"{_persona(learner.persona if learner else None)}"
             )
         else:
             focus = ", ".join(decision.focus_concepts) or "los conceptos del documento"
@@ -510,7 +526,8 @@ class TutorPolicy:
                 decision.cognitive_style, _STYLE_INSTRUCTIONS[CognitiveStyle.SIMPLE]
             )
             system = (
-                f"Eres LARIA, el tutor adaptativo de Plenum. Modo: {decision.mode.value}. "
+                f"Eres LARIA, el tutor adaptativo de Plenum.{_persona(learner.persona if learner else None)} "
+                f"Modo: {decision.mode.value}. "
                 f"Estilo cognitivo: {decision.cognitive_style.value}. {style} "
                 f"Objetivo: {decision.objective} "
                 f"Dificultad objetivo: {decision.target_difficulty.value}. "

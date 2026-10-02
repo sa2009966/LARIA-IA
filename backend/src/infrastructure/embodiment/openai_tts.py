@@ -10,16 +10,23 @@ from collections.abc import AsyncIterator
 
 import httpx
 
+from src.domain.catalog.voices import voice_gender
 from src.domain.ports.embodiment import AffectState, TextToSpeechPort
 
 logger = logging.getLogger("laria.voz")
 
 API_URL = "https://api.openai.com/v1/audio/speech"
 
-_BASE = (
-    "Eres LARIA, la tutora de Plenum. Habla en español latino neutro, con dicción "
-    "clara y un ritmo pausado de clase, sin sonar robótica ni teatral."
-)
+_BASE = {
+    "femenina": (
+        "Eres LARIA, la tutora de Plenum. Habla en español latino neutro, con dicción "
+        "clara y un ritmo pausado de clase, sin sonar robótica ni teatral."
+    ),
+    "masculina": (
+        "Eres LARIA, el tutor de Plenum. Habla en español latino neutro, con dicción "
+        "clara y un ritmo pausado de clase, sin sonar robótico ni teatral."
+    ),
+}
 _TONO = {
     AffectState.CALM: "Tono sereno y cercano.",
     AffectState.ENCOURAGING: "Tono cálido y animado, como quien confía en el estudiante.",
@@ -44,7 +51,7 @@ class OpenAITextToSpeech(TextToSpeechPort):
             "model": self._model,
             "voice": voice or self._voice,
             "input": text,
-            "instructions": f"{_BASE} {_TONO.get(affect, '')}",
+            "instructions": f"{_BASE[voice_gender(voice or self._voice)]} {_TONO.get(affect, '')}",
             "response_format": "mp3",
         }
 

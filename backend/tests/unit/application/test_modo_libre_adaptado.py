@@ -51,7 +51,9 @@ async def test_sin_nivel_en_el_tema_se_ofrece_nivelarse_como_antes():
 
     r = await servicio.answer(None, "quiero aprender fracciones", uid)
 
-    assert gate.answer_question.await_args.kwargs["learner"] is None
+    learner = gate.answer_question.await_args.kwargs["learner"]
+    # Solo el género de la voz (ADR-030): ni nivel ni estilo que adaptar.
+    assert learner.topic_level is None and learner.style is None and learner.persona == "femenina"
     assert r.envelope.payload["suggest_placement"] is True
     assert "placement_level" not in r.envelope.payload
 

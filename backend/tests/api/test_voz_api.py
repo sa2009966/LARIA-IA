@@ -136,3 +136,9 @@ def test_sin_eleccion_se_usa_la_de_por_defecto_y_null_la_restablece(client, voz)
 def test_una_voz_inexistente_es_422(client, ruta, cuerpo):
     metodo = client.put if ruta.endswith("voice") else client.post
     assert metodo(ruta, headers=_h(client), json=cuerpo).status_code == 422
+
+
+def test_las_voces_traen_frase_de_muestra_por_genero(client):
+    r = client.get("/api/v1/speech/voices", headers=_h(client)).json()
+
+    assert "tu tutor de" in r["sample_texts"]["masculina"] and "tu tutora de" in r["sample_texts"]["femenina"]
