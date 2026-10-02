@@ -4,6 +4,7 @@ from src.domain.aggregates.tutor_interaction import TutorInteractionAggregate
 from src.domain.events.domain_events import (
     ExplanationStyleChosenEvent,
     QuizAttemptCompletedEvent,
+    VoiceChosenEvent,
     TutorQuestionAskedEvent,
 )
 from src.domain.ports.event_bus import EventBus
@@ -113,6 +114,7 @@ class LearningEvidenceProjector:
         await self._event_bus.subscribe(
             ExplanationStyleChosenEvent, self.handle_style_chosen
         )
+        await self._event_bus.subscribe(VoiceChosenEvent, self.handle_voice_chosen)
 
     async def handle_tutor_question(self, event: TutorQuestionAskedEvent) -> None:
         """Unifica ask → perfil (además de la interacción ya guardada en el servicio)."""
@@ -204,6 +206,24 @@ class LearningEvidenceProjector:
             if profile.was_event_applied(event.event_id):
                 return profile
             profile.choose_explanation_style(event.style)
+            profile.mark_event_applied(event.event_id)
+            await self._profile_repo.save(profile)
+            return profile
+
+        await with_concurrency_retry(_persist_profile)
+
+    async def handle_voice_chosen(self, event: VoiceChosenEvent) -> None:
+        """Guarda la voz elegida. Por evento, como toda escritura del perfil (invariante 1)."""
+        if self._profile_repo is None:
+            return
+
+        async def _persist_profile():
+            profile = await self._profile_repo.find_by_student(event.student_id)
+            if profile is None:
+                profile = StudentProfile.create(event.student_id)
+            if profile.was_event_applied(event.event_id):
+                return profile
+            profile.choose_voice(event.voice)
             profile.mark_event_applied(event.event_id)
             await self._profile_repo.save(profile)
             return profile

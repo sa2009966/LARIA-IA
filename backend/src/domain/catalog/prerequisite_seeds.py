@@ -217,3 +217,18 @@ def build_seeded_graph(graph_id: str = "default") -> ConceptGraph:
         for prerequisite in prerequisites:
             graph.curate(concept, prerequisite)
     return graph
+
+
+def seed_display_labels() -> dict[str, str]:
+    """Clave canónica → nombre para mostrar, con sus tildes ("numero entero" → "número entero").
+
+    La clave pierde los acentos a propósito (para que "Fracción" y "fraccion"
+    sean lo mismo); el nombre que ve el estudiante no debería.
+    """
+    from src.domain.concept_identity import canonicalize_concept
+
+    nombres: dict[str, str] = {}
+    for concepto, prereqs in SEED_EDGES.items():
+        for nombre in (concepto, *prereqs):
+            nombres.setdefault(canonicalize_concept(nombre), nombre)
+    return nombres

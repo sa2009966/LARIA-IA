@@ -45,6 +45,7 @@ class TeachingPolicy:
         understood_to_advance: int = 2,
         failures_to_remediate: int = 2,
         gate_min_mastery: float = 0.45,
+        review_below: float = 0.5,
     ) -> None:
         self._completed = mastery_completed
         # Dos comprobaciones seguidas superadas bastan aunque el EMA del mastery
@@ -53,6 +54,7 @@ class TeachingPolicy:
         self._understood_to_advance = understood_to_advance
         self._failures_to_remediate = failures_to_remediate
         self._gate_min_mastery = gate_min_mastery
+        self._review_below = review_below
 
     # --- Lectura del perfil -------------------------------------------------------
 
@@ -72,6 +74,23 @@ class TeachingPolicy:
 
     def _gate(self, path: LearningPathAggregate) -> PrerequisiteGate:
         return PrerequisiteGate(graph=self._graph(path), min_mastery=self._gate_min_mastery)
+
+    def due_review(self, path: LearningPathAggregate, profile: StudentProfile | None) -> str | None:
+        """Un concepto superado en clase cuyo dominio efectivo cayó por el olvido.
+
+        El mastery efectivo ya decae con el tiempo (Ebbinghaus); hasta ahora
+        nadie actuaba sobre eso. Si un concepto superado baja de
+        `review_below`, toca repasarlo antes de seguir: es el que más se aleja
+        de lo que el estudiante sabía (ADR-032).
+        """
+        if profile is None:
+            return None
+        candidatos = [
+            (self._mastery(profile, c), c)
+            for c in path.teaching.passed_concepts
+            if self._measured(profile, c) and self._mastery(profile, c) < self._review_below
+        ]
+        return min(candidatos)[1] if candidatos else None
 
     def needs_teaching(self, path: LearningPathAggregate, profile: StudentProfile | None, m: LearningModule) -> bool:
         """Si un módulo todavía hay que enseñarlo."""
@@ -103,7 +122,15 @@ class TeachingPolicy:
         *,
         exclude: str | None = None,
     ) -> NextStep:
-        """El siguiente concepto de la ruta, con desvío si el gate secuencia."""
+        """El siguiente concepto de la ruta: repaso si algo se olvidó; si no, el siguiente pendiente."""
+        repaso = self.due_review(path, profile)
+        if repaso and repaso != exclude:
+            return NextStep(
+                TeachingPhase.TEACHING,
+                repaso,
+                LessonVariant.REVIEW,
+                reason=f"Hace un tiempo que no practicas «{self._titulo(path, repaso)}»: lo repasamos un momento.",
+            )
         pendientes = [
             m for m in sorted(path.modules, key=lambda x: x.position)
             if m.concept != exclude and self.needs_teaching(path, profile, m)
@@ -227,6 +254,7 @@ _DIFICULTADES = {
     LessonVariant.REMEDIATE: ("easy", "easy"),
     LessonVariant.CONSOLIDATE: ("medium", "hard"),
     LessonVariant.RESUME: ("easy", "medium"),
+    LessonVariant.REVIEW: ("medium", "medium"),
 }
 
 

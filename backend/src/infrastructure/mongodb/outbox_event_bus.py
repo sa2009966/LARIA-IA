@@ -21,6 +21,7 @@ from pymongo import ReturnDocument
 from src.domain.events.domain_events import (
     DomainEvent,
     ExplanationStyleChosenEvent,
+    VoiceChosenEvent,
     QuizAttemptCompletedEvent,
     TutorQuestionAskedEvent,
 )
@@ -31,7 +32,12 @@ from src.infrastructure.mongodb.database import get_database
 logger = logging.getLogger(__name__)
 
 _SUPPORTED = frozenset(
-    {"QuizAttemptCompletedEvent", "TutorQuestionAskedEvent", "ExplanationStyleChosenEvent"}
+    {
+        "QuizAttemptCompletedEvent",
+        "TutorQuestionAskedEvent",
+        "ExplanationStyleChosenEvent",
+        "VoiceChosenEvent",
+    }
 )
 
 #: Cuánto dura una reclamación antes de que otro worker pueda retomar el evento.
@@ -92,6 +98,15 @@ def _serialize(event: DomainEvent) -> dict[str, Any]:
             # Igual que los tres de arriba: producción usa outbox, así que un
             # campo que no viaje aquí deja la feature muerta solo en prod.
             "celebrated_concept": event.celebrated_concept,
+        }
+    if isinstance(event, VoiceChosenEvent):
+        return {
+            "event_type": event.event_type,
+            "event_id": str(event.event_id),
+            "aggregate_id": str(event.aggregate_id),
+            "timestamp": event.timestamp.isoformat(),
+            "student_id": str(event.student_id),
+            "voice": event.voice,
         }
     if isinstance(event, ExplanationStyleChosenEvent):
         return {
@@ -162,6 +177,13 @@ def _deserialize(doc: dict[str, Any]) -> DomainEvent | None:
             answer_length=int(payload.get("answer_length", 0)),
             focus_concepts=tuple(payload.get("focus_concepts") or ()),
             celebrated_concept=payload.get("celebrated_concept"),
+        )
+    if et == "VoiceChosenEvent":
+        return VoiceChosenEvent(
+            event_id=event_id,
+            aggregate_id=UUID(payload["aggregate_id"]),
+            student_id=UUID(payload["student_id"]),
+            voice=payload.get("voice"),
         )
     if et == "ExplanationStyleChosenEvent":
         return ExplanationStyleChosenEvent(

@@ -14,12 +14,14 @@ from tests.conftest import clear_dependency_caches
 class VozFalsa(TextToSpeechPort):
     def __init__(self, falla=False):
         self.recibido = []
+        self.voces = []
         self.falla = falla
 
-    async def stream(self, text, affect):
+    async def stream(self, text, affect, voice=None):
         from src.infrastructure.embodiment.openai_tts import VoiceUnavailable
 
         self.recibido.append((text, affect))
+        self.voces.append(voice)
         if self.falla:
             raise VoiceUnavailable("caída")
         yield b"ID3"
@@ -91,3 +93,46 @@ def test_apagada_es_503_y_config_lo_dice(client, monkeypatch):
 
 def test_sin_sesion_es_401(client):
     assert client.post("/api/v1/speech", json={"text": "Hola."}).status_code == 401
+
+
+def test_hay_tres_voces_masculinas_y_tres_femeninas(client):
+    r = client.get("/api/v1/speech/voices", headers=_h(client)).json()
+
+    generos = [v["gender"] for v in r["voices"]]
+    assert generos.count("masculina") == 3 and generos.count("femenina") == 3
+    assert r["selected"] is None and r["default"] == "coral"
+
+
+def test_elegir_voz_la_guarda_en_el_perfil_y_se_usa(client, voz):
+    h = _h(client)
+
+    assert client.put("/api/v1/speech/voice", headers=h, json={"voice": "cedar"}).json() == {"voice": "cedar"}
+    assert client.get("/api/v1/speech/voices", headers=h).json()["selected"] == "cedar"
+    client.post("/api/v1/speech", headers=h, json={"text": "Hola."})
+    assert voz.voces[-1] == "cedar"
+
+
+def test_la_vista_previa_usa_la_voz_pedida_sin_cambiar_la_elegida(client, voz):
+    h = _h(client)
+    client.put("/api/v1/speech/voice", headers=h, json={"voice": "cedar"})
+
+    client.post("/api/v1/speech", headers=h, json={"text": "Hola.", "voice": "nova"})
+
+    assert voz.voces[-1] == "nova"
+    assert client.get("/api/v1/speech/voices", headers=h).json()["selected"] == "cedar"
+
+
+def test_sin_eleccion_se_usa_la_de_por_defecto_y_null_la_restablece(client, voz):
+    h = _h(client)
+    client.post("/api/v1/speech", headers=h, json={"text": "Hola."})
+    assert voz.voces[-1] == "coral"
+
+    client.put("/api/v1/speech/voice", headers=h, json={"voice": "ash"})
+    client.put("/api/v1/speech/voice", headers=h, json={"voice": None})
+    assert client.get("/api/v1/speech/voices", headers=h).json()["selected"] is None
+
+
+@pytest.mark.parametrize("ruta, cuerpo", [("/api/v1/speech/voice", {"voice": "darth"}), ("/api/v1/speech", {"text": "Hola.", "voice": "darth"})])
+def test_una_voz_inexistente_es_422(client, ruta, cuerpo):
+    metodo = client.put if ruta.endswith("voice") else client.post
+    assert metodo(ruta, headers=_h(client), json=cuerpo).status_code == 422

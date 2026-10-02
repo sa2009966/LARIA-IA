@@ -358,3 +358,25 @@ Recorre este mismo flujo e imprime el mastery antes y después del intento. Si t
 *"El lazo está cerrado"*, la integración que acabas de leer funciona de punta a punta.
 
 Catálogo completo de endpoints: [`endpoints.md`](endpoints.md).
+
+
+## Voces del tutor (ADR-030)
+
+- `GET /api/v1/speech/voices` → `{voices: [{id, label, gender: "masculina"|"femenina", description}], default, selected, sample_text}`. Son 3 masculinas y 3 femeninas.
+- **Vista previa:** `POST /api/v1/speech {"text": sample_text, "voice": id}` (no cambia la elegida).
+- **Elegir:** `PUT /api/v1/speech/voice {"voice": id | null}` (`null` = la de por defecto). Se guarda en el perfil, no en el navegador.
+- `POST /api/v1/speech` sin `voice` ya usa la elegida.
+- Obligatorio por las políticas de OpenAI: junto al selector, avisar de que "la voz es generada por IA".
+
+## Mis clases (ADR-028, ADR-032)
+
+`GET /api/v1/learning/paths` devuelve todas las rutas con su `teaching`. Las
+rutas de una clase son las que traen `topic`; las creadas a mano no.
+
+| Grupo | Condición | Qué mostrar |
+|---|---|---|
+| **En curso** | `teaching.phase` en `teaching`, `check`, `remediation` o `advance` | Título, `teaching.concept_title`, `progress`; botón "Continuar" → `/clase/{id}` |
+| **Pendiente de nivelación** | `phase == "assessment"` | Botón "Hacer la nivelación" |
+| **Completadas** | `phase == "completed"` | Al entrar, `/lesson` puede reabrirla si toca un **repaso** (variante `review`, con `reason`) |
+
+Ordena por `updated_at` descendente.

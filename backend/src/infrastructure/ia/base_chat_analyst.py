@@ -584,14 +584,14 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
         data = await self._chat_json(prompt.system, prompt.user, model=model)
         return self._quiz_desde_json(data)
 
-    async def generate_diagnostic(self, plan, *, model: str | None = None) -> Quiz:
+    async def generate_diagnostic(self, plan, *, model: str | None = None, avoid: tuple[str, ...] = ()) -> Quiz:
         """Diagnóstico de entrada a partir de un tema, sin documento (ADR-016).
 
         Comparte contrato JSON y parseo con `generate_quiz`: lo que cambia es el
         prompt —una escalera de dificultad que el dominio ya decidió— y que aquí
         no hay contenido del que partir, solo un tema.
         """
-        prompt = self._policy.generate_diagnostic(plan)
+        prompt = self._policy.generate_diagnostic(plan, avoid)
         data = await self._chat_json(prompt.system, prompt.user, model=model or self.model)
         return self._quiz_desde_json(data)
 

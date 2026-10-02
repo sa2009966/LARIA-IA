@@ -7,10 +7,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from uuid import UUID
+
+from src.application.services.learning_preferences_service import LearningPreferencesService
+from src.domain.catalog.voices import DEFAULT_VOICE, VOICES, is_voice
 from src.domain.ports.embodiment import AffectState, TextToSpeechPort
 from src.domain.services.speakable import speakable_text
 from src.infrastructure.config import settings
-from src.interfaces.api.dependencies import get_current_user_id, get_text_to_speech
+from src.interfaces.api.dependencies import (
+    get_current_user_id,
+    get_learning_preferences_service,
+    get_text_to_speech,
+)
 from src.interfaces.api.openapi_responses import RESP_401_UNAUTHORIZED, RESP_429_RATE_LIMIT
 
 router = APIRouter(prefix="/speech", tags=["Voz"])
@@ -22,6 +30,9 @@ class SpeechRequest(BaseModel):
     text: Annotated[str, Field(min_length=1, max_length=4000)]
     #: `payload.emotion` del envelope; decide el tono.
     emotion: Literal["calm", "encouraging", "patient", "celebratory"] = "encouraging"
+    #: Voz para esta petición (p. ej. la vista previa). Sin ella, la elegida por el
+    #: estudiante, o la de por defecto.
+    voice: str | None = None
 
 
 class SpeechConfig(BaseModel):
@@ -29,9 +40,53 @@ class SpeechConfig(BaseModel):
     max_chars: int
 
 
+class VoiceItem(BaseModel):
+    id: str
+    label: str
+    gender: Literal["masculina", "femenina"]
+    description: str
+
+
+class VoicesResponse(BaseModel):
+    voices: list[VoiceItem]
+    default: str
+    #: La que eligió el estudiante; `null` = la de por defecto.
+    selected: str | None = None
+    #: Frase para la vista previa de cada voz.
+    sample_text: str = "Hola, soy LARIA, tu tutora de Plenum. Así sonará mi voz en tus clases."
+
+
+class VoiceChoice(BaseModel):
+    voice: str | None = Field(description="Id de `GET /speech/voices`, o `null` para la de por defecto.")
+
+
 @router.get("/config", response_model=SpeechConfig, summary="¿Está disponible la voz?")
 async def speech_config():
     return SpeechConfig(enabled=bool(settings.TTS_ENABLED), max_chars=settings.TTS_MAX_CHARS)
+
+
+@router.get("/voices", response_model=VoicesResponse, summary="Voces disponibles (3 masculinas y 3 femeninas)")
+async def list_voices(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    prefs: Annotated[LearningPreferencesService, Depends(get_learning_preferences_service)],
+):
+    return VoicesResponse(
+        voices=[VoiceItem(id=v.id, label=v.label, gender=v.gender, description=v.description) for v in VOICES],
+        default=DEFAULT_VOICE,
+        selected=await prefs.voice(UUID(current_user_id)),
+    )
+
+
+@router.put("/voice", response_model=VoiceChoice, summary="Elegir la voz del tutor")
+async def choose_voice(
+    body: VoiceChoice,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    prefs: Annotated[LearningPreferencesService, Depends(get_learning_preferences_service)],
+):
+    try:
+        return VoiceChoice(voice=await prefs.choose_voice(UUID(current_user_id), body.voice))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
 
 
 @router.post(
@@ -54,8 +109,9 @@ async def speech_config():
 )
 async def speak(
     body: SpeechRequest,
-    _: Annotated[str, Depends(get_current_user_id)],
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
     tts: Annotated[TextToSpeechPort, Depends(get_text_to_speech)],
+    prefs: Annotated[LearningPreferencesService, Depends(get_learning_preferences_service)],
 ):
     if not settings.TTS_ENABLED:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="La voz no está activada.")
@@ -68,6 +124,9 @@ async def speak(
             detail=f"Manda la respuesta por partes: máximo {settings.TTS_MAX_CHARS} caracteres por petición.",
         )
     afecto = AffectState(body.emotion)
+    if body.voice is not None and not is_voice(body.voice):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Esa voz no existe.")
+    voz = body.voice or await prefs.voice(UUID(current_user_id)) or DEFAULT_VOICE
     stream = getattr(tts, "stream", None)
     if stream is None:  # adaptador sin streaming (el nulo, en pruebas)
         audio = await tts.synthesize(texto, afecto)
@@ -77,7 +136,7 @@ async def speak(
 
     from src.infrastructure.embodiment.openai_tts import VoiceUnavailable
 
-    trozos = stream(texto, afecto)
+    trozos = stream(texto, afecto, voz)
     # Se pide el primer trozo ANTES de responder: si el proveedor falla, el
     # cliente recibe un 503 con JSON en vez de un 200 con un audio cortado.
     try:

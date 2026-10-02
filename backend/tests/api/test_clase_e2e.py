@@ -80,7 +80,7 @@ def entorno():
     app.dependency_overrides[deps.get_teaching_service] = lambda: TeachingService(
         path_repository=deps.get_learning_path_repo(), profile_repository=deps.get_profile_repo(),
         quiz_repository=deps.get_quiz_repo(), quiz_service=quiz_service(), lesson_generator=modelo,
-        topic_catalog=TopicCatalog(),
+        topic_catalog=TopicCatalog(), attempt_repository=deps.get_attempt_repo(),
     )
     with TestClient(app) as c:
         yield c, modelo
@@ -314,3 +314,45 @@ def test_ruta_completa_paso_a_paso_en_un_tema_con_dos_subtemas(entorno):
     assert vistos == ["variables", "bucles"]
     assert final["teaching"]["phase"] == "completed"
     assert set(final["teaching"]["passed_concepts"]) == {"variables", "bucles"}
+
+
+def test_los_titulos_del_grafo_conservan_las_tildes(entorno):
+    c, _ = entorno
+    h = _auth(c)
+    _nivelarse(c, h, "fracciones")
+
+    titulos = [m["title"] for m in _ruta(c, h, "fracciones")["modules"]]
+
+    assert titulos[0] == "Número entero", titulos
+
+
+def test_una_ruta_completada_se_reabre_para_repasar_lo_olvidado(entorno):
+    """Motor (ADR-032): el olvido ya bajaba el mastery efectivo; ahora la clase actúa."""
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+
+    c, modelo = entorno
+    h = _auth(c)
+    _nivelarse(c, h, "python")
+    ruta = _ruta(c, h, "python")
+    for _ in range(4):
+        paso = _leccion(c, h, ruta["id"])
+        if paso["check"] is None:
+            break
+        _comprobar(c, h, ruta["id"], paso["check"], _correctas(paso["check"]))
+    assert _leccion(c, h, ruta["id"])["check"] is None, "ruta completada"
+
+    # Pasan 60 días sin practicar "variables".
+    uid = UUID(c.get("/api/v1/users/me", headers=h).json()["id"])
+    repo = deps.get_profile_repo()
+    perfil = asyncio.run(repo.find_by_student(uid))
+    perfil.mastery_by_concept["variables"].last_practiced_at = datetime.now(timezone.utc) - timedelta(days=60)
+    asyncio.run(repo.save(perfil))
+
+    paso = _leccion(c, h, ruta["id"])
+
+    assert paso["check"] is not None
+    assert paso["path"]["teaching"]["concept"] == "variables"
+    assert paso["path"]["teaching"]["variant"] == "review"
+    assert "repasamos" in paso["path"]["teaching"]["reason"]
+    assert modelo.lecciones[-1].variant.value == "review"
