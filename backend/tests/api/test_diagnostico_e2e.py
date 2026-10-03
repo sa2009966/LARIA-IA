@@ -61,11 +61,14 @@ def _generar_desde_el_plan(plan) -> Quiz:
 
 
 def _correcta(pregunta: dict) -> str:
-    return pregunta["text"].rsplit("⟨", 1)[1].rstrip("⟩")
+    # Las opciones se barajan en el servidor (la correcta no está siempre en la
+    # misma letra): se busca por el TEXTO de la opción, como un estudiante.
+    marca = pregunta["text"].rsplit("⟨", 1)[1].rstrip("⟩")
+    return next(k for k, v in pregunta["options"].items() if v == f"opción {marca}")
 
 
 def _incorrecta(pregunta: dict) -> str:
-    return next(l for l in LETRAS if l != _correcta(pregunta))
+    return next(k for k in pregunta["options"] if k != _correcta(pregunta))
 
 
 @pytest.fixture

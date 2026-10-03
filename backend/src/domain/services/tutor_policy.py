@@ -210,6 +210,19 @@ def _adaptacion_sin_material(learner: LearnerContext | None, tema: str | None) -
     return "".join(partes)
 
 
+def _extension_por_sesion(minutos: int | None) -> str:
+    """Cuánto explica cada paso según la sesión elegida (ADR-033).
+
+    Una sesión corta pide pasos breves (caben más comprobaciones); una larga,
+    explicaciones con más detalle y matices.
+    """
+    if minutos is not None and minutos <= 10:
+        return "50-90 palabras, solo lo esencial"
+    if minutos is not None and minutos >= 30:
+        return "150-250 palabras, con más detalle y algún matiz"
+    return "80-180 palabras"
+
+
 def _persona(persona: str | None) -> str:
     """Concordancia de género consigo misma, la de la voz que oye el estudiante (ADR-030)."""
     if persona == "masculina":
@@ -404,7 +417,11 @@ class TutorPolicy:
                 f"{variante}{estilo}{evitar} "
                 + (f"Nivel del estudiante: {nivel[0]}. {nivel[1]} " if nivel[0] else "")
                 + "Responde SOLO en JSON con las claves: explanation (markdown, "
-                + ("2-3 frases, sin repetir la introducción" if req.variant.value == "consolidate" else "80-180 palabras")
+                + (
+                    "2-3 frases, sin repetir la introducción"
+                    if req.variant.value == "consolidate"
+                    else _extension_por_sesion(req.session_minutes)
+                )
                 + ", sin el ejemplo), example (markdown, un ejemplo concreto y resuelto), "
                 "example_summary (una frase que resuma el ejemplo), check (lista de EXACTAMENTE "
                 f"{len(req.check_difficulties)} preguntas de opción múltiple sobre «{req.concept_title}», "
@@ -415,6 +432,17 @@ class TutorPolicy:
                 "equivalente a ella (p. ej. 3/4 y 9/12, o 0,5 y 1/2)."
             ),
             user=f"Prepara este paso de la clase sobre «{req.concept_title}».",
+        )
+
+    def propose_next_topics(self, topic_label: str, level: str | None) -> ChatPrompt:
+        nivel = _NIVELES.get(level or "", (None, ""))[0]
+        return ChatPrompt(
+            system=(
+                "Recomiendas qué estudiar después. Responde SOLO en JSON con la clave topics: "
+                "una lista de 3 temas (2-5 palabras cada uno, en español) que se apoyan en el "
+                "tema dado o lo amplían, del más directo al más amplio. No repitas el tema."
+            ),
+            user=f"Tema completado: «{topic_label}»." + (f" Nivel alcanzado: {nivel}." if nivel else ""),
         )
 
     def propose_syllabus(self, topic_label: str, level: str | None) -> ChatPrompt:

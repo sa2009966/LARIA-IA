@@ -48,6 +48,7 @@ _MEMORY_BACKENDS = (
 )
 
 _CACHE_NAMES = (
+    "get_study_time_repo",
     "get_clerk_verifier",
     "get_clerk_client",
     "get_google_verifier",

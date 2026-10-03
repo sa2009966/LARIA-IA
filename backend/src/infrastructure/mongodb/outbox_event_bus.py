@@ -21,6 +21,7 @@ from pymongo import ReturnDocument
 from src.domain.events.domain_events import (
     DomainEvent,
     ExplanationStyleChosenEvent,
+    StudyGoalsChosenEvent,
     VoiceChosenEvent,
     QuizAttemptCompletedEvent,
     TutorQuestionAskedEvent,
@@ -37,6 +38,7 @@ _SUPPORTED = frozenset(
         "TutorQuestionAskedEvent",
         "ExplanationStyleChosenEvent",
         "VoiceChosenEvent",
+        "StudyGoalsChosenEvent",
     }
 )
 
@@ -98,6 +100,16 @@ def _serialize(event: DomainEvent) -> dict[str, Any]:
             # Igual que los tres de arriba: producción usa outbox, así que un
             # campo que no viaje aquí deja la feature muerta solo en prod.
             "celebrated_concept": event.celebrated_concept,
+        }
+    if isinstance(event, StudyGoalsChosenEvent):
+        return {
+            "event_type": event.event_type,
+            "event_id": str(event.event_id),
+            "aggregate_id": str(event.aggregate_id),
+            "timestamp": event.timestamp.isoformat(),
+            "student_id": str(event.student_id),
+            "session_minutes": event.session_minutes,
+            "daily_goal_minutes": event.daily_goal_minutes,
         }
     if isinstance(event, VoiceChosenEvent):
         return {
@@ -177,6 +189,14 @@ def _deserialize(doc: dict[str, Any]) -> DomainEvent | None:
             answer_length=int(payload.get("answer_length", 0)),
             focus_concepts=tuple(payload.get("focus_concepts") or ()),
             celebrated_concept=payload.get("celebrated_concept"),
+        )
+    if et == "StudyGoalsChosenEvent":
+        return StudyGoalsChosenEvent(
+            event_id=event_id,
+            aggregate_id=UUID(payload["aggregate_id"]),
+            student_id=UUID(payload["student_id"]),
+            session_minutes=payload.get("session_minutes"),
+            daily_goal_minutes=payload.get("daily_goal_minutes"),
         )
     if et == "VoiceChosenEvent":
         return VoiceChosenEvent(

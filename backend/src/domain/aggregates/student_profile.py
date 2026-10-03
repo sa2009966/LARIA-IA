@@ -369,6 +369,10 @@ class StudentProfile:
     explanation_style_choice: str = ""
     #: Voz del tutor que eligió (ADR-030). Vacío = la de por defecto.
     voice_choice: str = ""
+    #: Minutos por sesión de clase (10/20/30/45); 0 = sin límite (ADR-033).
+    session_minutes: int = 0
+    #: Objetivo diario en minutos (10/15/30/45/60); 0 = sin objetivo.
+    daily_goal_minutes: int = 0
     updated_at: datetime = field(default_factory=_utc_now)
     version: int = 0
 
@@ -489,6 +493,11 @@ class StudentProfile:
     def level_for_topic(self, topic: str) -> str | None:
         """Nivel alcanzado en un tema, o None si nunca se niveló."""
         return self.level_by_topic.get(_norm_concept(topic))
+
+    def choose_study_goals(self, session_minutes: int | None, daily_goal_minutes: int | None) -> None:
+        self.session_minutes = int(session_minutes or 0)
+        self.daily_goal_minutes = int(daily_goal_minutes or 0)
+        self.updated_at = _utc_now()
 
     def choose_voice(self, voice: str | None) -> None:
         self.voice_choice = (voice or "").strip().lower()

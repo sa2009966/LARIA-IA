@@ -182,6 +182,23 @@ def get_chat_repo() -> ChatRepository:
 
 
 @lru_cache(maxsize=1)
+def get_study_time_repo():
+    if settings.DB_PROVIDER == "mongodb":
+        from src.infrastructure.mongodb.study_time_repository import MongoDBStudyTimeRepository
+
+        return MongoDBStudyTimeRepository()
+    from src.infrastructure.persistence.in_memory_study_time_repo import InMemoryStudyTimeRepository
+
+    return InMemoryStudyTimeRepository()
+
+
+def get_study_time_service() -> "StudyTimeService":
+    from src.application.services.study_time_service import StudyTimeService
+
+    return StudyTimeService(get_study_time_repo(), get_event_bus(), get_profile_repo())
+
+
+@lru_cache(maxsize=1)
 def get_learning_path_repo() -> LearningPathRepository:
     if settings.DB_PROVIDER == "mongodb":
         from src.infrastructure.mongodb import MongoDBLearningPathRepository
@@ -329,6 +346,8 @@ def get_account_service() -> "AccountService":
         from src.infrastructure.mongodb.outbox_event_bus import purge_personal_events
 
         purgas.append(purge_personal_events)
+    # Tiempo estudiado por día (ADR-033): dato personal, se borra con la cuenta.
+    purgas.append(get_study_time_repo().delete_by_student)
     return AccountService(
         user_repository=get_user_repo(),
         document_repository=get_document_repo(),

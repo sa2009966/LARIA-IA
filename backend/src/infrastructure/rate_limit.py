@@ -113,6 +113,9 @@ def _match_rule(path: str, method: str) -> tuple[str, int, float] | None:
         return ("ia:lesson", 12, 60.0)
     if method == "POST" and path.rstrip("/") == "/api/v1/learning/paths/from-topic":
         return ("ia:lesson", 12, 60.0)
+    # Tiempo estudiado: un aviso por minuto; margen para varias pestañas.
+    if method == "POST" and path.rstrip("/") == "/api/v1/learning/me/study-time":
+        return ("study-time", 10, 60.0)
     # Voz: una petición por frase, así que el tope es más alto que el del chat.
     if method == "POST" and path.rstrip("/") == "/api/v1/speech":
         return ("ia:tts", 60, 60.0)

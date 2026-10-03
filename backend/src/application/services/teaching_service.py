@@ -38,6 +38,7 @@ from src.domain.ports.repositories import (
 )
 from src.domain.services.cognitive_style import chosen_style
 from src.domain.services.diagnostic_planner import display_label
+from src.domain.services.quiz_quality import ensure_quiz_quality
 from src.domain.services.teaching_policy import (
     NextStep,
     TeachingPolicy,
@@ -68,6 +69,18 @@ class LessonStep:
     path: LearningPathAggregate
     #: El quiz de comprobación del paso; None si la ruta está completada.
     check: QuizAggregate | None
+
+
+@dataclass(frozen=True)
+class NextSuggestion:
+    topic: str
+    label: str
+    #: `advance`: se construye sobre lo aprendido · `level_up`: el mismo tema, más
+    #: arriba · `related`: amplía el tema (propuesto por el modelo).
+    kind: str
+    reason: str
+    #: Si hace falta nivelarse antes (no hay nivel guardado para ese tema).
+    needs_placement: bool
 
 
 @dataclass(frozen=True)
@@ -223,12 +236,14 @@ class TeachingService:
             return_to_title=vuelta.title if vuelta else None,
             avoid_example=t.last_example,
             persona=persona_for(perfil.voice_choice if perfil else None),
+            session_minutes=(perfil.session_minutes or None) if perfil else None,
         )
         leccion = await self._generator.generate_lesson(peticion)
         quiz = QuizAggregate.create(
             None,
             user_id,
-            list(leccion.check),
+            # Barajadas: el modelo ponía la correcta casi siempre en la B.
+            ensure_quiz_quality(list(leccion.check)),
             topic=t.concept,
             topic_label=peticion.concept_title,
         )
@@ -261,6 +276,60 @@ class TeachingService:
         self._apply(path, paso)
         await self._paths.save(path)
         return CheckResult(path, resultado, intento, paso)
+
+    async def next_suggestions(self, user_id: UUID, path_id: UUID) -> list[NextSuggestion]:
+        """Cómo seguir tras una ruta (ADR-034). Hasta 3, sin temas ya completados.
+
+        Del grafo si el tema está en él (lo que se construye sobre lo aprendido);
+        si no, temas que propone el modelo, una sola vez y guardados en la ruta.
+        """
+        path = await self.get_owned(user_id, path_id)
+        perfil = await self._profiles.find_by_student(user_id)
+        hechos = {
+            p.topic for p in await self._paths.find_by_owner(user_id)
+            if p.topic and p.teaching.phase == TeachingPhase.COMPLETED
+        }
+        nivel = perfil.level_for_topic(path.topic) if (perfil and path.topic) else None
+        sugerencias: list[NextSuggestion] = []
+        if nivel != "avanzado" and path.topic:
+            sugerencias.append(
+                NextSuggestion(
+                    path.topic, path.title, "level_up",
+                    f"Vuelve a nivelarte en «{path.title}» para llegar a avanzado.", True,
+                )
+            )
+        grafo = await self._topics.graph()
+        nombres = seed_display_labels()
+        siguientes = [t for t in grafo.successors_of(path.topic) if t not in hechos] if path.topic else []
+        if siguientes:
+            for t in siguientes:
+                etiqueta = display_label(nombres.get(t, t))
+                sugerencias.append(
+                    NextSuggestion(
+                        t, etiqueta, "advance",
+                        f"Se construye sobre «{path.title}», que ya dominas.",
+                        not (perfil and perfil.level_for_topic(t)),
+                    )
+                )
+        elif path.topic:
+            if not path.next_topics:
+                try:
+                    path.next_topics = await self._generator.propose_next_topics(path.title, nivel)
+                    await self._paths.save(path)
+                except Exception:  # noqa: BLE001 — sin propuesta, queda subir de nivel
+                    logger.warning("siguientes_temas_fallo path=%s", path.id)
+            for etiqueta in path.next_topics:
+                clave = await self._topics.canonical(etiqueta)
+                if clave in hechos or clave == path.topic:
+                    continue
+                sugerencias.append(
+                    NextSuggestion(
+                        clave, display_label(etiqueta), "related",
+                        f"Amplía lo que aprendiste en «{path.title}».",
+                        not (perfil and perfil.level_for_topic(clave)),
+                    )
+                )
+        return sugerencias[:3]
 
     async def projected(self, path: LearningPathAggregate, user_id: UUID) -> LearningPathAggregate:
         """La ruta con el mastery del perfil proyectado (y lo no medido como "assumed")."""

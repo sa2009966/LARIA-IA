@@ -1,5 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+
+from typing import TYPE_CHECKING, Optional
+if TYPE_CHECKING:
+    from src.domain.aggregates.study_time import StudyDay
 from uuid import UUID
 
 from src.domain.aggregates.user_aggregate import UserAggregate
@@ -234,3 +237,19 @@ class LearningPathRepository(ABC):
     @abstractmethod
     async def delete(self, path_id: UUID) -> None:
         ...
+
+
+class StudyTimeRepository(ABC):
+    """Tiempo estudiado por día (ADR-033)."""
+
+    @abstractmethod
+    async def get_day(self, student_id: UUID, day) -> Optional["StudyDay"]: ...
+
+    @abstractmethod
+    async def save_day(self, entry: "StudyDay") -> None: ...
+
+    @abstractmethod
+    async def days_since(self, student_id: UUID, since) -> list["StudyDay"]: ...
+
+    @abstractmethod
+    async def delete_by_student(self, student_id: UUID) -> int: ...
