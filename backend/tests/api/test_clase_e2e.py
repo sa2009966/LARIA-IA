@@ -57,6 +57,10 @@ class ModeloFalso:
             ),
         )
 
+    async def propose_next_topics(self, label, level):
+        self.siguientes = getattr(self, "siguientes", 0) + 1
+        return ["Programación orientada a objetos", "Estructuras de datos"]
+
     async def propose_syllabus(self, label, level):
         self.temarios.append(label)
         return [SyllabusItem("Variables"), SyllabusItem("Bucles", ("Variables",))]
@@ -97,11 +101,16 @@ def _auth(c):
 
 
 def _correctas(quiz):
-    return {str(q["index"]): q["text"].rsplit("⟨", 1)[1].rstrip("⟩") for q in quiz["questions"]}
+    # Opciones barajadas en el servidor: se busca por el texto de la opción.
+    return {
+        str(q["index"]): next(k for k, v in q["options"].items() if v == q["text"].rsplit("⟨", 1)[1].rstrip("⟩"))
+        for q in quiz["questions"]
+    }
 
 
 def _fallar(quiz):
-    return {k: ("D" if v != "D" else "C") for k, v in _correctas(quiz).items()}
+    bien = _correctas(quiz)
+    return {str(q["index"]): next(k for k in q["options"] if k != bien[str(q["index"])]) for q in quiz["questions"]}
 
 
 def _nivelarse(c, h, tema, bien=True):
@@ -356,3 +365,52 @@ def test_una_ruta_completada_se_reabre_para_repasar_lo_olvidado(entorno):
     assert paso["path"]["teaching"]["variant"] == "review"
     assert "repasamos" in paso["path"]["teaching"]["reason"]
     assert modelo.lecciones[-1].variant.value == "review"
+
+
+
+def _completar(c, h, ruta_id):
+    for _ in range(8):
+        paso = _leccion(c, h, ruta_id)
+        if paso["check"] is None:
+            return
+        _comprobar(c, h, ruta_id, paso["check"], _correctas(paso["check"]))
+
+
+def test_al_completar_un_tema_del_grafo_sugiere_lo_que_se_construye_encima(entorno):
+    c, _ = entorno
+    h = _auth(c)
+    _nivelarse(c, h, "fracciones")  # nivel intermedio: hay margen para subir
+    ruta = _ruta(c, h, "fracciones")
+    _completar(c, h, ruta["id"])
+
+    s = c.get(f"/api/v1/learning/paths/{ruta['id']}/next", headers=h).json()["suggestions"]
+
+    assert s[0]["kind"] == "level_up" and s[0]["needs_placement"] is True
+    avances = [x for x in s if x["kind"] == "advance"]
+    assert {x["topic"] for x in avances} <= {"razon", "porcentaje", "fraccion algebraica"} and avances
+    assert all(x["needs_placement"] for x in avances), "sin nivel guardado en esos temas"
+    assert len(s) <= 3
+
+
+def test_un_tema_fuera_del_grafo_pide_temas_al_modelo_una_sola_vez(entorno):
+    c, modelo = entorno
+    h = _auth(c)
+    _nivelarse(c, h, "python")
+    ruta = _ruta(c, h, "python")
+    _completar(c, h, ruta["id"])
+
+    s1 = c.get(f"/api/v1/learning/paths/{ruta['id']}/next", headers=h).json()["suggestions"]
+    s2 = c.get(f"/api/v1/learning/paths/{ruta['id']}/next", headers=h).json()["suggestions"]
+
+    relacionados = [x["label"] for x in s1 if x["kind"] == "related"]
+    assert "Programación orientada a objetos" in relacionados
+    assert s1 == s2 and modelo.siguientes == 1, "se guarda: no se vuelve a pedir"
+
+
+def test_las_sugerencias_de_otra_persona_no_existen(entorno):
+    c, _ = entorno
+    h = _auth(c)
+    _nivelarse(c, h, "fracciones")
+    ruta = _ruta(c, h, "fracciones")
+
+    assert c.get(f"/api/v1/learning/paths/{ruta['id']}/next", headers=_auth(c)).status_code == 404

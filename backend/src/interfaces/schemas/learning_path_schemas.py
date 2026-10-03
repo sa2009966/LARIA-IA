@@ -107,3 +107,46 @@ class CheckAnswerResponse(BaseModel):
     next: NextStepResponse
     path: LearningPathResponse
 
+
+
+class StudyGoals(BaseModel):
+    """Duración de sesión y objetivo diario (ADR-033). `null` = sin límite / sin objetivo."""
+
+    session_minutes: Optional[Literal[10, 20, 30, 45]] = None
+    daily_goal_minutes: Optional[Literal[10, 15, 30, 45, 60]] = None
+
+
+class StudyPing(BaseModel):
+    #: Segundos de actividad desde el aviso anterior (se cuentan como mucho 60).
+    seconds: Annotated[int, Field(ge=1, le=120)] = 60
+    #: Zona horaria IANA del navegador ("Europe/Madrid"), para saber qué día es "hoy".
+    timezone: Annotated[Optional[str], Field(max_length=64)] = None
+
+
+class StudyDayItem(BaseModel):
+    date: str
+    minutes: int
+
+
+class StudySummaryResponse(BaseModel):
+    today_minutes: int
+    daily_goal_minutes: Optional[int] = None
+    session_minutes: Optional[int] = None
+    goal_met_today: bool = False
+    #: Días seguidos cumpliendo el objetivo (o estudiando algo, si no hay objetivo).
+    streak_days: int = 0
+    last_7_days: list[StudyDayItem] = []
+
+
+class NextTopicItem(BaseModel):
+    #: Tema para `POST /learning/paths/from-topic` o `/quizzes/diagnostic`.
+    topic: str
+    label: str
+    kind: Literal["advance", "level_up", "related"]
+    reason: str
+    #: true → ofrece primero la nivelación de ese tema.
+    needs_placement: bool
+
+
+class NextTopicsResponse(BaseModel):
+    suggestions: list[NextTopicItem] = []

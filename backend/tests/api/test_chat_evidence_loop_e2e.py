@@ -155,9 +155,11 @@ def test_lo_que_hace_el_alumno_en_el_chat_llega_a_su_perfil(client: TestClient):
     quiz = r.json()
     assert "correct_answer" not in r.text
 
-    # 5. Intento calificado en servidor
+    # 5. Intento calificado en servidor. Opciones barajadas: la correcta ("2")
+    # se busca por su texto, como haría el estudiante.
+    letra = next(k for k, v in quiz["questions"][0]["options"].items() if v == "2")
     r = client.post(
-        f"/api/v1/quizzes/{quiz['id']}/attempts", headers=headers, json={"answers": {"0": "A"}}
+        f"/api/v1/quizzes/{quiz['id']}/attempts", headers=headers, json={"answers": {"0": letra}}
     )
     assert r.status_code == 200, r.text
     intento = r.json()

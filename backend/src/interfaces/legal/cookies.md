@@ -30,6 +30,7 @@ Algunas cookies llevan un sufijo en el nombre (por ejemplo `__session_abc123`); 
 | `laria_voz` | Recordar si prefieres que LARIA lea en voz alta o solo texto | Hasta que lo borras |
 | `theme` | Recordar si prefieres el tema claro, el oscuro o el del sistema | Hasta que lo borras |
 | `laria_nivelacion_ofrecida` | Recordar en qué chats ya te ofrecimos la nivelación, para no repetírtelo. Guarda solo identificadores de chat, nunca su contenido | Hasta que lo borras |
+| `laria_meta_felicitada` | Recordar el último día en que LARIA te felicitó por cumplir tu objetivo diario, para no repetirlo | Hasta que lo borras |
 | `__clerk_environment` | Configuración del inicio de sesión, guardada por Clerk para cargar más rápido | Hasta que lo borras |
 
 Son preferencias y configuración, sin seguimiento. La voz que eliges para LARIA no se guarda aquí, sino en tu cuenta.

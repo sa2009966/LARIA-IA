@@ -127,6 +127,9 @@ class LearningPathAggregate:
     #: Tema canónico de la ruta (clave del nivel en el perfil). Vacío en rutas manuales.
     topic: str = ""
     teaching: TeachingState = field(default_factory=TeachingState)
+    #: Temas para seguir que propuso el modelo (temas fuera del grafo), guardados
+    #: para no pedirlos dos veces (ADR-034).
+    next_topics: list[str] = field(default_factory=list)
 
     @staticmethod
     def create_for_topic(

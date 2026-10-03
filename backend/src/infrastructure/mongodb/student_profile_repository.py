@@ -73,6 +73,8 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             "topic_labels": dict(profile.topic_labels),
             "explanation_style_choice": profile.explanation_style_choice,
             "voice_choice": profile.voice_choice,
+            "session_minutes": profile.session_minutes,
+            "daily_goal_minutes": profile.daily_goal_minutes,
             "pedagogical_memory": {
                 "frequent_misconceptions": list(mem.frequent_misconceptions),
                 "successful_examples": list(mem.successful_examples),
@@ -160,6 +162,8 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             topic_labels=dict(doc.get("topic_labels") or {}),
             explanation_style_choice=doc.get("explanation_style_choice") or "",
             voice_choice=doc.get("voice_choice") or "",
+            session_minutes=int(doc.get("session_minutes") or 0),
+            daily_goal_minutes=int(doc.get("daily_goal_minutes") or 0),
             last_interaction_at=doc.get("last_interaction_at"),
             last_answer_length=int(doc.get("last_answer_length", 0)),
             adaptive_signals=signals,

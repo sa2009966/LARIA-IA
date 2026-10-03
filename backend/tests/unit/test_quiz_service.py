@@ -108,7 +108,8 @@ class TestQuizService:
         assert not hasattr(public.questions[0], "correct_answer")
         stored = await quiz_repo.find_by_id(public.id)
         assert stored is not None
-        assert stored.questions[0].correct_answer == "A"
+        # Opciones barajadas: lo que se conserva es el texto correcto, no la letra.
+        assert stored.questions[0].options[stored.questions[0].correct_answer] == "1"
         event_bus.publish.assert_awaited()
         assert event_bus.publish.await_args.args[0].event_type == "QuizGeneratedEvent"
 

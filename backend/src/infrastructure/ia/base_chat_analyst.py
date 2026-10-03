@@ -389,6 +389,14 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
             check=tuple(preguntas),
         )
 
+    async def propose_next_topics(self, topic_label: str, level: str | None) -> list[str]:
+        prompt = self._policy.propose_next_topics(topic_label, level)
+        data = await self._chat_json(prompt.system, prompt.user, model=self.model)
+        temas = data.get("topics")
+        if not isinstance(temas, list):
+            raise IAAnalysisError(_MSG_RESPUESTA)
+        return [str(t).strip()[:80] for t in temas if str(t).strip()][:3]
+
     async def propose_syllabus(self, topic_label: str, level: str | None) -> list[SyllabusItem]:
         prompt = self._policy.propose_syllabus(topic_label, level)
         data = await self._chat_json(prompt.system, prompt.user, model=self.model)

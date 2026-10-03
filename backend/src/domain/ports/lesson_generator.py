@@ -30,6 +30,8 @@ class LessonRequest:
     avoid_example: str = ""
     #: Género con el que LARIA habla de sí misma (el de su voz, ADR-030).
     persona: str | None = None
+    #: Minutos por sesión que eligió (ADR-033): dimensiona la explicación.
+    session_minutes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,11 @@ class SyllabusItem:
 class LessonGenerator(ABC):
     @abstractmethod
     async def generate_lesson(self, request: LessonRequest) -> Lesson: ...
+
+    async def propose_next_topics(self, topic_label: str, level: str | None) -> list[str]:
+        """Temas para seguir tras completar uno que el grafo no cubre. No abstracto:
+        sin él, solo se sugiere subir de nivel."""
+        return []
 
     @abstractmethod
     async def propose_syllabus(self, topic_label: str, level: str | None) -> list[SyllabusItem]:

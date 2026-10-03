@@ -21,6 +21,8 @@ El responsable del tratamiento de tus datos es **[[COMPLETAR: nombre de la perso
 - Señales sobre **cómo** aprendes: por ejemplo, si sueles pedir ejemplos, si abandonas las explicaciones largas o cuánto tiempo pasa entre tus mensajes.
 - Los errores frecuentes, tu ritmo y el estilo de explicación que mejor te ha funcionado.
 - Cómo prefieres que te expliquen, si lo eliges tú (por ejemplo, paso a paso o con analogías). Puedes cambiarlo o dejar que lo decida el tutor cuando quieras.
+- La voz que eliges para LARIA, tu duración de sesión y tu objetivo diario de estudio, si los eliges.
+- Cuántos minutos estudias cada día (para tu objetivo y tu racha). Solo el tiempo, no qué haces mientras.
 
 **Datos técnicos.**
 - Tu dirección IP, que usamos solo para limitar el número de peticiones y proteger el servicio de abusos. Se guarda durante aproximadamente un minuto.

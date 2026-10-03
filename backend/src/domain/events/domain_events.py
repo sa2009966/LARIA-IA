@@ -122,3 +122,12 @@ class VoiceChosenEvent(DomainEventBase):
 
     student_id: UUID
     voice: str | None = None
+
+
+@dataclass(kw_only=True)
+class StudyGoalsChosenEvent(DomainEventBase):
+    """Duración de sesión y objetivo diario (ADR-033). None = sin límite / sin objetivo."""
+
+    student_id: UUID
+    session_minutes: int | None = None
+    daily_goal_minutes: int | None = None

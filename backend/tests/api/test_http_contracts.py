@@ -461,14 +461,16 @@ class TestHttpContracts:
             assert got.status_code == 200
             for q in got.json().get("questions", []):
                 assert "correct_answer" not in q
+            # Opciones barajadas: la correcta ("3") se busca por su texto.
+            letra = next(k for k, v in body["questions"][0]["options"].items() if v == "3")
             attempt = client.post(
                 f"/api/v1/quizzes/{quiz_id}/attempts",
                 headers=headers,
-                json={"answers": {"0": "A"}},
+                json={"answers": {"0": letra}},
             )
             assert attempt.status_code == 200, attempt.text
             ab = attempt.json()
-            assert ab["questions"][0]["correct_answer"] == "A"
+            assert ab["questions"][0]["correct_answer"] == letra
         finally:
             app.dependency_overrides.pop(deps.get_analyze_service, None)
             app.dependency_overrides.pop(deps.get_quiz_service, None)

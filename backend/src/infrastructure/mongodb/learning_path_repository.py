@@ -110,6 +110,7 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             "created_at": path.created_at,
             "updated_at": path.updated_at,
             "topic": path.topic,
+            "next_topics": list(path.next_topics),
             "teaching": MongoDBLearningPathRepository._teaching_to_doc(path.teaching),
         }
 
@@ -124,6 +125,7 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             created_at=doc["created_at"],
             updated_at=doc["updated_at"],
             topic=doc.get("topic", ""),
+            next_topics=list(doc.get("next_topics") or []),
             teaching=MongoDBLearningPathRepository._teaching_from_doc(doc.get("teaching") or {}),
         )
 
