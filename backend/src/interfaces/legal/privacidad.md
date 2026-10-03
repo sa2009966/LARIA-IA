@@ -1,6 +1,6 @@
 # Política de privacidad
 
-**Versión 2026-09-30.** Esta página explica qué datos guarda Plenum, para qué, con quién los comparte y cómo puedes borrarlos. Está escrita a partir de lo que el sistema hace de verdad, no de una plantilla.
+**Versión 2026-10-02.** Esta página explica qué datos guarda Plenum, para qué, con quién los comparte y cómo puedes borrarlos. Está escrita a partir de lo que el sistema hace de verdad, no de una plantilla.
 
 ## Quién es responsable
 
@@ -8,7 +8,7 @@ El responsable del tratamiento de tus datos es **[[COMPLETAR: nombre de la perso
 
 ## Qué datos guardamos
 
-**Tu cuenta.** Tu nombre de usuario, tu correo electrónico y tu contraseña. La contraseña nunca se guarda tal cual: se guarda cifrada con bcrypt, de forma que ni siquiera nosotros podemos leerla.
+**Tu cuenta.** Tu nombre de usuario, tu correo electrónico (verificado) y el identificador de tu cuenta en Clerk, el servicio que gestiona el inicio de sesión. Tu contraseña la guarda Clerk, cifrada; Plenum no la ve. Las cuentas creadas antes de usar Clerk conservan su contraseña cifrada con bcrypt, que ni siquiera nosotros podemos leer.
 
 **Lo que subes y escribes.**
 - Los documentos que subes: el archivo original y el texto que extraemos de él.
@@ -43,13 +43,13 @@ Para funcionar, Plenum se apoya en estos proveedores. Todos están en **Estados 
 | Proveedor | Para qué | Qué datos recibe |
 |---|---|---|
 | **OpenAI** | Generar las respuestas del tutor, analizar documentos y crear cuestionarios | El texto de tus documentos, tus preguntas, la conversación reciente del chat y el resumen de lo anterior. Si activas la voz, también el texto de las respuestas que pides escuchar (nunca tu voz: Plenum no graba audio) |
-| **Google** (solo si entras con Google) | Confirmar quién eres al iniciar sesión | Nada de Plenum: Google nos envía tu nombre, tu correo y un identificador de tu cuenta, y nosotros no le enviamos ningún dato tuyo |
+| **Clerk** | Gestionar tu cuenta y el inicio de sesión: registro, verificación del correo, contraseña y sesiones | Tu nombre, tu correo, tu contraseña (cifrada), datos técnicos del dispositivo e IP para la seguridad del inicio de sesión. No recibe tus chats, documentos ni tu perfil de aprendizaje |
+| **Google o Microsoft** (solo si entras con ellos) | Confirmar quién eres al iniciar sesión, a través de Clerk | Tu nombre, tu correo y un identificador de tu cuenta, que se envían a Clerk. Plenum no les envía ningún dato tuyo |
 | **Render** (Oregón) | Alojar el servidor de la aplicación | Todo lo que pasa por la aplicación |
 | **MongoDB Atlas** (Virginia) | Guardar tu cuenta, tus chats y tu perfil | Todos los datos descritos arriba, salvo los archivos originales |
 | **Cloudflare R2** | Guardar los archivos originales que subes | Tus documentos originales |
 | **Upstash** (Oregón) | Caché de respuestas y límite de peticiones | Tu IP y respuestas generadas, de forma temporal |
 | **Vercel** (Virginia) | Alojar la página web | Datos técnicos de navegación |
-| **Google Fonts** | Servir una de las tipografías de la web | Tu dirección IP al descargar la fuente |
 
 Sobre OpenAI: según sus condiciones para la API, los datos enviados por esta vía no se usan para entrenar sus modelos. **[[COMPLETAR: verificar con la política vigente de OpenAI antes de publicar]]**.
 
@@ -63,7 +63,7 @@ Sobre OpenAI: según sus condiciones para la API, los datos enviados por esta v�
 ## Tus derechos
 
 - **Ver tus datos.** Tu historial y tu perfil de aprendizaje se pueden consultar dentro de la aplicación. Para una copia completa, escríbenos a **[[COMPLETAR: correo de contacto]]**.
-- **Borrar tu cuenta y todos tus datos.** Puedes hacerlo tú mismo desde la aplicación, confirmando con tu contraseña. Se borran tu cuenta, tus documentos y sus archivos originales, tus chats, cuestionarios, nivelaciones, respuestas y tu perfil de aprendizaje. **No se puede deshacer.** Lo único que queda son las respuestas en caché, que caducan solas en un máximo de 7 días, y los registros técnicos del servidor, que no contienen el contenido de lo que escribiste.
+- **Borrar tu cuenta y todos tus datos.** Puedes hacerlo tú mismo desde la aplicación, confirmando tu identidad. Se borran tu cuenta, tus documentos y sus archivos originales, tus chats, cuestionarios, nivelaciones, respuestas y tu perfil de aprendizaje. **No se puede deshacer.** Lo único que queda son las respuestas en caché, que caducan solas en un máximo de 7 días, y los registros técnicos del servidor, que no contienen el contenido de lo que escribiste.
 - **Corregir tus datos, oponerte o presentar una reclamación:** escríbenos a **[[COMPLETAR: correo de contacto]]**. También puedes acudir a la autoridad de protección de datos de tu país: **[[COMPLETAR: autoridad competente según la jurisdicción]]**.
 
 ## Menores de edad
@@ -72,7 +72,7 @@ Sobre OpenAI: según sus condiciones para la API, los datos enviados por esta v�
 
 ## Seguridad
 
-Todas las comunicaciones viajan cifradas (HTTPS/TLS), también entre nuestros servidores y la base de datos. Las contraseñas se guardan cifradas y exigen al menos 8 caracteres con mayúsculas, minúsculas y números. Solo tú puedes ver tus documentos y tus chats.
+Todas las comunicaciones viajan cifradas (HTTPS/TLS), también entre nuestros servidores y la base de datos. Las contraseñas se guardan cifradas (las gestiona Clerk), el correo se verifica con un código y el inicio de sesión tiene protección contra intentos repetidos y bots. Solo tú puedes ver tus documentos y tus chats.
 
 ## Cambios en esta política
 
