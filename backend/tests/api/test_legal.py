@@ -51,12 +51,17 @@ def test_un_texto_inexistente_es_404(client):
 
 
 def test_el_servidor_no_pone_cookies_como_dice_la_politica(client):
-    """La política de cookies afirma que el servidor no instala ninguna.
+    """La política dice que el servidor de la aplicación no instala cookies: las
+    únicas son las del inicio de sesión de Clerk, que las pone el frontend y el
+    propio Clerk. Antes decía "Plenum no usa cookies", y dejó de ser cierto al
+    entrar Clerk.
 
-    Si alguien añade una, este test falla y obliga a actualizar la política
-    antes de que la promesa deje de ser cierta.
+    Si alguien añade una cookie en el servidor, este test falla y obliga a
+    actualizar la política antes de que la promesa deje de ser cierta.
     """
-    assert "no usa cookies" in client.get("/api/v1/legal/cookies").json()["markdown"]
+    texto = client.get("/api/v1/legal/cookies").json()["markdown"]
+    assert "El servidor de la aplicación no instala cookies" in texto
+    assert "__session" in texto and "Clerk" in texto
 
     s = uuid4().hex[:8]
     email = f"cookie_{s}@example.com"
@@ -76,3 +81,10 @@ def test_el_borrado_de_cuenta_que_promete_la_politica_existe(client):
 
     rutas = client.get("/openapi.json").json()["paths"]
     assert "delete" in rutas.get("/api/v1/users/me", {})
+
+
+def test_la_politica_de_privacidad_nombra_a_clerk_y_no_a_google_fonts(client):
+    texto = client.get("/api/v1/legal/privacidad").json()["markdown"]
+
+    assert "**Clerk**" in texto
+    assert "Google Fonts" not in texto, "la web ya sirve sus fuentes desde su dominio"

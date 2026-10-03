@@ -21,6 +21,7 @@ from src.infrastructure.config import (
 )
 from src.infrastructure.logging_setup import configure_logging
 from src.infrastructure.rate_limit import RateLimitMiddleware
+from src.infrastructure.compression import SelectiveGZipMiddleware
 from src.infrastructure.security_headers import SecurityHeadersMiddleware
 from src.infrastructure.request_logging import RequestLoggingMiddleware
 from src.interfaces.api.routers import auth, chats, documents, learning, legal, quizzes, speech, users
@@ -198,6 +199,7 @@ app = FastAPI(
 
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(SelectiveGZipMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,

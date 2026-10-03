@@ -1,0 +1,23 @@
+# Mantiene despierto el backend de Render (plan gratuito).
+#
+# Render duerme el servicio tras 15 minutos sin tráfico, y la primera visita
+# después tardaba 30-50 s en despertarlo: la lentitud más grande en móviles, y
+# no dependía del frontend. Un ping cada 10 minutos lo evita. Cabe en las 750 h
+# gratuitas al mes de Render (un servicio 24/7 son ~720 h).
+#
+# OJO: GitHub solo ejecuta workflows programados desde la rama por defecto
+# (main). Hasta que este archivo llegue a main no hace nada.
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Despertar el backend
+        run: curl -fsS --max-time 90 https://laria-ia.onrender.com/health
