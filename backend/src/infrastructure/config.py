@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     #: Umbrales de la política (0-1). El resto vive en SafetyThresholds.
     MODERATION_ILLICIT: float = 0.5
     MODERATION_SELF_HARM: float = 0.5
+    #: Temario intermedio/avanzado investigado en internet (ADR-039). Apagado = el del modelo.
+    WEB_RESEARCH_ENABLED: bool = True
+    #: Modelo con búsqueda web: con gpt-4o-mini la búsqueda no devolvía citas.
+    OPENAI_MODEL_RESEARCH: str = "gpt-4o"
 
     # Seguridad JWT
     SECRET_KEY: str = ""

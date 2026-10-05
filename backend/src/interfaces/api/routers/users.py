@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.application.services.user_service import UserService
 from src.domain.aggregates.user_aggregate import UserAggregate
+from src.domain.ports.repositories import UserRepository
 from src.interfaces.api.openapi_responses import (
     RESP_401_UNAUTHORIZED,
     RESP_403_FORBIDDEN,
@@ -15,6 +16,7 @@ from src.interfaces.api.dependencies import (
     get_google_verifier,
     get_account_service,
     get_current_user,
+    get_user_repo,
     get_user_service,
     require_admin,
 )
@@ -42,6 +44,8 @@ def _map(user) -> UserResponse:
             else "google" if getattr(user, "google_sub", None)
             else getattr(user, "auth_provider", "password")
         ),
+        # Solo el agregado lo sabe; un DTO sin el campo se trata como ya visto.
+        onboarding_completed=getattr(user, "onboarding_completed_at", True) is not None,
     )
 
 
@@ -61,6 +65,25 @@ def _map(user) -> UserResponse:
 async def get_me(
     current_user: Annotated[UserAggregate, Depends(get_current_user)],
 ):
+    return _map(current_user)
+
+
+@router.post(
+    "/me/onboarding",
+    response_model=UserResponse,
+    summary="Marcar el tutorial de bienvenida como visto",
+    description=(
+        "Se llama al terminar o saltar el tutorial (ADR-038). Idempotente. Desde entonces "
+        "`GET /users/me` trae `onboarding_completed: true` en cualquier dispositivo."
+    ),
+    responses={**RESP_401_UNAUTHORIZED},
+)
+async def complete_onboarding(
+    current_user: Annotated[UserAggregate, Depends(get_current_user)],
+    repo: Annotated[UserRepository, Depends(get_user_repo)],
+):
+    current_user.complete_onboarding()
+    await repo.save(current_user)
     return _map(current_user)
 
 

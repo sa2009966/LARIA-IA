@@ -199,6 +199,8 @@ def _map_module(m) -> LearningModuleResponse:
         position=m.position,
         kind=m.kind.value if hasattr(m, "kind") else "content",
         tier=m.tier or None,
+        key_points=list(m.key_points),
+        sources=[{"title": f.get("title", ""), "url": f.get("url", "")} for f in m.sources],
     )
 
 

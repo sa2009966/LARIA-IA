@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Sequence
 from src.domain.ports.chat_title_generator import TitleMessage
 from src.domain.services.adaptive_policy import PromptShapingParameters
 from src.domain.services.cognitive_style import CognitiveStyle
+from src.domain.services.repetition import anti_repetition_instruction
 from src.domain.services.learner_context import STYLE_OPTIONS, LearnerContext
 from src.domain.services.pedagogical_engine import PedagogicalDecision, PedagogicalMode
 from src.domain.services.prerequisite_graph import GateAction
@@ -433,12 +434,21 @@ class TutorPolicy:
             variante += " Retoma el tema conectándolo con la base que acaba de repasar."
         estilo = f" Forma de explicar que prefiere: {_STYLE_INSTRUCTIONS[req.style]}" if req.style else ""
         evitar = f" No reutilices este ejemplo anterior: «{req.avoid_example}»." if req.avoid_example else ""
+        # Ideas clave de fuentes reales (ADR-039): la clase se apoya en ellas, así el
+        # contenido intermedio o avanzado no sale solo de la memoria del modelo.
+        referencia = (
+            " Basa la explicación en estas ideas clave, tomadas de fuentes educativas: "
+            + "; ".join(req.key_points[:6])
+            + ". Explícalas con tus palabras; no inventes datos que las contradigan."
+            if req.key_points
+            else ""
+        )
         dificultades = ", ".join(d.value for d in req.check_difficulties)
         return ChatPrompt(
             system=(
                 f"{_IDENTIDAD}{_persona(req.persona)} Estás dando una clase sobre «{req.topic_label}». El concepto de "
                 f"este paso es «{req.concept_title}» y NO otro: no adelantes temas siguientes. "
-                f"{variante}{estilo}{evitar} "
+                f"{variante}{estilo}{evitar}{referencia} "
                 + (f"Nivel del estudiante: {nivel[0]}. {nivel[1]} " if nivel[0] else "")
                 + "Responde SOLO en JSON con las claves: explanation (markdown, "
                 + (
@@ -494,6 +504,61 @@ class TutorPolicy:
                 f"Tema: «{topic_label}»."
                 + (f" Nivel del estudiante: {nivel}." if nivel else "")
                 + (tramo or " Empieza por lo que hace falta para entender el resto.")
+            ),
+        )
+
+    def research_curriculum(
+        self, topic_label: str, level: str, avoid: tuple[str, ...] = ()
+    ) -> ChatPrompt:
+        """Paso 1 del temario investigado (ADR-039): buscar y citar, en prosa.
+
+        En prosa y no en JSON: pidiendo JSON el modelo dejaba de citar y escribía URLs
+        inventadas ("https://www.uteg.edu.ec/.../Algebra-Intermedia.pdf"). Las fuentes
+        se toman de las citas de la búsqueda, nunca del texto.
+        """
+        nivel = _NIVELES.get(level, (level, ""))[0]
+        vistos = f" Ya vio: {'; '.join(avoid[:30])}." if avoid else ""
+        return ChatPrompt(
+            system=(
+                "Investigas currículos para un tutor de estudiantes de secundaria y "
+                "universidad. Busca en internet temarios de curso (universidades, "
+                "ministerios de educación, bachillerato) y recursos educativos fiables. "
+                "Responde en español, citando las fuentes que uses."
+            ),
+            user=(
+                f"¿Qué subtemas se enseñan de «{topic_label}» a nivel {nivel}?{vistos} "
+                "Resume entre 5 y 8 subtemas que vayan después de lo ya visto, en orden de "
+                "enseñanza, con 3 a 5 ideas clave cada uno, citando de qué fuente sale cada uno."
+            ),
+        )
+
+    def structure_research(
+        self,
+        topic_label: str,
+        level: str,
+        research: str,
+        sources: list[tuple[str, str]],
+        avoid: tuple[str, ...] = (),
+    ) -> ChatPrompt:
+        """Paso 2 (ADR-039): la investigación → temario en JSON, citando por número."""
+        nivel = _NIVELES.get(level, (level, ""))[0]
+        lista = "\n".join(f"[{i}] {titulo} — {url}" for i, (titulo, url) in enumerate(sources, 1))
+        vistos = f" No incluyas lo ya visto: {'; '.join(avoid[:30])}." if avoid else ""
+        return ChatPrompt(
+            system=(
+                "Conviertes una investigación en un temario. Responde SOLO en JSON con la "
+                "clave modules: lista de 5 a 8 subtemas en orden de enseñanza, cada uno con "
+                "title (2-6 palabras, en español), prerequisites (títulos de subtemas "
+                "ANTERIORES de esta lista), key_points (3 a 5 ideas clave, una frase cada "
+                "una, fieles a la investigación; fórmulas en texto plano como b^2 - 4ac, "
+                "sin LaTeX ni saltos de línea) y sources (números de la lista de fuentes "
+                "que respaldan ese subtema; solo números de la lista). No inventes fuentes."
+            ),
+            user=(
+                f"Tema: «{topic_label}». Nivel: {nivel}.{vistos}\n\n"
+                f"Investigación:\n{research[:8000]}\n\nFuentes:\n{lista}\n\n"
+                # La API exige la palabra JSON en la entrada para el formato json_object.
+                "Devuelve el temario en JSON."
             ),
         )
 
@@ -615,6 +680,15 @@ class TutorPolicy:
                 f"{system} Tienes la conversación reciente: úsala para dar "
                 "continuidad —a qué se refiere el estudiante, cómo se llama, qué ya "
                 "le explicaste— sin repetir lo que ya dijiste."
+                # Qué está haciendo el estudiante respecto a lo anterior (ADR-040).
+                f"{anti_repetition_instruction(question, history)}"
+            )
+        if learner is not None and learner.avoid_reply:
+            # Segundo intento: la primera respuesta salió casi igual a una anterior.
+            system = (
+                f"{system} Ibas a responder casi lo mismo que ya dijiste "
+                f"(«{' '.join(learner.avoid_reply.split()[:25])}…»). Escribe una respuesta "
+                "distinta: otro enfoque, otros ejemplos y otra forma de empezar."
             )
         return ChatPrompt(
             system=system,

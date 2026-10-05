@@ -28,11 +28,13 @@ class LearnerContext:
     style_just_chosen: bool = False
     #: Género con el que LARIA habla de sí misma: el de la voz elegida (ADR-030).
     persona: str | None = None
+    #: Respuesta que salió casi igual a una anterior y se está regenerando (ADR-040).
+    avoid_reply: str = ""
 
     def __bool__(self) -> bool:
         return bool(
             self.style or self.topic_level or self.levels or self.ask_style or self.style_just_chosen
-            or self.persona
+            or self.persona or self.avoid_reply
         )
 
 
