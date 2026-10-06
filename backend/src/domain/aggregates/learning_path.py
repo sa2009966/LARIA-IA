@@ -111,6 +111,10 @@ class LearningModule:
     kind: ModuleKind = ModuleKind.CONTENT
     #: Tramo al que pertenece (ADR-037). Vacío en rutas manuales.
     tier: str = ""
+    #: Ideas clave y fuentes reales del módulo (ADR-039), si su temario se investigó.
+    key_points: list[str] = field(default_factory=list)
+    #: `{"title", "url"}` de cada fuente: lo que se muestra al estudiante.
+    sources: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -178,6 +182,8 @@ class LearningPathAggregate:
                     position=len(path.modules),
                     kind=ModuleKind(m.get("kind", ModuleKind.CONTENT)),
                     tier=tier or "",
+                    key_points=list(m.get("key_points") or []),
+                    sources=list(m.get("sources") or []),
                 )
             )
             vistos.add(concept)
@@ -242,6 +248,8 @@ class LearningPathAggregate:
                     position=len(self.modules) + len(nuevos),
                     kind=ModuleKind(m.get("kind", ModuleKind.CONTENT)),
                     tier=tier,
+                    key_points=list(m.get("key_points") or []),
+                    sources=list(m.get("sources") or []),
                 )
             )
             vistos.add(concept)

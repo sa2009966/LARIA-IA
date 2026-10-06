@@ -32,6 +32,7 @@ class MongoDBUserRepository(UserRepository):
             "email_verified": user.email_verified,
             "google_sub": user.google_sub,
             "clerk_user_id": user.clerk_user_id,
+            "onboarding_completed_at": user.onboarding_completed_at,
         }
 
     @staticmethod
@@ -48,6 +49,9 @@ class MongoDBUserRepository(UserRepository):
             email_verified=bool(doc.get("email_verified", False)),
             google_sub=doc.get("google_sub"),
             clerk_user_id=doc.get("clerk_user_id"),
+            # Sin la clave = cuenta anterior al tutorial (ADR-038): ya conoce Plenum, no
+            # se le muestra. Una cuenta nueva guarda None explícito y sí lo ve.
+            onboarding_completed_at=doc.get("onboarding_completed_at", doc["created_at"]),
         )
         return user
 

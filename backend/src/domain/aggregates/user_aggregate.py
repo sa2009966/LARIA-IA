@@ -43,6 +43,9 @@ class UserAggregate:
     #: Usuario de Clerk vinculado (`user_…`, ADR-027). Clerk dice QUIÉN es;
     #: nuestro `id` sigue siendo la clave de chats, perfil y documentos.
     clerk_user_id: str | None = None
+    #: Cuándo terminó (o saltó) el tutorial de bienvenida (ADR-038). None = aún no.
+    #: Va en la cuenta, no en el navegador: no reaparece en otro dispositivo.
+    onboarding_completed_at: datetime | None = None
 
     def has_password(self) -> bool:
         return not self.hashed_password.startswith(UNUSABLE_PASSWORD)
@@ -122,6 +125,11 @@ class UserAggregate:
             UserRegisteredEvent(aggregate_id=user.id, email=email)
         )
         return user
+
+    def complete_onboarding(self) -> None:
+        """Idempotente: se guarda la primera vez; repetirlo no mueve la fecha."""
+        if self.onboarding_completed_at is None:
+            self.onboarding_completed_at = _utc_now()
 
     def deactivate(self) -> None:
         if not self.is_active:

@@ -34,6 +34,9 @@ abre la próxima prueba de paso, o `null` en avanzado o en rutas manuales).
 - Si la prueba sube el nivel, la siguiente llamada a `POST /learning/paths/from-topic` o a
   `/paths/{id}/lesson` **abre el tramo**: módulos nuevos al final, y la clase sigue en el primero.
 - `progress` cuenta toda la ruta. Para el progreso del tramo, filtra los módulos por `tier`.
+- En los tramos `intermedio` y `avanzado`, cada módulo trae `key_points` (ideas clave) y `sources`
+  (`[{"title", "url"}]`, fuentes reales de la búsqueda web, [ADR-039](adr/ADR-039-temario-investigado.md)).
+  Pueden venir vacíos si la búsqueda falló. Abrir un tramo que nadie investigó antes tarda 15–25 s.
 
 Captura (tests e2e, modelo de prueba): tramo básico completado →
 

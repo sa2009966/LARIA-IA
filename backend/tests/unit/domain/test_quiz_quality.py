@@ -23,10 +23,13 @@ class TestQuizQuality:
         assert is_answer_key_skewed(qs) is True
 
     def test_reequilibra_claves(self):
-        qs = [_q("A", "p1"), _q("A", "p2"), _q("A", "p3"), _q("A", "p4")]
+        # Desde ADR-035 se baraja al azar: con 4 preguntas, que una letra salga 3 veces
+        # pasa un 20 % de las veces (este test fallaba así). Lo que se protege es que no
+        # haya sesgo de letra: con 400 preguntas todas en "A", ninguna letra pasa del 35 %.
+        qs = [_q("A", f"p{i}") for i in range(400)]
         balanced = ensure_quiz_quality(qs)
         dist = answer_key_distribution(balanced)
-        assert max(dist.values()) <= 2
+        assert max(dist.values()) <= 140
         # El texto de la opción correcta se conserva (valor semántico).
         for original, fixed in zip(qs, balanced):
             assert fixed.options[fixed.correct_answer] == original.options[original.correct_answer]

@@ -1,4 +1,5 @@
 """Servicio de tutoría para chats: orquesta el motor pedagógico o el modo libre."""
+import logging
 from dataclasses import dataclass, replace
 from typing import Optional
 from uuid import UUID
@@ -17,6 +18,7 @@ from src.domain.services.adaptive_policy import AdaptationParameters
 from src.domain.catalog.voices import persona_for
 from src.domain.services.affect_policy import AffectPolicy
 from src.domain.services.content_safety import SafetyAction, safety_message
+from src.domain.services.repetition import repeats_recent
 from src.domain.services.cognitive_style import CognitiveStyle, chosen_style, style_requested_in
 from src.domain.services.intent_detector import IntentDetector, TutorIntent
 from src.domain.services.learner_context import (
@@ -37,6 +39,9 @@ from src.domain.services.response_envelope import (
     plain_envelope,
 )
 from src.domain.ports.embodiment import AffectState
+
+
+logger = logging.getLogger("laria.tutor")
 
 
 def _control_flow_payload(adaptation: AdaptationParameters) -> dict:
@@ -347,15 +352,22 @@ class ChatTutorService:
         if self._llm_gate is None:
             raise ValueError("LLM gate no configurado para chats libres")
         learner = await self._learner(profile, intention, question, eleccion)
-        content = await self._llm_gate.answer_question(
+        pedido = dict(
             context="",
             question=question,
             decision=None,
             learning_topic=_tema_a_ofrecer(intention),
             history=history,
             quiz_request=_cuestionario_pedido(intention),
-            learner=learner,
         )
+        content = await self._llm_gate.answer_question(**pedido, learner=learner)
+        if repeats_recent(content, history):
+            # Casi igual a una respuesta reciente (ADR-040): un segundo intento que
+            # sabe qué no repetir. Solo uno: si vuelve a salir parecida, se entrega.
+            logger.info("respuesta_repetida regenerada=si")
+            content = await self._llm_gate.answer_question(
+                **pedido, learner=replace(learner or LearnerContext(), avoid_reply=content)
+            )
         affect = self._affect.select(profile, None)
         envelope = ResponseEnvelope.from_decision(
             None,
@@ -457,6 +469,9 @@ class ChatTutorService:
         ):
             content += token
             yield token, None
+        if repeats_recent(content, history):
+            # En streaming ya se mostró: solo se mide (ADR-040). La prevención va en el prompt.
+            logger.info("respuesta_repetida regenerada=no streaming=si")
 
         # Envelope final (tras el streaming) para que el cliente cierre.
         envelope = ResponseEnvelope.from_decision(

@@ -40,6 +40,8 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             "position": m.position,
             "kind": m.kind.value,
             "tier": m.tier,
+            "key_points": list(m.key_points),
+            "sources": list(m.sources),
         }
 
     @staticmethod
@@ -55,6 +57,8 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             position=int(d.get("position", 0)),
             kind=ModuleKind(d.get("kind", ModuleKind.CONTENT.value)),
             tier=d.get("tier", ""),
+            key_points=list(d.get("key_points") or []),
+            sources=list(d.get("sources") or []),
         )
 
     @staticmethod

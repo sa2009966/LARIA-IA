@@ -23,6 +23,11 @@ class LearningPathCreateRequest(BaseModel):
     modules: list[ModuleCreateItem] = []
 
 
+class SourceResponse(BaseModel):
+    title: str
+    url: str
+
+
 class LearningModuleResponse(BaseModel):
     id: str
     title: str
@@ -36,6 +41,10 @@ class LearningModuleResponse(BaseModel):
     kind: Literal["content", "prerequisite"] = "content"
     #: Tramo del módulo (ADR-037): `basico` · `intermedio` · `avanzado`. null en rutas manuales.
     tier: Optional[Literal["basico", "intermedio", "avanzado"]] = None
+    #: Ideas clave del módulo según fuentes reales (ADR-039). Vacío si no se investigó.
+    key_points: list[str] = []
+    #: Fuentes verificadas de la búsqueda web: `{"title", "url"}`. Muéstralas en la clase.
+    sources: list[SourceResponse] = []
 
 
 class TeachingStateResponse(BaseModel):

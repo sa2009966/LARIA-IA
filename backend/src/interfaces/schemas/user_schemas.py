@@ -48,6 +48,8 @@ class UserResponse(BaseModel):
     has_password: bool = True
     #: `password` · `google` · `clerk` (ADR-027).
     auth_provider: str = "password"
+    #: Si ya vio el tutorial de bienvenida (ADR-038). `false` = mostrarlo al entrar.
+    onboarding_completed: bool = True
 
     model_config = {"from_attributes": True}
 

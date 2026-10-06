@@ -579,4 +579,34 @@ def get_teaching_service() -> "TeachingService":
         topic_catalog=TopicCatalog(get_concept_graph_repo()),
         attempt_repository=get_attempt_repo(),
         safety=get_content_safety(),
+        research=get_curriculum_research(),
     )
+
+
+@lru_cache(maxsize=1)
+def get_curriculum_research() -> "CurriculumResearchService":
+    """Temario intermedio/avanzado investigado en internet (ADR-039), con caché global."""
+    from src.application.services.curriculum_research_service import CurriculumResearchService
+
+    if settings.DB_PROVIDER == "mongodb":
+        from src.infrastructure.mongodb.curriculum_research_repository import (
+            MongoDBCurriculumResearchRepository,
+        )
+
+        repo = MongoDBCurriculumResearchRepository()
+    else:
+        from src.infrastructure.persistence.in_memory_curriculum_research_repo import (
+            InMemoryCurriculumResearchRepository,
+        )
+
+        repo = InMemoryCurriculumResearchRepository()
+    investigador = None
+    if settings.WEB_RESEARCH_ENABLED and settings.OPENAI_API_KEY:
+        from src.infrastructure.openai.web_researcher import OpenAIWebResearcher
+
+        investigador = OpenAIWebResearcher(
+            settings.OPENAI_API_KEY,
+            research_model=settings.OPENAI_MODEL_RESEARCH,
+            structure_model=settings.OPENAI_MODEL_DEFAULT or settings.OPENAI_MODEL,
+        )
+    return CurriculumResearchService(investigador, repo)

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from src.application.dto.quiz_dto import QuizAttemptResultDTO
+from src.application.services.curriculum_research_service import CurriculumResearchService
 from src.application.services.quiz_service import QuizService
 from src.application.services.topic_catalog import TopicCatalog
 from src.domain.aggregates.learning_path import (
@@ -106,6 +107,7 @@ class TeachingService:
         policy: TeachingPolicy | None = None,
         attempt_repository: QuizAttemptRepository | None = None,
         safety=None,
+        research: CurriculumResearchService | None = None,
     ) -> None:
         self._paths = path_repository
         self._profiles = profile_repository
@@ -118,6 +120,8 @@ class TeachingService:
         # Filtro de temas (ADR-036). También al dar cada paso: así una ruta creada antes
         # del filtro ("Hacer un arma") deja de generar clases.
         self._safety = safety
+        # Temario intermedio y avanzado desde fuentes reales de internet (ADR-039).
+        self._research = research
 
     # --- Ruta -----------------------------------------------------------------------
 
@@ -182,12 +186,36 @@ class TeachingService:
                 }
             )
             return modulos
+        return await self._temario(tema, etiqueta, nivel) or [
+            {"concept": tema, "title": etiqueta, "prerequisites": [], "kind": ModuleKind.CONTENT.value}
+        ]
+
+    async def _temario(
+        self,
+        tema: str,
+        etiqueta: str,
+        nivel: str | None,
+        avoid: tuple[str, ...] = (),
+        existentes: frozenset[str] = frozenset(),
+    ) -> list[dict]:
+        """Módulos de un temario: investigado en internet si el nivel lo pide (ADR-039);
+        si no hay investigación o no aporta nada nuevo, el del modelo. [] si ninguno sirve."""
+        if self._research is not None:
+            investigado = await self._research.syllabus(tema, etiqueta, nivel, avoid)
+            if investigado:
+                modulos = validate_syllabus(investigado, tema, etiqueta, existentes, fallback=False)
+                if modulos:
+                    return modulos
         try:
-            temario = await self._generator.propose_syllabus(etiqueta, nivel)
-        except Exception:  # noqa: BLE001 — sin temario se enseña el tema entero
-            logger.warning("temario_fallo tema=%s", tema)
-            temario = []
-        return validate_syllabus(temario, tema, etiqueta)
+            temario = (
+                await self._generator.propose_syllabus(etiqueta, nivel, avoid=avoid)
+                if avoid
+                else await self._generator.propose_syllabus(etiqueta, nivel)
+            )
+        except Exception:  # noqa: BLE001 — quien llama decide qué hacer sin temario
+            logger.warning("temario_fallo tema=%s nivel=%s", tema, nivel)
+            return []
+        return validate_syllabus(temario, tema, etiqueta, existentes, fallback=False)
 
     async def _sync_tiers(self, path: LearningPathAggregate, perfil: StudentProfile | None) -> None:
         """Abre el tramo siguiente si la nivelación subió el nivel del tema (ADR-037).
@@ -205,15 +233,15 @@ class TeachingService:
         tramo = self._policy.tier_to_open(path, perfil)
         if tramo is None:
             return
-        existentes = tuple(m.title for m in path.modules)
-        try:
-            temario = await self._generator.propose_syllabus(path.title, tramo, avoid=existentes)
-        except Exception:  # noqa: BLE001 — sin temario no se abre; se reintenta luego
-            logger.warning("tramo_fallo path=%s tramo=%s", path.id, tramo)
-            return
-        modulos = validate_syllabus(
-            temario, path.topic, path.title, existentes={m.concept for m in path.modules}
+        modulos = await self._temario(
+            path.topic,
+            path.title,
+            tramo,
+            avoid=tuple(m.title for m in path.modules),
+            existentes=frozenset(m.concept for m in path.modules),
         )
+        # Sin temario (el modelo falló o nada era nuevo) el tramo no se abre: se
+        # reintenta en la próxima petición.
         if not path.open_tier(tramo, modulos):
             logger.warning("tramo_vacio path=%s tramo=%s", path.id, tramo)
             return
@@ -292,6 +320,7 @@ class TeachingService:
             avoid_example=t.last_example,
             persona=persona_for(perfil.voice_choice if perfil else None),
             session_minutes=(perfil.session_minutes or None) if perfil else None,
+            key_points=tuple(modulo.key_points) if modulo else (),
         )
         leccion = await self._generator.generate_lesson(peticion)
         quiz = QuizAggregate.create(
@@ -406,6 +435,7 @@ def validate_syllabus(
     tema: str,
     etiqueta: str,
     existentes: set[str] | frozenset[str] = frozenset(),
+    fallback: bool = True,
 ) -> list[dict]:
     """Temario del modelo → módulos válidos. El backend no se fía de la forma.
 
@@ -432,9 +462,11 @@ def validate_syllabus(
                 "prerequisites": prereqs,
                 "kind": ModuleKind.CONTENT.value,
                 "difficulty": "medium",
+                "key_points": list(getattr(item, "key_points", ())),
+                "sources": [{"title": f.title, "url": f.url} for f in getattr(item, "sources", ())],
             }
         )
         vistos[clave] = clave
-    if not modulos and not existentes:
+    if not modulos and fallback and not existentes:
         return [{"concept": tema, "title": etiqueta, "prerequisites": [], "kind": ModuleKind.CONTENT.value}]
     return modulos
