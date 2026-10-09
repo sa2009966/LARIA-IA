@@ -379,6 +379,8 @@ def get_account_service() -> "AccountService":
         chat_repository=get_chat_repo(),
         learning_path_repository=get_learning_path_repo(),
         extra_purges=purgas,
+        # Borrar la cuenta también la borra en Clerk (ADR-041).
+        clerk_client=get_clerk_client() if get_clerk_verifier() is not None else None,
     )
 
 
@@ -509,6 +511,19 @@ async def _clerk_user(token: str) -> UserAggregate | None:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="No pudimos confirmar tu cuenta ahora mismo. Vuelve a intentarlo.",
         )
+
+
+async def get_clerk_session(token: Annotated[str, Depends(oauth2_scheme)]):
+    """La sesión de Clerk de la petición (ya validada por get_current_user), o None."""
+    verifier = get_clerk_verifier()
+    if verifier is None or not verifier.issued_by_clerk(token):
+        return None
+    from src.infrastructure.security.clerk import InvalidClerkToken
+
+    try:
+        return await verifier.verify(token)
+    except InvalidClerkToken:
+        raise _CREDENTIALS_ERROR
 
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> UserAggregate:

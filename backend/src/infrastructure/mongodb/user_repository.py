@@ -1,3 +1,4 @@
+import re
 from typing import Optional
 from uuid import UUID
 
@@ -63,6 +64,12 @@ class MongoDBUserRepository(UserRepository):
     async def find_by_email(self, email: Email) -> Optional[UserAggregate]:
         db = await self._get_db()
         doc = await db.users.find_one({"email": email.value})
+        if doc is None:
+            # Cuentas guardadas antes de normalizar el correo (había una con
+            # mayúsculas): sin esto, entrar con Clerk le creaba otra cuenta vacía.
+            doc = await db.users.find_one(
+                {"email": {"$regex": f"^{re.escape(email.value)}$", "$options": "i"}}
+            )
         return self._from_doc(doc) if doc else None
 
     async def find_by_username(self, username: str) -> Optional[UserAggregate]:

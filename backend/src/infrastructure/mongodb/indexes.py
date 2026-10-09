@@ -8,6 +8,15 @@ async def ensure_all_indexes(database: AsyncIOMotorDatabase | None = None) -> No
     db = database or await get_database()
     await db.users.create_index("email", unique=True)
     await db.users.create_index("username", unique=True)
+    # Cada petición con sesión de Clerk busca por aquí; y único: dos usuarios nuestros
+    # para la misma cuenta de Clerk serían la misma persona dos veces. Parcial para
+    # que los usuarios sin Clerk no choquen entre sí por un null repetido. Estaba
+    # declarado en el repositorio, pero el arranque no lo creaba.
+    await db.users.create_index(
+        "clerk_user_id",
+        unique=True,
+        partialFilterExpression={"clerk_user_id": {"$type": "string"}},
+    )
     await db.documents.create_index("owner_id")
     await db.quizzes.create_index("document_id")
     await db.quizzes.create_index("owner_id")

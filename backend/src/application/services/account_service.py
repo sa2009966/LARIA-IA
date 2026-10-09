@@ -27,6 +27,10 @@ from src.domain.value_objects.password import Password
 
 logger = logging.getLogger("laria.account")
 
+class IdentityProviderUnavailable(RuntimeError):
+    """No se pudo borrar la cuenta en Clerk: no se borró nada (se puede reintentar)."""
+
+
 #: Limpieza adicional que depende de la infraestructura (p. ej. eventos antiguos
 #: en el outbox de Mongo). Devuelve cuántos registros borró.
 Purga = Callable[[UUID], Awaitable[int]]
@@ -49,6 +53,7 @@ class AccountService:
         chat_repository: ChatRepository,
         learning_path_repository: LearningPathRepository,
         extra_purges: Sequence[Purga] = (),
+        clerk_client=None,
     ) -> None:
         self._users = user_repository
         self._docs = document_repository
@@ -61,9 +66,16 @@ class AccountService:
         self._chats = chat_repository
         self._paths = learning_path_repository
         self._extra = tuple(extra_purges)
+        # Para borrar también la cuenta de acceso en Clerk (ADR-041).
+        self._clerk = clerk_client
 
     async def delete_account(
-        self, user_id: UUID, password: str | None, *, verified_email: str | None = None
+        self,
+        user_id: UUID,
+        password: str | None,
+        *,
+        verified_email: str | None = None,
+        clerk_verified: bool = False,
     ) -> dict[str, int]:
         """Borra la cuenta y todos sus datos. Devuelve cuánto se borró de cada cosa.
 
@@ -80,12 +92,34 @@ class AccountService:
         # Confirma quien es: su contraseña, o —cuentas de Google, sin contraseña—
         # un token de Google recién emitido para su mismo correo (ya verificado
         # por el router). Un token de sesión robado no basta para ninguna.
-        if verified_email is not None:
+        if clerk_verified:
+            # Cuentas de Clerk (ADR-041): el router ya comprobó que la sesión es de
+            # ESTA cuenta y que verificó su identidad hace pocos minutos.
+            if not user.clerk_user_id:
+                raise PermissionError("Esta cuenta no entra con Clerk.")
+        elif verified_email is not None:
             if verified_email.strip().lower() != user.email.value.strip().lower():
                 raise PermissionError("Esa cuenta de Google no es la de esta cuenta.")
         elif not Password.verify(password or "", user.hashed_password):
             raise PermissionError(self._MSG_CONTRASENA)
 
+        if user.clerk_user_id:
+            await self._cerrar_acceso_en_clerk(user)
+
+        try:
+            borrado = await self._borrar_datos(user_id)
+        except Exception:
+            # Con Clerk ya cerrado la persona no puede reintentar: queda en el log para
+            # terminarlo a mano (repetir el borrado es seguro: cada paso borra lo que haya).
+            logger.error("cuenta_borrado_incompleto user=%s", user_id)
+            raise
+
+        await self._users.delete(user_id)
+        # Sin email ni nombre en el log: solo el id, que ya no apunta a nadie.
+        logger.info("cuenta_borrada user=%s %s", user_id, borrado)
+        return borrado
+
+    async def _borrar_datos(self, user_id: UUID) -> dict[str, int]:
         borrado: dict[str, int] = {}
 
         # Los documentos van por su propio servicio: ya sabe borrar en cascada
@@ -118,8 +152,25 @@ class AccountService:
 
         for purga in self._extra:
             borrado["eventos"] = borrado.get("eventos", 0) + await purga(user_id)
-
-        await self._users.delete(user_id)
-        # Sin email ni nombre en el log: solo el id, que ya no apunta a nadie.
-        logger.info("cuenta_borrada user=%s %s", user_id, borrado)
         return borrado
+
+    async def _cerrar_acceso_en_clerk(self, user) -> None:
+        """Bloquea la cuenta y borra su usuario de Clerk ANTES de borrar los datos.
+
+        Sin esto, la sesión de Clerk seguía viva en el navegador: la siguiente
+        petición (el tiempo de estudio se envía cada minuto) no encontraba al usuario
+        y le creaba uno nuevo, vacío. Desactivar primero corta las peticiones en
+        curso (401); con el usuario borrado en Clerk, su token ya no puede crear otro
+        (Clerk responde 404 al vincular). Si Clerk falla, se reactiva y no se borra
+        nada: reintentar es seguro.
+        """
+        if self._clerk is None:
+            raise IdentityProviderUnavailable("Clerk no está configurado.")
+        user.deactivate()
+        await self._users.save(user)
+        try:
+            await self._clerk.delete_user(user.clerk_user_id)
+        except Exception as exc:  # noqa: BLE001 — cualquier fallo de Clerk deja todo como estaba
+            user.activate()
+            await self._users.save(user)
+            raise IdentityProviderUnavailable(type(exc).__name__) from exc

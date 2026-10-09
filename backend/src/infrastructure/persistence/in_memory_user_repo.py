@@ -16,7 +16,7 @@ class InMemoryUserRepository(UserRepository):
 
     async def find_by_email(self, email: Email) -> Optional[UserAggregate]:
         for user in self._users.values():
-            if user.email == email:
+            if user.email.value.lower() == email.value:
                 return user
         return None
 
