@@ -50,7 +50,14 @@ async def test_ensure_all_indexes_creates_schema_indexes():
     # student_profiles: _id = student_id (PK); sin índice adicional en ensure_all_indexes.
     assert hasattr(db, "student_profiles")
     db.student_profiles.create_index.assert_not_called()
-    assert db.users.create_index.await_count == 2
+    # El tercero es el de Clerk (ADR-041): estaba declarado en el repositorio pero el
+    # arranque no lo creaba, y sin él dos usuarios podían compartir una cuenta de Clerk.
+    db.users.create_index.assert_any_await(
+        "clerk_user_id",
+        unique=True,
+        partialFilterExpression={"clerk_user_id": {"$type": "string"}},
+    )
+    assert db.users.create_index.await_count == 3
     assert db.quizzes.create_index.await_count == 2
     assert db.quiz_attempts.create_index.await_count == 2
     assert db.tutor_interactions.create_index.await_count == 2
