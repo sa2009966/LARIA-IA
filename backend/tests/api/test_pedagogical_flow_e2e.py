@@ -120,14 +120,16 @@ def test_pedagogical_flow_register_to_profile(client: TestClient, run_id: int):
     for q in quiz_body.get("questions", []):
         assert "correct_answer" not in q
     quiz_id = quiz_body["id"]
+    # Opciones barajadas en el servidor: la correcta ("3") ya no está fija en la A.
+    letra = next(k for k, v in quiz_body["questions"][0]["options"].items() if v == "3")
 
     attempt = client.post(
         f"/api/v1/quizzes/{quiz_id}/attempts",
         headers=headers,
-        json={"answers": {"0": "A"}},
+        json={"answers": {"0": letra}},
     )
     assert attempt.status_code == 200, attempt.text
-    assert attempt.json()["questions"][0]["correct_answer"] == "A"
+    assert attempt.json()["questions"][0]["correct_answer"] == letra
 
     hist = client.get("/api/v1/learning/me", headers=headers)
     assert hist.status_code == 200

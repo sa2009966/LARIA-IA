@@ -23,6 +23,11 @@ class LearningPathCreateRequest(BaseModel):
     modules: list[ModuleCreateItem] = []
 
 
+class SourceResponse(BaseModel):
+    title: str
+    url: str
+
+
 class LearningModuleResponse(BaseModel):
     id: str
     title: str
@@ -34,6 +39,12 @@ class LearningModuleResponse(BaseModel):
     position: int = 0
     #: `content` (lo que vino a aprender) o `prerequisite` (base del tema).
     kind: Literal["content", "prerequisite"] = "content"
+    #: Tramo del módulo (ADR-037): `basico` · `intermedio` · `avanzado`. null en rutas manuales.
+    tier: Optional[Literal["basico", "intermedio", "avanzado"]] = None
+    #: Ideas clave del módulo según fuentes reales (ADR-039). Vacío si no se investigó.
+    key_points: list[str] = []
+    #: Fuentes verificadas de la búsqueda web: `{"title", "url"}`. Muéstralas en la clase.
+    sources: list[SourceResponse] = []
 
 
 class TeachingStateResponse(BaseModel):
@@ -64,6 +75,12 @@ class LearningPathResponse(BaseModel):
     #: Tema canónico (clave del nivel). Vacío en rutas creadas a mano.
     topic: str = ""
     teaching: Optional[TeachingStateResponse] = None
+    #: Tramos abiertos, en orden (ADR-037). La ruta crece un tramo con cada prueba de paso.
+    tiers: list[Literal["basico", "intermedio", "avanzado"]] = []
+    #: El tramo que abre la próxima prueba de paso (la nivelación del tema); null si
+    #: ya está en avanzado o la ruta es manual. Con `teaching.phase == "completed"`
+    #: y esto no nulo, la ruta no terminó: ofrece la prueba de paso.
+    next_tier: Optional[Literal["intermedio", "avanzado"]] = None
 
 
 class LearningPathListResponse(BaseModel):
@@ -107,3 +124,46 @@ class CheckAnswerResponse(BaseModel):
     next: NextStepResponse
     path: LearningPathResponse
 
+
+
+class StudyGoals(BaseModel):
+    """Duración de sesión y objetivo diario (ADR-033). `null` = sin límite / sin objetivo."""
+
+    session_minutes: Optional[Literal[10, 20, 30, 45]] = None
+    daily_goal_minutes: Optional[Literal[10, 15, 30, 45, 60]] = None
+
+
+class StudyPing(BaseModel):
+    #: Segundos de actividad desde el aviso anterior (se cuentan como mucho 60).
+    seconds: Annotated[int, Field(ge=1, le=120)] = 60
+    #: Zona horaria IANA del navegador ("Europe/Madrid"), para saber qué día es "hoy".
+    timezone: Annotated[Optional[str], Field(max_length=64)] = None
+
+
+class StudyDayItem(BaseModel):
+    date: str
+    minutes: int
+
+
+class StudySummaryResponse(BaseModel):
+    today_minutes: int
+    daily_goal_minutes: Optional[int] = None
+    session_minutes: Optional[int] = None
+    goal_met_today: bool = False
+    #: Días seguidos cumpliendo el objetivo (o estudiando algo, si no hay objetivo).
+    streak_days: int = 0
+    last_7_days: list[StudyDayItem] = []
+
+
+class NextTopicItem(BaseModel):
+    #: Tema para `POST /learning/paths/from-topic` o `/quizzes/diagnostic`.
+    topic: str
+    label: str
+    kind: Literal["advance", "level_up", "related"]
+    reason: str
+    #: true → ofrece primero la nivelación de ese tema.
+    needs_placement: bool
+
+
+class NextTopicsResponse(BaseModel):
+    suggestions: list[NextTopicItem] = []

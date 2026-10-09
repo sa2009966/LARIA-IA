@@ -182,6 +182,23 @@ def get_chat_repo() -> ChatRepository:
 
 
 @lru_cache(maxsize=1)
+def get_study_time_repo():
+    if settings.DB_PROVIDER == "mongodb":
+        from src.infrastructure.mongodb.study_time_repository import MongoDBStudyTimeRepository
+
+        return MongoDBStudyTimeRepository()
+    from src.infrastructure.persistence.in_memory_study_time_repo import InMemoryStudyTimeRepository
+
+    return InMemoryStudyTimeRepository()
+
+
+def get_study_time_service() -> "StudyTimeService":
+    from src.application.services.study_time_service import StudyTimeService
+
+    return StudyTimeService(get_study_time_repo(), get_event_bus(), get_profile_repo())
+
+
+@lru_cache(maxsize=1)
 def get_learning_path_repo() -> LearningPathRepository:
     if settings.DB_PROVIDER == "mongodb":
         from src.infrastructure.mongodb import MongoDBLearningPathRepository
@@ -200,7 +217,26 @@ def get_chat_tutor_service() -> "ChatTutorService":
         profile_repository=get_profile_repo(),
         topic_catalog=TopicCatalog(get_concept_graph_repo()),
         preferences=get_learning_preferences_service(),
+        safety=get_content_safety(),
     )
+
+
+@lru_cache(maxsize=1)
+def get_content_safety() -> "ContentSafetyService":
+    """Filtro de temas y mensajes (ADR-036). Sin clave o apagado: deja pasar todo."""
+    from src.application.services.content_safety_service import ContentSafetyService
+    from src.domain.services.content_safety import ContentSafetyPolicy, SafetyThresholds
+
+    moderador = None
+    if settings.CONTENT_MODERATION_ENABLED and settings.OPENAI_API_KEY:
+        from src.infrastructure.openai.openai_moderator import OpenAIModerator
+
+        moderador = OpenAIModerator(settings.OPENAI_API_KEY)
+    umbrales = SafetyThresholds(
+        illicit=settings.MODERATION_ILLICIT,
+        self_harm=settings.MODERATION_SELF_HARM,
+    )
+    return ContentSafetyService(moderador, ContentSafetyPolicy(umbrales))
 
 
 @lru_cache(maxsize=1)
@@ -329,6 +365,8 @@ def get_account_service() -> "AccountService":
         from src.infrastructure.mongodb.outbox_event_bus import purge_personal_events
 
         purgas.append(purge_personal_events)
+    # Tiempo estudiado por día (ADR-033): dato personal, se borra con la cuenta.
+    purgas.append(get_study_time_repo().delete_by_student)
     return AccountService(
         user_repository=get_user_repo(),
         document_repository=get_document_repo(),
@@ -341,6 +379,8 @@ def get_account_service() -> "AccountService":
         chat_repository=get_chat_repo(),
         learning_path_repository=get_learning_path_repo(),
         extra_purges=purgas,
+        # Borrar la cuenta también la borra en Clerk (ADR-041).
+        clerk_client=get_clerk_client() if get_clerk_verifier() is not None else None,
     )
 
 
@@ -411,6 +451,7 @@ def get_quiz_service() -> QuizService:
         concept_graph_repository=get_concept_graph_repo(),
         strong_model=settings.OPENAI_MODEL_STRONG,
         analyze_service=get_analyze_service(),
+        safety=get_content_safety(),
     )
 
 
@@ -470,6 +511,19 @@ async def _clerk_user(token: str) -> UserAggregate | None:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="No pudimos confirmar tu cuenta ahora mismo. Vuelve a intentarlo.",
         )
+
+
+async def get_clerk_session(token: Annotated[str, Depends(oauth2_scheme)]):
+    """La sesión de Clerk de la petición (ya validada por get_current_user), o None."""
+    verifier = get_clerk_verifier()
+    if verifier is None or not verifier.issued_by_clerk(token):
+        return None
+    from src.infrastructure.security.clerk import InvalidClerkToken
+
+    try:
+        return await verifier.verify(token)
+    except InvalidClerkToken:
+        raise _CREDENTIALS_ERROR
 
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> UserAggregate:
@@ -539,4 +593,35 @@ def get_teaching_service() -> "TeachingService":
         lesson_generator=cast(LessonGenerator, get_ia_analyst()),
         topic_catalog=TopicCatalog(get_concept_graph_repo()),
         attempt_repository=get_attempt_repo(),
+        safety=get_content_safety(),
+        research=get_curriculum_research(),
     )
+
+
+@lru_cache(maxsize=1)
+def get_curriculum_research() -> "CurriculumResearchService":
+    """Temario intermedio/avanzado investigado en internet (ADR-039), con caché global."""
+    from src.application.services.curriculum_research_service import CurriculumResearchService
+
+    if settings.DB_PROVIDER == "mongodb":
+        from src.infrastructure.mongodb.curriculum_research_repository import (
+            MongoDBCurriculumResearchRepository,
+        )
+
+        repo = MongoDBCurriculumResearchRepository()
+    else:
+        from src.infrastructure.persistence.in_memory_curriculum_research_repo import (
+            InMemoryCurriculumResearchRepository,
+        )
+
+        repo = InMemoryCurriculumResearchRepository()
+    investigador = None
+    if settings.WEB_RESEARCH_ENABLED and settings.OPENAI_API_KEY:
+        from src.infrastructure.openai.web_researcher import OpenAIWebResearcher
+
+        investigador = OpenAIWebResearcher(
+            settings.OPENAI_API_KEY,
+            research_model=settings.OPENAI_MODEL_RESEARCH,
+            structure_model=settings.OPENAI_MODEL_DEFAULT or settings.OPENAI_MODEL,
+        )
+    return CurriculumResearchService(investigador, repo)

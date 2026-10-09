@@ -6,9 +6,15 @@ llamada al LLM.
 """
 from __future__ import annotations
 
+import random
+import re
 from collections import Counter
 
 from src.domain.value_objects.question import QuizQuestion
+
+
+#: Azar del sistema: no predecible a partir de preguntas anteriores.
+_RNG = random.SystemRandom()
 
 
 class QuizQualityError(ValueError):
@@ -73,8 +79,48 @@ def rebalance_answer_keys(questions: list[QuizQuestion]) -> list[QuizQuestion]:
     return balanced
 
 
-def ensure_quiz_quality(questions: list[QuizQuestion]) -> list[QuizQuestion]:
-    """Asegura distribución usable; reequilibra si hay sesgo de clave."""
+#: Opciones que hablan de otras opciones: barajarlas les quita el sentido.
+_REFERENCIA_A_OPCIONES = re.compile(
+    r"\b(?:todas|ninguna|ambas)\s+(?:las\s+)?(?:anteriores|opciones)\b|\b[A-D]\s+y\s+[A-D]\b",
+    re.IGNORECASE,
+)
+
+
+def shuffle_options(question: QuizQuestion, rng=None) -> QuizQuestion:
+    """Baraja las opciones al azar y reasigna A, B, C… y la correcta.
+
+    Los modelos ponen la correcta casi siempre en la misma letra (en las clases,
+    la B): sin barajar, el estudiante aprende la letra, no el concepto, y la
+    evidencia del perfil mide nada. `rng` es inyectable para los tests.
+    """
+    if len(question.options) < 2 or any(
+        _REFERENCIA_A_OPCIONES.search(str(v)) for v in question.options.values()
+    ):
+        return question
+    rng = rng or _RNG
+    claves = sorted(question.options)
+    textos = [question.options[k] for k in claves]
+    correcta = textos[claves.index(question.correct_answer)]
+    orden = list(range(len(textos)))
+    rng.shuffle(orden)
+    letras = [chr(ord("A") + i) for i in range(len(textos))]
+    nuevas = {letras[i]: textos[j] for i, j in enumerate(orden)}
+    nueva_correcta = next(letra for letra, texto in nuevas.items() if texto == correcta)
+    return QuizQuestion(
+        text=question.text,
+        options=nuevas,
+        correct_answer=nueva_correcta,
+        difficulty=question.difficulty,
+        concept_tags=tuple(question.concept_tags),
+    )
+
+
+def ensure_quiz_quality(questions: list[QuizQuestion], rng=None) -> list[QuizQuestion]:
+    """Valida y baraja las opciones de TODAS las preguntas.
+
+    Antes solo se reequilibraba con más del 60 % en una letra, y con una
+    rotación predecible (la 1.ª pregunta no se movía, la 2.ª un lugar…).
+    """
     if not questions:
         raise QuizQualityError("El cuestionario no tiene preguntas")
     for q in questions:
@@ -82,6 +128,4 @@ def ensure_quiz_quality(questions: list[QuizQuestion]) -> list[QuizQuestion]:
             raise QuizQualityError("Cada pregunta necesita al menos 2 opciones")
         if q.correct_answer not in q.options:
             raise QuizQualityError("correct_answer inválida")
-    if is_answer_key_skewed(questions):
-        return rebalance_answer_keys(questions)
-    return list(questions)
+    return [shuffle_options(q, rng) for q in questions]

@@ -79,6 +79,8 @@ def _clone_profile(profile: StudentProfile, version: int | None = None) -> Stude
         topic_labels=dict(profile.topic_labels),
         explanation_style_choice=profile.explanation_style_choice,
         voice_choice=profile.voice_choice,
+        session_minutes=profile.session_minutes,
+        daily_goal_minutes=profile.daily_goal_minutes,
         updated_at=profile.updated_at,
         version=profile.version if version is None else version,
     )

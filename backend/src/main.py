@@ -21,10 +21,12 @@ from src.infrastructure.config import (
 )
 from src.infrastructure.logging_setup import configure_logging
 from src.infrastructure.rate_limit import RateLimitMiddleware
+from src.infrastructure.compression import SelectiveGZipMiddleware
 from src.infrastructure.security_headers import SecurityHeadersMiddleware
 from src.infrastructure.request_logging import RequestLoggingMiddleware
 from src.interfaces.api.routers import auth, chats, documents, learning, legal, quizzes, speech, users
 from src.interfaces.schemas.http_errors import HTTPErrorBody
+from src.domain.services.content_safety import UnsafeTopicError
 
 configure_logging(level=settings.LOG_LEVEL, fmt=settings.LOG_FORMAT)
 validate_security_settings(settings)
@@ -198,6 +200,7 @@ app = FastAPI(
 
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(SelectiveGZipMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -208,6 +211,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(UnsafeTopicError)
+async def unsafe_topic_handler(request: Request, exc: UnsafeTopicError):
+    """Tema que no se trabaja (ADR-036): 422 con el mensaje y un `reason` estable.
+
+    El cliente lo distingue así de un 422 de validación (que sí tiene arreglo
+    reintentando): ante `unsafe_topic` ofrece elegir otro tema, no reintentar.
+    """
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={
+            "detail": str(exc),
+            "reason": "unsafe_topic",
+            "safety": exc.verdict.action.value,
+        },
+    )
 
 
 @app.exception_handler(Exception)

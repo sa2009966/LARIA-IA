@@ -39,6 +39,9 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             "mastery": m.mastery,
             "position": m.position,
             "kind": m.kind.value,
+            "tier": m.tier,
+            "key_points": list(m.key_points),
+            "sources": list(m.sources),
         }
 
     @staticmethod
@@ -53,6 +56,9 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             mastery=float(d.get("mastery", 0.0)),
             position=int(d.get("position", 0)),
             kind=ModuleKind(d.get("kind", ModuleKind.CONTENT.value)),
+            tier=d.get("tier", ""),
+            key_points=list(d.get("key_points") or []),
+            sources=list(d.get("sources") or []),
         )
 
     @staticmethod
@@ -110,6 +116,8 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             "created_at": path.created_at,
             "updated_at": path.updated_at,
             "topic": path.topic,
+            "next_topics": list(path.next_topics),
+            "tiers": list(path.tiers),
             "teaching": MongoDBLearningPathRepository._teaching_to_doc(path.teaching),
         }
 
@@ -124,6 +132,8 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             created_at=doc["created_at"],
             updated_at=doc["updated_at"],
             topic=doc.get("topic", ""),
+            next_topics=list(doc.get("next_topics") or []),
+            tiers=list(doc.get("tiers") or []),
             teaching=MongoDBLearningPathRepository._teaching_from_doc(doc.get("teaching") or {}),
         )
 

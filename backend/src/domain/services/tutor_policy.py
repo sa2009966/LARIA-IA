@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Sequence
 from src.domain.ports.chat_title_generator import TitleMessage
 from src.domain.services.adaptive_policy import PromptShapingParameters
 from src.domain.services.cognitive_style import CognitiveStyle
+from src.domain.services.repetition import anti_repetition_instruction
 from src.domain.services.learner_context import STYLE_OPTIONS, LearnerContext
 from src.domain.services.pedagogical_engine import PedagogicalDecision, PedagogicalMode
 from src.domain.services.prerequisite_graph import GateAction
@@ -26,6 +27,17 @@ _ESCRITURA_INFORMAL = (
     "podés, tenés): entiéndelo con naturalidad y nunca comentes su forma de escribir."
 )
 
+#: Segunda línea del filtro de temas (ADR-036): si el moderador no respondió, el
+#: modelo igual no enseña a hacer daño. Plenum lo usan menores.
+_SEGURIDAD = (
+    "Tus estudiantes pueden ser menores de edad. Nunca des instrucciones, recetas ni "
+    "pasos para fabricar armas, explosivos o drogas, hacer daño a alguien, hackear "
+    "sistemas ajenos ni nada sexual: di con amabilidad que eso no lo trabajas y "
+    "ofrece un tema cercano y seguro. Explicar historia, ciencia o efectos sí está "
+    "bien. Si el estudiante muestra señales de querer hacerse daño, respóndele con "
+    "cercanía y anímale a hablar con un adulto de confianza o con emergencias."
+)
+
 #: Quién es el tutor. Sin esto no podía presentarse: sabía que era "un tutor
 #: educativo" y nada más, así que "¿qué podés hacer?" recibía una respuesta vaga.
 _IDENTIDAD = (
@@ -38,7 +50,7 @@ _IDENTIDAD = (
     "a contarte qué quiere aprender. Si te preguntan qué es Plenum, di que es la "
     "plataforma de aprendizaje donde estás y que tú eres su tutor; no le atribuyas "
     "funciones que no estén en esta descripción. Si no te lo preguntan, no te presentes: "
-    "responde directamente a lo que pide. " + _ESCRITURA_INFORMAL
+    "responde directamente a lo que pide. " + _ESCRITURA_INFORMAL + " " + _SEGURIDAD
 )
 
 
@@ -125,6 +137,19 @@ def _oferta_de_nivelacion(tema: str | None) -> str:
     )
 
 
+#: Qué contenido corresponde a cada tramo de una ruta (ADR-037).
+_TEMARIO_POR_NIVEL = {
+    "intermedio": (
+        "Nivel intermedio: aplicar lo básico a problemas de varios pasos, relacionar "
+        "conceptos entre sí, casos menos directos, errores frecuentes y cómo evitarlos."
+    ),
+    "avanzado": (
+        "Nivel avanzado: formalizar y justificar (por qué funciona, no solo cómo), "
+        "casos límite y excepciones, problemas abiertos o de aplicación real, y "
+        "conexiones con otros temas más amplios."
+    ),
+}
+
 _NIVELES = {
     "basico": (
         "básico",
@@ -208,6 +233,19 @@ def _adaptacion_sin_material(learner: LearnerContext | None, tema: str | None) -
             f"{_STYLE_INSTRUCTIONS[learner.style]}"
         )
     return "".join(partes)
+
+
+def _extension_por_sesion(minutos: int | None) -> str:
+    """Cuánto explica cada paso según la sesión elegida (ADR-033).
+
+    Una sesión corta pide pasos breves (caben más comprobaciones); una larga,
+    explicaciones con más detalle y matices.
+    """
+    if minutos is not None and minutos <= 10:
+        return "50-90 palabras, solo lo esencial"
+    if minutos is not None and minutos >= 30:
+        return "150-250 palabras, con más detalle y algún matiz"
+    return "80-180 palabras"
 
 
 def _persona(persona: str | None) -> str:
@@ -396,15 +434,28 @@ class TutorPolicy:
             variante += " Retoma el tema conectándolo con la base que acaba de repasar."
         estilo = f" Forma de explicar que prefiere: {_STYLE_INSTRUCTIONS[req.style]}" if req.style else ""
         evitar = f" No reutilices este ejemplo anterior: «{req.avoid_example}»." if req.avoid_example else ""
+        # Ideas clave de fuentes reales (ADR-039): la clase se apoya en ellas, así el
+        # contenido intermedio o avanzado no sale solo de la memoria del modelo.
+        referencia = (
+            " Basa la explicación en estas ideas clave, tomadas de fuentes educativas: "
+            + "; ".join(req.key_points[:6])
+            + ". Explícalas con tus palabras; no inventes datos que las contradigan."
+            if req.key_points
+            else ""
+        )
         dificultades = ", ".join(d.value for d in req.check_difficulties)
         return ChatPrompt(
             system=(
                 f"{_IDENTIDAD}{_persona(req.persona)} Estás dando una clase sobre «{req.topic_label}». El concepto de "
                 f"este paso es «{req.concept_title}» y NO otro: no adelantes temas siguientes. "
-                f"{variante}{estilo}{evitar} "
+                f"{variante}{estilo}{evitar}{referencia} "
                 + (f"Nivel del estudiante: {nivel[0]}. {nivel[1]} " if nivel[0] else "")
                 + "Responde SOLO en JSON con las claves: explanation (markdown, "
-                + ("2-3 frases, sin repetir la introducción" if req.variant.value == "consolidate" else "80-180 palabras")
+                + (
+                    "2-3 frases, sin repetir la introducción"
+                    if req.variant.value == "consolidate"
+                    else _extension_por_sesion(req.session_minutes)
+                )
                 + ", sin el ejemplo), example (markdown, un ejemplo concreto y resuelto), "
                 "example_summary (una frase que resuma el ejemplo), check (lista de EXACTAMENTE "
                 f"{len(req.check_difficulties)} preguntas de opción múltiple sobre «{req.concept_title}», "
@@ -417,19 +468,97 @@ class TutorPolicy:
             user=f"Prepara este paso de la clase sobre «{req.concept_title}».",
         )
 
-    def propose_syllabus(self, topic_label: str, level: str | None) -> ChatPrompt:
+    def propose_next_topics(self, topic_label: str, level: str | None) -> ChatPrompt:
         nivel = _NIVELES.get(level or "", (None, ""))[0]
         return ChatPrompt(
             system=(
-                "Diseñas temarios cortos para un tutor. Responde SOLO en JSON con la clave "
-                "modules: una lista de 3 a 6 subtemas en orden de enseñanza, cada uno con "
+                "Recomiendas qué estudiar después. Responde SOLO en JSON con la clave topics: "
+                "una lista de 3 temas (2-5 palabras cada uno, en español) que se apoyan en el "
+                "tema dado o lo amplían, del más directo al más amplio. No repitas el tema."
+            ),
+            user=f"Tema completado: «{topic_label}»." + (f" Nivel alcanzado: {nivel}." if nivel else ""),
+        )
+
+    def propose_syllabus(
+        self, topic_label: str, level: str | None, avoid: tuple[str, ...] = ()
+    ) -> ChatPrompt:
+        nivel = _NIVELES.get(level or "", (None, ""))[0]
+        tramo = ""
+        if avoid:
+            # Un tramo nuevo de una ruta (ADR-037): lo ya visto no se repite y el
+            # nivel tiene que notarse en QUÉ se enseña, no solo en el tono.
+            vistos = "; ".join(avoid[:30])
+            tramo = (
+                f" El estudiante ya completó estos subtemas: {vistos}. NO los repitas ni "
+                "los reformules con otro nombre: este temario va DESPUÉS de ellos. "
+                + _TEMARIO_POR_NIVEL.get(level or "", "")
+            )
+        return ChatPrompt(
+            system=(
+                "Diseñas temarios para un tutor. Responde SOLO en JSON con la clave "
+                "modules: una lista de 5 a 8 subtemas en orden de enseñanza, cada uno con "
                 "title (2-6 palabras, en español) y prerequisites (lista de títulos de "
                 "subtemas ANTERIORES de esta misma lista; vacía si no depende de ninguno)."
             ),
             user=(
                 f"Tema: «{topic_label}»."
                 + (f" Nivel del estudiante: {nivel}." if nivel else "")
-                + " Empieza por lo que hace falta para entender el resto."
+                + (tramo or " Empieza por lo que hace falta para entender el resto.")
+            ),
+        )
+
+    def research_curriculum(
+        self, topic_label: str, level: str, avoid: tuple[str, ...] = ()
+    ) -> ChatPrompt:
+        """Paso 1 del temario investigado (ADR-039): buscar y citar, en prosa.
+
+        En prosa y no en JSON: pidiendo JSON el modelo dejaba de citar y escribía URLs
+        inventadas ("https://www.uteg.edu.ec/.../Algebra-Intermedia.pdf"). Las fuentes
+        se toman de las citas de la búsqueda, nunca del texto.
+        """
+        nivel = _NIVELES.get(level, (level, ""))[0]
+        vistos = f" Ya vio: {'; '.join(avoid[:30])}." if avoid else ""
+        return ChatPrompt(
+            system=(
+                "Investigas currículos para un tutor de estudiantes de secundaria y "
+                "universidad. Busca en internet temarios de curso (universidades, "
+                "ministerios de educación, bachillerato) y recursos educativos fiables. "
+                "Responde en español, citando las fuentes que uses."
+            ),
+            user=(
+                f"¿Qué subtemas se enseñan de «{topic_label}» a nivel {nivel}?{vistos} "
+                "Resume entre 5 y 8 subtemas que vayan después de lo ya visto, en orden de "
+                "enseñanza, con 3 a 5 ideas clave cada uno, citando de qué fuente sale cada uno."
+            ),
+        )
+
+    def structure_research(
+        self,
+        topic_label: str,
+        level: str,
+        research: str,
+        sources: list[tuple[str, str]],
+        avoid: tuple[str, ...] = (),
+    ) -> ChatPrompt:
+        """Paso 2 (ADR-039): la investigación → temario en JSON, citando por número."""
+        nivel = _NIVELES.get(level, (level, ""))[0]
+        lista = "\n".join(f"[{i}] {titulo} — {url}" for i, (titulo, url) in enumerate(sources, 1))
+        vistos = f" No incluyas lo ya visto: {'; '.join(avoid[:30])}." if avoid else ""
+        return ChatPrompt(
+            system=(
+                "Conviertes una investigación en un temario. Responde SOLO en JSON con la "
+                "clave modules: lista de 5 a 8 subtemas en orden de enseñanza, cada uno con "
+                "title (2-6 palabras, en español), prerequisites (títulos de subtemas "
+                "ANTERIORES de esta lista), key_points (3 a 5 ideas clave, una frase cada "
+                "una, fieles a la investigación; fórmulas en texto plano como b^2 - 4ac, "
+                "sin LaTeX ni saltos de línea) y sources (números de la lista de fuentes "
+                "que respaldan ese subtema; solo números de la lista). No inventes fuentes."
+            ),
+            user=(
+                f"Tema: «{topic_label}». Nivel: {nivel}.{vistos}\n\n"
+                f"Investigación:\n{research[:8000]}\n\nFuentes:\n{lista}\n\n"
+                # La API exige la palabra JSON en la entrada para el formato json_object.
+                "Devuelve el temario en JSON."
             ),
         )
 
@@ -527,6 +656,7 @@ class TutorPolicy:
             )
             system = (
                 f"Eres LARIA, el tutor adaptativo de Plenum.{_persona(learner.persona if learner else None)} "
+                f"{_SEGURIDAD} "
                 f"Modo: {decision.mode.value}. "
                 f"Estilo cognitivo: {decision.cognitive_style.value}. {style} "
                 f"Objetivo: {decision.objective} "
@@ -550,6 +680,15 @@ class TutorPolicy:
                 f"{system} Tienes la conversación reciente: úsala para dar "
                 "continuidad —a qué se refiere el estudiante, cómo se llama, qué ya "
                 "le explicaste— sin repetir lo que ya dijiste."
+                # Qué está haciendo el estudiante respecto a lo anterior (ADR-040).
+                f"{anti_repetition_instruction(question, history)}"
+            )
+        if learner is not None and learner.avoid_reply:
+            # Segundo intento: la primera respuesta salió casi igual a una anterior.
+            system = (
+                f"{system} Ibas a responder casi lo mismo que ya dijiste "
+                f"(«{' '.join(learner.avoid_reply.split()[:25])}…»). Escribe una respuesta "
+                "distinta: otro enfoque, otros ejemplos y otra forma de empezar."
             )
         return ChatPrompt(
             system=system,

@@ -30,6 +30,11 @@ class LessonRequest:
     avoid_example: str = ""
     #: Género con el que LARIA habla de sí misma (el de su voz, ADR-030).
     persona: str | None = None
+    #: Minutos por sesión que eligió (ADR-033): dimensiona la explicación.
+    session_minutes: int | None = None
+    #: Ideas clave del módulo sacadas de fuentes reales (ADR-039): la explicación se
+    #: apoya en ellas en vez de solo en lo que el modelo recuerde.
+    key_points: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -45,15 +50,36 @@ class Lesson:
 
 
 @dataclass(frozen=True)
+class Source:
+    """Una fuente que la búsqueda web devolvió de verdad (ADR-039). Nunca la escribe el modelo."""
+
+    title: str
+    url: str
+
+
+@dataclass(frozen=True)
 class SyllabusItem:
     title: str
     prerequisites: tuple[str, ...] = ()
+    #: Ideas clave del subtema según las fuentes (ADR-039). Vacío si el temario no se investigó.
+    key_points: tuple[str, ...] = ()
+    sources: tuple[Source, ...] = ()
 
 
 class LessonGenerator(ABC):
     @abstractmethod
     async def generate_lesson(self, request: LessonRequest) -> Lesson: ...
 
+    async def propose_next_topics(self, topic_label: str, level: str | None) -> list[str]:
+        """Temas para seguir tras completar uno que el grafo no cubre. No abstracto:
+        sin él, solo se sugiere subir de nivel."""
+        return []
+
     @abstractmethod
-    async def propose_syllabus(self, topic_label: str, level: str | None) -> list[SyllabusItem]:
-        """Temario de un tema que el grafo curricular no cubre. Se valida y se congela."""
+    async def propose_syllabus(
+        self, topic_label: str, level: str | None, avoid: tuple[str, ...] = ()
+    ) -> list[SyllabusItem]:
+        """Temario de un tema (o de un tramo nuevo de su ruta, ADR-037). Se valida y se congela.
+
+        `avoid`: subtemas que la ruta ya tiene; el tramo nuevo no los repite.
+        """

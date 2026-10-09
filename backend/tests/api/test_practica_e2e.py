@@ -55,7 +55,11 @@ def _auth(c):
 
 
 def _responder_bien(c, h, quiz):
-    r = {str(q["index"]): q["text"].rsplit("⟨", 1)[1].rstrip("⟩") for q in quiz["questions"]}
+    # Opciones barajadas en el servidor: se busca por el texto de la opción.
+    r = {
+        str(q["index"]): next(k for k, v in q["options"].items() if v == q["text"].rsplit("⟨", 1)[1].rstrip("⟩"))
+        for q in quiz["questions"]
+    }
     return c.post(f"/api/v1/quizzes/{quiz['id']}/attempts", headers=h, json={"answers": r}).json()
 
 

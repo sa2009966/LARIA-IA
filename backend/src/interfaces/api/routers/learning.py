@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.application.services.learning_preferences_service import LearningPreferencesService
 from src.application.services.learning_query_service import LearningQueryService
+from src.application.services.study_time_service import StudyTimeService
 from src.application.services.teaching_service import (
     AssessmentRequired,
     NoPendingCheck,
@@ -12,6 +13,7 @@ from src.application.services.teaching_service import (
     TeachingService,
 )
 from src.domain.ports.ia_analyst import IAAnalysisError
+from src.domain.services.content_safety import UnsafeTopicError
 from src.interfaces.api.quiz_mappers import quiz_to_public_response
 from src.domain.aggregates.learning_path import LearningPathAggregate
 from src.domain.ports.repositories import (
@@ -24,6 +26,7 @@ from src.interfaces.api.dependencies import (
     get_learning_preferences_service,
     get_learning_query_service,
     get_profile_repo,
+    get_study_time_service,
     get_teaching_service,
 )
 from src.interfaces.api.openapi_responses import RESP_401_UNAUTHORIZED
@@ -36,7 +39,13 @@ from src.interfaces.schemas.learning_path_schemas import (
     LearningPathResponse,
     LessonResponse,
     NextStepResponse,
+    NextTopicItem,
+    NextTopicsResponse,
     PathFromTopicRequest,
+    StudyDayItem,
+    StudyGoals,
+    StudyPing,
+    StudySummaryResponse,
     TeachingStateResponse,
 )
 from src.interfaces.schemas.quiz_schemas import (
@@ -189,6 +198,9 @@ def _map_module(m) -> LearningModuleResponse:
         mastery=m.mastery,
         position=m.position,
         kind=m.kind.value if hasattr(m, "kind") else "content",
+        tier=m.tier or None,
+        key_points=list(m.key_points),
+        sources=[{"title": f.get("title", ""), "url": f.get("url", "")} for f in m.sources],
     )
 
 
@@ -289,6 +301,8 @@ def _map_path(p: LearningPathAggregate) -> LearningPathResponse:
         updated_at=p.updated_at,
         topic=p.topic,
         teaching=_map_teaching(p),
+        tiers=list(p.tiers),
+        next_tier=p.next_tier,
     )
 
 
@@ -411,6 +425,8 @@ async def path_from_topic(
     usuario = UUID(current_user_id)
     try:
         path = await service.path_for_topic(usuario, body.topic)
+    except UnsafeTopicError:
+        raise  # 422 con `reason` (ADR-036), en main.py
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return _map_path(await service.projected(path, usuario))
@@ -437,6 +453,9 @@ async def lesson(
         paso = await service.lesson(usuario, path_id)
     except PathNotFound:
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    except UnsafeTopicError:
+        # Ruta creada antes del filtro de temas (ADR-036): no se dan más clases.
+        raise
     except AssessmentRequired as exc:
         raise HTTPException(
             status_code=409,
@@ -507,4 +526,103 @@ async def answer_check(
             reason=r.next.reason,
         ),
         path=_map_path(path),
+    )
+
+
+# --- Metas y tiempo de estudio (ADR-033) ---------------------------------------------
+
+
+def _resumen(r) -> StudySummaryResponse:
+    return StudySummaryResponse(
+        today_minutes=r.today_minutes,
+        daily_goal_minutes=r.daily_goal_minutes,
+        session_minutes=r.session_minutes,
+        goal_met_today=r.goal_met_today,
+        streak_days=r.streak_days,
+        last_7_days=[StudyDayItem(date=d.isoformat(), minutes=m) for d, m in r.last_7_days],
+    )
+
+
+@router.get("/me/study-goals", response_model=StudyGoals, summary="Mis metas de estudio")
+async def get_study_goals(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[StudyTimeService, Depends(get_study_time_service)],
+):
+    sesion, objetivo = await service.goals(UUID(current_user_id))
+    return StudyGoals(session_minutes=sesion, daily_goal_minutes=objetivo)
+
+
+@router.put(
+    "/me/study-goals",
+    response_model=StudyGoals,
+    summary="Elegir duración de sesión y objetivo diario",
+    description=(
+        "`session_minutes`: 10, 20, 30, 45 o `null` (sin límite); además dimensiona cada "
+        "lección. `daily_goal_minutes`: 10, 15, 30, 45, 60 o `null`. Se guardan en el perfil."
+    ),
+)
+async def put_study_goals(
+    body: StudyGoals,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[StudyTimeService, Depends(get_study_time_service)],
+):
+    sesion, objetivo = await service.choose_goals(
+        UUID(current_user_id), body.session_minutes, body.daily_goal_minutes
+    )
+    return StudyGoals(session_minutes=sesion, daily_goal_minutes=objetivo)
+
+
+@router.post(
+    "/me/study-time",
+    response_model=StudySummaryResponse,
+    summary="Avisar de tiempo de estudio (cada minuto, desde la clase)",
+    description=(
+        "Lo cuenta el servidor: cada aviso suma como mucho 60 s y nunca más que el tiempo real "
+        "desde el aviso anterior (varias pestañas no cuentan doble). Manda la zona horaria IANA "
+        "del navegador. Devuelve el resumen del día."
+    ),
+)
+async def post_study_time(
+    body: StudyPing,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[StudyTimeService, Depends(get_study_time_service)],
+):
+    return _resumen(await service.record(UUID(current_user_id), body.seconds, body.timezone))
+
+
+@router.get("/me/study-time", response_model=StudySummaryResponse, summary="Tiempo estudiado, objetivo y racha")
+async def get_study_time(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[StudyTimeService, Depends(get_study_time_service)],
+    tz: Optional[str] = None,
+):
+    return _resumen(await service.summary(UUID(current_user_id), tz))
+
+
+
+@router.get(
+    "/paths/{path_id}/next",
+    response_model=NextTopicsResponse,
+    summary="Cómo seguir después de una ruta",
+    description=(
+        "Hasta 3 sugerencias (ADR-034): `level_up` (el mismo tema, más arriba), `advance` "
+        "(temas del grafo que se construyen sobre este) o `related` (temas que amplían uno que "
+        "el grafo no cubre, propuestos una vez por el modelo). `needs_placement` dice si hay que "
+        "nivelarse antes. Sin temas ya completados."
+    ),
+)
+async def next_topics(
+    path_id: UUID,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[TeachingService, Depends(get_teaching_service)],
+):
+    try:
+        sugerencias = await service.next_suggestions(UUID(current_user_id), path_id)
+    except PathNotFound:
+        raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    return NextTopicsResponse(
+        suggestions=[
+            NextTopicItem(topic=s.topic, label=s.label, kind=s.kind, reason=s.reason, needs_placement=s.needs_placement)
+            for s in sugerencias
+        ]
     )

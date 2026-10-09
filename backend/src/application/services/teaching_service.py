@@ -16,13 +16,16 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from src.application.dto.quiz_dto import QuizAttemptResultDTO
+from src.application.services.curriculum_research_service import CurriculumResearchService
 from src.application.services.quiz_service import QuizService
 from src.application.services.topic_catalog import TopicCatalog
 from src.domain.aggregates.learning_path import (
+    TIERS,
     CheckOutcome,
     LearningPathAggregate,
     ModuleKind,
     TeachingPhase,
+    tier_index,
 )
 from src.domain.aggregates.quiz_aggregate import QuizAggregate
 from src.domain.aggregates.student_profile import StudentProfile
@@ -38,6 +41,7 @@ from src.domain.ports.repositories import (
 )
 from src.domain.services.cognitive_style import chosen_style
 from src.domain.services.diagnostic_planner import display_label
+from src.domain.services.quiz_quality import ensure_quiz_quality
 from src.domain.services.teaching_policy import (
     NextStep,
     TeachingPolicy,
@@ -47,8 +51,9 @@ from src.domain.services.teaching_policy import (
 
 logger = logging.getLogger("laria.teaching")
 
-#: Un temario propuesto por el modelo se acota: más subtemas no caben en una clase.
-MAX_SYLLABUS = 6
+#: Un temario propuesto por el modelo se acota, por tramo (ADR-037). Antes eran 6
+#: para toda la ruta, y la ruta no crecía: tras esas clases no había más.
+MAX_SYLLABUS = 8
 
 
 class PathNotFound(LookupError):
@@ -71,6 +76,18 @@ class LessonStep:
 
 
 @dataclass(frozen=True)
+class NextSuggestion:
+    topic: str
+    label: str
+    #: `advance`: se construye sobre lo aprendido · `level_up`: el mismo tema, más
+    #: arriba · `related`: amplía el tema (propuesto por el modelo).
+    kind: str
+    reason: str
+    #: Si hace falta nivelarse antes (no hay nivel guardado para ese tema).
+    needs_placement: bool
+
+
+@dataclass(frozen=True)
 class CheckResult:
     path: LearningPathAggregate
     outcome: CheckOutcome
@@ -89,6 +106,8 @@ class TeachingService:
         topic_catalog: TopicCatalog,
         policy: TeachingPolicy | None = None,
         attempt_repository: QuizAttemptRepository | None = None,
+        safety=None,
+        research: CurriculumResearchService | None = None,
     ) -> None:
         self._paths = path_repository
         self._profiles = profile_repository
@@ -98,6 +117,11 @@ class TeachingService:
         self._topics = topic_catalog
         self._policy = policy or TeachingPolicy()
         self._attempts = attempt_repository
+        # Filtro de temas (ADR-036). También al dar cada paso: así una ruta creada antes
+        # del filtro ("Hacer un arma") deja de generar clases.
+        self._safety = safety
+        # Temario intermedio y avanzado desde fuentes reales de internet (ADR-039).
+        self._research = research
 
     # --- Ruta -----------------------------------------------------------------------
 
@@ -108,10 +132,13 @@ class TeachingService:
         """
         if not (topic or "").strip():
             raise ValueError("Indica el tema de la ruta.")
+        await self._tema_seguro(topic)
         tema = await self._topics.canonical(topic)
         for existente in await self._paths.find_by_owner(user_id):
             if existente.topic == tema:
-                await self._sync_assessment(existente, await self._profiles.find_by_student(user_id))
+                perfil = await self._profiles.find_by_student(user_id)
+                await self._sync_assessment(existente, perfil)
+                await self._sync_tiers(existente, perfil)
                 await self._paths.save(existente)
                 return existente
 
@@ -119,10 +146,18 @@ class TeachingService:
         etiqueta = (perfil.label_for_topic(tema) if perfil else None) or display_label(topic)
         nivel = perfil.level_for_topic(tema) if perfil else None
         modulos = await self._modules_for(tema, etiqueta, nivel)
-        path = LearningPathAggregate.create_for_topic(user_id, tema, etiqueta, modulos)
+        # El primer tramo es el nivel con el que llega: quien ya es intermedio no
+        # empieza por el temario básico.
+        path = LearningPathAggregate.create_for_topic(
+            user_id, tema, etiqueta, modulos, tier=nivel if tier_index(nivel) >= 0 else TIERS[0]
+        )
         await self._sync_assessment(path, perfil)
         await self._paths.save(path)
         return path
+
+    async def _tema_seguro(self, topic: str) -> None:
+        if self._safety is not None:
+            await self._safety.ensure_safe_topic(topic)
 
     async def _modules_for(self, tema: str, etiqueta: str, nivel: str | None) -> list[dict]:
         """Del grafo curricular si cubre el tema; si no, temario del modelo, validado."""
@@ -151,12 +186,68 @@ class TeachingService:
                 }
             )
             return modulos
+        return await self._temario(tema, etiqueta, nivel) or [
+            {"concept": tema, "title": etiqueta, "prerequisites": [], "kind": ModuleKind.CONTENT.value}
+        ]
+
+    async def _temario(
+        self,
+        tema: str,
+        etiqueta: str,
+        nivel: str | None,
+        avoid: tuple[str, ...] = (),
+        existentes: frozenset[str] = frozenset(),
+    ) -> list[dict]:
+        """Módulos de un temario: investigado en internet si el nivel lo pide (ADR-039);
+        si no hay investigación o no aporta nada nuevo, el del modelo. [] si ninguno sirve."""
+        if self._research is not None:
+            investigado = await self._research.syllabus(tema, etiqueta, nivel, avoid)
+            if investigado:
+                modulos = validate_syllabus(investigado, tema, etiqueta, existentes, fallback=False)
+                if modulos:
+                    return modulos
         try:
-            temario = await self._generator.propose_syllabus(etiqueta, nivel)
-        except Exception:  # noqa: BLE001 — sin temario se enseña el tema entero
-            logger.warning("temario_fallo tema=%s", tema)
-            temario = []
-        return validate_syllabus(temario, tema, etiqueta)
+            temario = (
+                await self._generator.propose_syllabus(etiqueta, nivel, avoid=avoid)
+                if avoid
+                else await self._generator.propose_syllabus(etiqueta, nivel)
+            )
+        except Exception:  # noqa: BLE001 — quien llama decide qué hacer sin temario
+            logger.warning("temario_fallo tema=%s nivel=%s", tema, nivel)
+            return []
+        return validate_syllabus(temario, tema, etiqueta, existentes, fallback=False)
+
+    async def _sync_tiers(self, path: LearningPathAggregate, perfil: StudentProfile | None) -> None:
+        """Abre el tramo siguiente si la nivelación subió el nivel del tema (ADR-037).
+
+        Es lo que hace que la ruta crezca: superar la prueba de paso añade el temario
+        del nuevo nivel, sin repetir lo ya visto, y una ruta completada se reabre.
+        Si el modelo falla, la ruta queda como estaba y se reintenta en la próxima
+        petición.
+        """
+        if not path.topic:
+            return
+        if not path.tiers:
+            # Ruta anterior a los tramos: su temario era el básico.
+            path.start_tier(TIERS[0])
+        tramo = self._policy.tier_to_open(path, perfil)
+        if tramo is None:
+            return
+        modulos = await self._temario(
+            path.topic,
+            path.title,
+            tramo,
+            avoid=tuple(m.title for m in path.modules),
+            existentes=frozenset(m.concept for m in path.modules),
+        )
+        # Sin temario (el modelo falló o nada era nuevo) el tramo no se abre: se
+        # reintenta en la próxima petición.
+        if not path.open_tier(tramo, modulos):
+            logger.warning("tramo_vacio path=%s tramo=%s", path.id, tramo)
+            return
+        logger.info("tramo_abierto path=%s tramo=%s modulos=%d", path.id, tramo, len(modulos))
+        if path.teaching.phase == TeachingPhase.COMPLETED:
+            self._apply(path, self._policy.next_concept(path, perfil))
 
     async def _sync_assessment(self, path: LearningPathAggregate, perfil: StudentProfile | None) -> None:
         """ASSESSMENT mientras el tema no tenga nivelación; después, el primer paso."""
@@ -189,8 +280,10 @@ class TeachingService:
         explicación y la comprobación pendientes, sin generar ni cobrar otra.
         """
         path = await self.get_owned(user_id, path_id)
+        await self._tema_seguro(path.title)
         perfil = await self._profiles.find_by_student(user_id)
         await self._sync_assessment(path, perfil)
+        await self._sync_tiers(path, perfil)
         t = path.teaching
         if t.phase == TeachingPhase.ASSESSMENT:
             await self._paths.save(path)
@@ -218,17 +311,23 @@ class TeachingService:
             concept_title=modulo.title if modulo else t.concept,
             variant=t.variant,
             check_difficulties=check_difficulties(t.variant),
-            level=perfil.level_for_topic(path.topic) if (perfil and path.topic) else None,
+            # El nivel del tramo del módulo: un módulo avanzado se explica a nivel
+            # avanzado aunque lo pida alguien que aún no lo es del todo (ADR-037).
+            level=(modulo.tier if modulo and modulo.tier else None)
+            or (perfil.level_for_topic(path.topic) if (perfil and path.topic) else None),
             style=chosen_style(perfil),
             return_to_title=vuelta.title if vuelta else None,
             avoid_example=t.last_example,
             persona=persona_for(perfil.voice_choice if perfil else None),
+            session_minutes=(perfil.session_minutes or None) if perfil else None,
+            key_points=tuple(modulo.key_points) if modulo else (),
         )
         leccion = await self._generator.generate_lesson(peticion)
         quiz = QuizAggregate.create(
             None,
             user_id,
-            list(leccion.check),
+            # Barajadas: el modelo ponía la correcta casi siempre en la B.
+            ensure_quiz_quality(list(leccion.check)),
             topic=t.concept,
             topic_label=peticion.concept_title,
         )
@@ -262,6 +361,64 @@ class TeachingService:
         await self._paths.save(path)
         return CheckResult(path, resultado, intento, paso)
 
+    async def next_suggestions(self, user_id: UUID, path_id: UUID) -> list[NextSuggestion]:
+        """Cómo seguir tras una ruta (ADR-034). Hasta 3, sin temas ya completados.
+
+        Del grafo si el tema está en él (lo que se construye sobre lo aprendido);
+        si no, temas que propone el modelo, una sola vez y guardados en la ruta.
+        """
+        path = await self.get_owned(user_id, path_id)
+        perfil = await self._profiles.find_by_student(user_id)
+        hechos = {
+            p.topic for p in await self._paths.find_by_owner(user_id)
+            if p.topic and p.teaching.phase == TeachingPhase.COMPLETED
+        }
+        nivel = perfil.level_for_topic(path.topic) if (perfil and path.topic) else None
+        sugerencias: list[NextSuggestion] = []
+        if nivel != "avanzado" and path.topic:
+            # La prueba de paso abre el tramo siguiente de ESTA ruta (ADR-037).
+            siguiente = path.next_tier or ("intermedio" if nivel in (None, "basico") else "avanzado")
+            sugerencias.append(
+                NextSuggestion(
+                    path.topic, path.title, "level_up",
+                    f"Haz la prueba de paso de «{path.title}» para abrir el tramo "
+                    f"{'intermedio' if siguiente == 'intermedio' else 'avanzado'}, con clases nuevas.",
+                    True,
+                )
+            )
+        grafo = await self._topics.graph()
+        nombres = seed_display_labels()
+        siguientes = [t for t in grafo.successors_of(path.topic) if t not in hechos] if path.topic else []
+        if siguientes:
+            for t in siguientes:
+                etiqueta = display_label(nombres.get(t, t))
+                sugerencias.append(
+                    NextSuggestion(
+                        t, etiqueta, "advance",
+                        f"Se construye sobre «{path.title}», que ya dominas.",
+                        not (perfil and perfil.level_for_topic(t)),
+                    )
+                )
+        elif path.topic:
+            if not path.next_topics:
+                try:
+                    path.next_topics = await self._generator.propose_next_topics(path.title, nivel)
+                    await self._paths.save(path)
+                except Exception:  # noqa: BLE001 — sin propuesta, queda subir de nivel
+                    logger.warning("siguientes_temas_fallo path=%s", path.id)
+            for etiqueta in path.next_topics:
+                clave = await self._topics.canonical(etiqueta)
+                if clave in hechos or clave == path.topic:
+                    continue
+                sugerencias.append(
+                    NextSuggestion(
+                        clave, display_label(etiqueta), "related",
+                        f"Amplía lo que aprendiste en «{path.title}».",
+                        not (perfil and perfil.level_for_topic(clave)),
+                    )
+                )
+        return sugerencias[:3]
+
     async def projected(self, path: LearningPathAggregate, user_id: UUID) -> LearningPathAggregate:
         """La ruta con el mastery del perfil proyectado (y lo no medido como "assumed")."""
         perfil = await self._profiles.find_by_student(user_id)
@@ -273,19 +430,29 @@ class TeachingService:
         return path
 
 
-def validate_syllabus(items: list[SyllabusItem], tema: str, etiqueta: str) -> list[dict]:
+def validate_syllabus(
+    items: list[SyllabusItem],
+    tema: str,
+    etiqueta: str,
+    existentes: set[str] | frozenset[str] = frozenset(),
+    fallback: bool = True,
+) -> list[dict]:
     """Temario del modelo → módulos válidos. El backend no se fía de la forma.
 
     - Máximo `MAX_SYLLABUS` subtemas, sin repetidos.
     - Un prerrequisito solo puede ser un subtema ANTERIOR de la lista: así no
       hay ciclos posibles y el orden de enseñanza es el de la lista.
-    - Si no queda nada usable, la ruta es el tema entero.
+    - Con `existentes` (un tramo nuevo, ADR-037): se descarta lo que la ruta ya
+      tiene, y no hay respaldo: un tramo sin nada nuevo no se abre.
+    - Si no queda nada usable en una ruta nueva, la ruta es el tema entero.
     """
     modulos: list[dict] = []
     vistos: dict[str, str] = {}
-    for item in items[:MAX_SYLLABUS]:
+    for item in items:
+        if len(modulos) >= MAX_SYLLABUS:
+            break
         clave = canonicalize_concept(item.title)
-        if not clave or clave in vistos:
+        if not clave or clave in vistos or clave in existentes:
             continue
         prereqs = [vistos[k] for k in (canonicalize_concept(p) for p in item.prerequisites) if k in vistos]
         modulos.append(
@@ -295,9 +462,11 @@ def validate_syllabus(items: list[SyllabusItem], tema: str, etiqueta: str) -> li
                 "prerequisites": prereqs,
                 "kind": ModuleKind.CONTENT.value,
                 "difficulty": "medium",
+                "key_points": list(getattr(item, "key_points", ())),
+                "sources": [{"title": f.title, "url": f.url} for f in getattr(item, "sources", ())],
             }
         )
         vistos[clave] = clave
-    if not modulos:
+    if not modulos and fallback and not existentes:
         return [{"concept": tema, "title": etiqueta, "prerequisites": [], "kind": ModuleKind.CONTENT.value}]
     return modulos
