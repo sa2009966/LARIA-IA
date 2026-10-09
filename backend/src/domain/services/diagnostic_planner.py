@@ -74,6 +74,9 @@ class DiagnosticPlan:
     #: Cómo mostrárselo al estudiante. `topic` es la clave —sin tildes, para que
     #: "Electrónica" y "electronica" sean el mismo tema— y no sirve para pintar.
     label: str = ""
+    #: Prueba de paso (ADR-042): lo que estudió en el tramo de su ruta (títulos e
+    #: ideas clave). Con esto las preguntas salen de SU clase, no del tema en general.
+    studied: tuple[str, ...] = ()
 
     @property
     def total_items(self) -> int:
@@ -237,4 +240,41 @@ def plan_diagnostic(
         concepts=(tema,) + prereqs,
         rungs=rungs,
         label=display_label(topic),
+    )
+
+
+#: Módulos del tramo que entran en una prueba de paso: más no caben en 6-8 preguntas.
+MAX_PASSAGE_CONCEPTS = 8
+
+
+def plan_passage_test(
+    topic: str,
+    label: str,
+    round_: PlacementRound,
+    concepts: tuple[str, ...],
+    studied: tuple[str, ...] = (),
+) -> DiagnosticPlan:
+    """Prueba de paso de una ruta (ADR-042). Pura.
+
+    Es una ronda de nivelación del MISMO tema (así el veredicto sube el nivel y abre
+    el tramo siguiente por el camino de siempre), pero sus preguntas miden los
+    módulos que estudió en el tramo, no el tema en general. Los ítems se etiquetan
+    con esos conceptos: la evidencia llega a los módulos de la ruta.
+    """
+    tema = canonicalize_concept(topic)
+    conceptos = tuple(dict.fromkeys(c for c in (canonicalize_concept(x) for x in concepts) if c))
+    conceptos = conceptos[:MAX_PASSAGE_CONCEPTS]
+    if not tema or not conceptos:
+        raise ValueError("La prueba de paso necesita el tema y lo estudiado en la ruta.")
+    rungs = tuple(
+        DiagnosticRung(difficulty=dificultad, items=items, concepts=conceptos)
+        for dificultad, items in _REPARTO[round_]
+    )
+    return DiagnosticPlan(
+        topic=tema,
+        round=round_,
+        concepts=conceptos,
+        rungs=rungs,
+        label=label or display_label(topic),
+        studied=tuple(studied),
     )

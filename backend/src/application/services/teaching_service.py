@@ -40,7 +40,12 @@ from src.domain.ports.repositories import (
     StudentProfileRepository,
 )
 from src.domain.services.cognitive_style import chosen_style
-from src.domain.services.diagnostic_planner import display_label
+from src.domain.services.diagnostic_planner import (
+    PlacementLevel,
+    display_label,
+    plan_passage_test,
+    round_for,
+)
 from src.domain.services.quiz_quality import ensure_quiz_quality
 from src.domain.services.teaching_policy import (
     NextStep,
@@ -62,6 +67,10 @@ class PathNotFound(LookupError):
 
 class AssessmentRequired(RuntimeError):
     """El tema aún no tiene nivelación: no se enseña sin saber de dónde partir."""
+
+
+class PassageTestNotAvailable(RuntimeError):
+    """La ruta no ha terminado un tramo con otro por delante: no hay prueba de paso."""
 
 
 class NoPendingCheck(RuntimeError):
@@ -336,6 +345,32 @@ class TeachingService:
         await self._paths.save(path)
         return LessonStep(path, quiz)
 
+    async def passage_test(self, user_id: UUID, path_id: UUID):
+        """La prueba de paso de ESTA ruta (ADR-042), sin pedir tema ni crear otra ruta.
+
+        Antes el cliente mandaba a la nivelación inicial: pedía escribir el tema (se
+        podía escribir otro y nacía otra ruta) y las preguntas eran del tema en
+        general, no de lo que se estudió. Aquí se miden los módulos del tramo que
+        terminó, con la ronda que toca a su nivel; si la supera, el projector sube el
+        nivel y la próxima `/lesson` abre el tramo siguiente en esta misma ruta.
+        """
+        path = await self.get_owned(user_id, path_id)
+        if not path.topic or path.next_tier is None or path.teaching.phase != TeachingPhase.COMPLETED:
+            raise PassageTestNotAvailable(path.title)
+        await self._tema_seguro(path.title)
+        perfil = await self._profiles.find_by_student(user_id)
+        nivel = perfil.level_for_topic(path.topic) if perfil else None
+        tramo = path.current_tier
+        estudiados = [m for m in path.modules if m.tier == tramo] or list(path.modules)
+        plan = plan_passage_test(
+            path.topic,
+            path.title,
+            round_for(PlacementLevel(nivel) if nivel else None),
+            tuple(m.concept for m in estudiados),
+            tuple(_lo_estudiado(m) for m in estudiados),
+        )
+        return await self._quiz_service.generate_passage_test(plan, user_id)
+
     async def answer_check(
         self, user_id: UUID, path_id: UUID, quiz_id: UUID, answers: dict[int, str]
     ) -> CheckResult:
@@ -428,6 +463,12 @@ class TeachingService:
         medidos = {c for c in perfil.mastery_by_concept if perfil.has_decision_evidence(c)}
         path.project_mastery(perfil.effective_mastery_by_concept(), measured=medidos)
         return path
+
+
+def _lo_estudiado(m) -> str:
+    """Un módulo como contexto de la prueba de paso: título e ideas clave si las hay."""
+    ideas = "; ".join(m.key_points[:2])
+    return f"{m.title} ({ideas})" if ideas else m.title
 
 
 def validate_syllabus(

@@ -9,9 +9,11 @@ from src.application.services.study_time_service import StudyTimeService
 from src.application.services.teaching_service import (
     AssessmentRequired,
     NoPendingCheck,
+    PassageTestNotAvailable,
     PathNotFound,
     TeachingService,
 )
+from src.interfaces.schemas.quiz_schemas import QuizPublicResponse
 from src.domain.ports.ia_analyst import IAAnalysisError
 from src.domain.services.content_safety import UnsafeTopicError
 from src.interfaces.api.quiz_mappers import quiz_to_public_response
@@ -469,6 +471,42 @@ async def lesson(
         markdown=path.teaching.lesson_markdown if paso.check else "",
         check=quiz_to_public_response(paso.check) if paso.check else None,
     )
+
+
+@router.post(
+    "/paths/{path_id}/passage-test",
+    response_model=QuizPublicResponse,
+    status_code=201,
+    summary="Prueba de paso de la ruta (al terminar un tramo)",
+    description=(
+        "Genera la prueba de paso de ESTA ruta (ADR-042): preguntas sobre los módulos que "
+        "estudió en el tramo que terminó, con la ronda que toca a su nivel. No pide tema ni "
+        "crea otra ruta. Se responde con `POST /quizzes/{id}/attempts`, que devuelve "
+        "`placement`; si el nivel sube, la siguiente `POST /learning/paths/{id}/lesson` abre "
+        "el tramo siguiente. **409** si la ruta no está en un tramo terminado con otro por "
+        "delante (`teaching.phase == \"completed\"` y `next_tier` no nulo)."
+    ),
+    responses={**RESP_401_UNAUTHORIZED},
+)
+async def passage_test(
+    path_id: UUID,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[TeachingService, Depends(get_teaching_service)],
+):
+    try:
+        quiz = await service.passage_test(UUID(current_user_id), path_id)
+    except PathNotFound:
+        raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    except PassageTestNotAvailable:
+        raise HTTPException(
+            status_code=409,
+            detail="La prueba de paso se hace al terminar un tramo de la ruta.",
+        )
+    except UnsafeTopicError:
+        raise  # 422 con `reason` (ADR-036), en main.py
+    except IAAnalysisError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return quiz_to_public_response(quiz)
 
 
 @router.post(
