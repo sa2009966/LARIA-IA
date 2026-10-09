@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from src.application.services.quiz_service import QuizService
+from src.application.services.quiz_service import QuizAlreadyAnswered, QuizService
 from src.domain.ports.ia_analyst import IAAnalysisError
 from src.domain.services.content_safety import UnsafeTopicError
 from src.interfaces.api.dependencies import get_current_user_id, get_quiz_service
@@ -167,6 +167,11 @@ async def submit_attempt(
         )
     try:
         result = await service.submit_attempt(quiz_id, UUID(current_user_id), answers)
+    except QuizAlreadyAnswered:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Esta nivelación ya está respondida. Para intentarlo de nuevo, empieza otra.",
+        )
     except PermissionError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_MSG_NO_ENCONTRADO)
     except ValueError as exc:
