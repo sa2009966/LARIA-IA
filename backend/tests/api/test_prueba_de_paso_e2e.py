@@ -112,3 +112,39 @@ def test_el_plan_y_el_prompt_llevan_lo_estudiado():
     assert "PRUEBA DE PASO" in sistema and "Procesador (núcleos y frecuencia)" in sistema
     # La nivelación inicial no cambia: sin lo estudiado, no es prueba de paso.
     assert "PRUEBA DE PASO" not in TutorPolicy().generate_diagnostic(plan_diagnostic("x")).system
+
+
+def test_no_se_puede_reenviar_la_prueba_tras_ver_las_correctas(entorno):  # noqa: F811
+    """ADR-043: el intento muestra las correctas; reenviar la misma prueba perfecta
+    subía de nivel sin saber el tema. Solo cuenta el primer intento."""
+    c, _ = entorno
+    h = _auth(c)
+    _nivelarse(c, h, "python", bien=False)
+    ruta = _ruta(c, h, "python")
+    _completar(c, h, ruta["id"])
+    prueba = _prueba(c, h, ruta["id"]).json()
+    url = f"/api/v1/quizzes/{prueba['id']}/attempts"
+
+    primero = c.post(url, headers=h, json={"answers": _fallar(prueba)}).json()
+    reenvio = c.post(url, headers=h, json={"answers": _correctas(prueba)})
+
+    assert primero["placement"]["level"] == "basico"
+    assert reenvio.status_code == 409
+    perfil_ruta = c.get(f"/api/v1/learning/paths/{ruta['id']}", headers=h).json()
+    assert perfil_ruta["tiers"] == ["basico"], "el reenvío no puede abrir el tramo"
+
+
+def test_tampoco_se_reenvia_la_nivelacion_inicial(entorno):  # noqa: F811
+    c, _ = entorno
+    h = _auth(c)
+    q = c.post("/api/v1/quizzes/diagnostic", headers=h, json={"topic": "python"}).json()
+    url = f"/api/v1/quizzes/{q['id']}/attempts"
+    assert c.post(url, headers=h, json={"answers": _fallar(q)}).status_code == 200
+    assert c.post(url, headers=h, json={"answers": _correctas(q)}).status_code == 409
+
+
+def test_la_prueba_de_paso_tiene_limite_de_peticiones():
+    from src.infrastructure.rate_limit import _match_rule
+
+    regla = _match_rule("/api/v1/learning/paths/abc/passage-test", "POST")
+    assert regla is not None and regla[0] == "ia:passage" and regla[1] <= 6

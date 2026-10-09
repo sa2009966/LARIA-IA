@@ -54,6 +54,10 @@ def repeated_questions(preguntas, previas: tuple[str, ...], umbral: float = 0.75
     )
 
 
+class QuizAlreadyAnswered(RuntimeError):
+    """Una ronda de nivelación ya respondida: para otra, se pide una ronda nueva."""
+
+
 class QuizService:
     _MSG_PERMISO = "No tienes permiso para operar sobre este quiz"
     _MSG_QUIZ_NO_ENCONTRADO = "Quiz no encontrado"
@@ -310,6 +314,11 @@ class QuizService:
         answers: dict[int, str],
     ) -> QuizAttemptResultDTO:
         quiz = await self._get_quiz_if_owner(quiz_id, user_id)
+        if quiz.placement_round and await self._attempt_repo.find_by_quiz(quiz.id):
+            # Una nivelación o prueba de paso se responde UNA vez (ADR-043). La
+            # respuesta de un intento muestra las correctas: si se pudiera reenviar,
+            # bastaba con fallar, mirarlas y repetirla perfecta para subir de nivel.
+            raise QuizAlreadyAnswered(quiz.id)
         grade = quiz.grade(answers)
         attempt = QuizAttemptAggregate.create(
             quiz_id=quiz.id,
