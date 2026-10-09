@@ -113,6 +113,9 @@ def _match_rule(path: str, method: str) -> tuple[str, int, float] | None:
         return ("ia:lesson", 12, 60.0)
     if method == "POST" and path.rstrip("/") == "/api/v1/learning/paths/from-topic":
         return ("ia:lesson", 12, 60.0)
+    # La prueba de paso genera un quiz con el modelo en cada llamada (ADR-042/043).
+    if method == "POST" and path.startswith("/api/v1/learning/paths/") and path.endswith("/passage-test"):
+        return ("ia:passage", 6, 60.0)
     # Tiempo estudiado: un aviso por minuto; margen para varias pestañas.
     if method == "POST" and path.rstrip("/") == "/api/v1/learning/me/study-time":
         return ("study-time", 10, 60.0)

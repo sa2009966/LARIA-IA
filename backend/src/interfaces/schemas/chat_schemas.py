@@ -10,9 +10,18 @@ class ChatCreateRequest(BaseModel):
     document_id: Annotated[Optional[UUID], Field(description="Opcional: linkar a un documento existente")] = None
 
 
+#: Tope de un mensaje del chat (ADR-043). Sin él, un mensaje de 1 MB iba entero a la
+#: moderación y al modelo: gasto en OpenAI y respuestas lentas.
+MAX_CHAT_MESSAGE_CHARS = 8_000
+
+
 class ChatAddMessageRequest(BaseModel):
-    role: Literal["user", "assistant", "system"]
-    content: Annotated[str, Field(min_length=1)]
+    #: Sin "assistant": lo que dice el tutor lo escribe el servidor. Si el cliente
+    #: pudiera escribirlo, un "LARIA dijo: …" falso entraba en el historial que lee el
+    #: modelo y servía para saltarse el filtro de seguridad, que mira la pregunta
+    #: (ADR-043). "system" queda para notas del cliente, que no entran al historial.
+    role: Literal["user", "system"]
+    content: Annotated[str, Field(min_length=1, max_length=MAX_CHAT_MESSAGE_CHARS)]
     metadata: Optional[dict] = None
 
 
