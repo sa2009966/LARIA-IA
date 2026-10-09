@@ -708,6 +708,17 @@ class TutorPolicy:
             for r in plan.rungs
         )
         practica = plan.round is None
+        # Prueba de paso (ADR-042): las preguntas salen de lo que estudió en su ruta.
+        paso = (
+            f"Es una PRUEBA DE PASO de la ruta «{plan.label or plan.topic}»: pregunta "
+            "SOLO sobre lo que el estudiante estudió en ella, que es esto: "
+            + "; ".join(plan.studied[:16])
+            + ". Mide si lo domina lo bastante para pasar al nivel siguiente: "
+            "aplicación y comprensión de esos contenidos, no memoria literal ni temas "
+            "que no estudió. "
+            if getattr(plan, "studied", ())
+            else ""
+        )
         proposito = (
             "El objetivo es que el estudiante practique y consolide: enunciados "
             "claros, sin explicaciones ni pistas."
@@ -729,6 +740,7 @@ class TutorPolicy:
                 "ese ítem mide, escrito igual que aquí. "
                 f"{_RUBRICA_DIFICULTAD} "
                 f"{proposito} "
+                f"{paso}"
                 "Una sola opción correcta: ninguna otra puede ser equivalente o "
                 "defendible. Los distractores salen de errores típicos de quien "
                 "está aprendiendo el tema, no de opciones absurdas. "

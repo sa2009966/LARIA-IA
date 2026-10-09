@@ -199,6 +199,15 @@ class QuizService:
         plan = plan_practice(topic, graph, nivel, num_questions)
         return await self._quiz_por_tema(plan, user_id)
 
+    async def generate_passage_test(self, plan, user_id: UUID) -> QuizPublicDTO:
+        """Prueba de paso de una ruta (ADR-042): el plan ya trae lo estudiado.
+
+        Se guarda como una ronda de nivelación del tema: su veredicto sube el nivel
+        por el mismo camino (projector) y la ruta abre el tramo siguiente.
+        """
+        await self._tema_seguro(plan.topic)
+        return await self._quiz_por_tema(plan, user_id)
+
     async def _tema_seguro(self, topic: str) -> None:
         if self._safety is not None:
             await self._safety.ensure_safe_topic(topic)
