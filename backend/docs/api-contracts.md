@@ -30,7 +30,9 @@ módulo trae su `tier`, y la ruta trae `tiers` (los tramos abiertos) y `next_tie
 abre la próxima prueba de paso, o `null` en avanzado o en rutas manuales).
 
 - `teaching.phase == "completed"` **con `next_tier` no nulo no es el final**: terminó el tramo.
-  Muestra "Haz la prueba de paso", que es la nivelación del tema (`POST /quizzes/diagnostic`).
+  Muestra "Haz la prueba de paso": `POST /learning/paths/{id}/passage-test` genera la prueba de
+  ESA ruta, con preguntas sobre los módulos del tramo ([ADR-042](adr/ADR-042-prueba-de-paso-de-la-ruta.md)).
+  Se responde con `POST /quizzes/{id}/attempts`. **No** la mandes a la nivelación inicial: pide tema y crea rutas.
 - Si la prueba sube el nivel, la siguiente llamada a `POST /learning/paths/from-topic` o a
   `/paths/{id}/lesson` **abre el tramo**: módulos nuevos al final, y la clase sigue en el primero.
 - `progress` cuenta toda la ruta. Para el progreso del tramo, filtra los módulos por `tier`.
